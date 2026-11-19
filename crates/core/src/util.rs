@@ -54,6 +54,21 @@ pub fn com_init() {
     }
 }
 
+/// Opens the classic Notification Area Icons control panel, or its System Icons page.
+pub fn open_icon_page(page: crate::IconPage) {
+    use windows::Win32::UI::Shell::ShellExecuteW;
+    use windows::Win32::UI::WindowsAndMessaging::SW_SHOWNORMAL;
+    const PANEL: &str = "shell:::{05d7b0f4-2121-4eff-bf6b-ed3f69b894d9}";
+    let target = match page {
+        crate::IconPage::ShowOurs => PANEL.to_owned(),
+        crate::IconPage::HideWindows => format!("{PANEL}\\SystemIcons"),
+    };
+    let target = wide(&target);
+    unsafe {
+        ShellExecuteW(None, windows::core::w!("open"), windows::core::w!("explorer.exe"), windows::core::PCWSTR(target.as_ptr()), None, SW_SHOWNORMAL);
+    }
+}
+
 pub fn wide(s: &str) -> Vec<u16> {
     s.encode_utf16().chain(Some(0)).collect()
 }

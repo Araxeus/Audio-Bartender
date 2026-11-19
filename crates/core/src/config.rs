@@ -1,7 +1,7 @@
 use std::path::PathBuf;
 
 use windows::Win32::System::Registry::{
-    HKEY_CURRENT_USER, REG_DWORD, REG_SZ, RRF_RT_REG_DWORD, RRF_RT_REG_SZ, RegDeleteKeyValueW, RegGetValueW, RegSetKeyValueW,
+    HKEY_CURRENT_USER, REG_SZ, RRF_RT_REG_SZ, RegDeleteKeyValueW, RegGetValueW, RegSetKeyValueW,
 };
 use windows::core::{PCWSTR, w};
 
@@ -75,47 +75,6 @@ tray_style={}
             if s.tray_style == TrayStyle::Number { "number" } else { "ring" },
         );
         let _ = std::fs::write(path, text);
-    }
-}
-
-const POLICY_KEY: PCWSTR = w!("Software\\Microsoft\\Windows\\CurrentVersion\\Policies\\Explorer");
-const HIDE_VOLUME: PCWSTR = w!("HideSCAVolume");
-
-/// True when the per-user policy hides Windows' volume tray icon.
-pub fn native_volume_hidden() -> bool {
-    let mut value = 0u32;
-    let mut size = 4u32;
-    let found = unsafe {
-        RegGetValueW(
-            HKEY_CURRENT_USER,
-            POLICY_KEY,
-            HIDE_VOLUME,
-            RRF_RT_REG_DWORD,
-            None,
-            Some(&mut value as *mut u32 as _),
-            Some(&mut size),
-        )
-    };
-    found.is_ok() && value == 1
-}
-
-/// Sets the per-user policy that hides Windows' volume tray icon. Explorer applies
-/// it on its next start.
-pub fn hide_native_volume(hide: bool) {
-    unsafe {
-        if hide {
-            let one = 1u32;
-            let _ = RegSetKeyValueW(
-                HKEY_CURRENT_USER,
-                POLICY_KEY,
-                HIDE_VOLUME,
-                REG_DWORD.0,
-                Some(&one as *const u32 as _),
-                4,
-            );
-        } else {
-            let _ = RegDeleteKeyValueW(HKEY_CURRENT_USER, POLICY_KEY, HIDE_VOLUME);
-        }
     }
 }
 

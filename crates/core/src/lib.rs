@@ -167,8 +167,6 @@ pub struct Settings {
     /// Show the current track's album art in place of the app icon.
     pub album_art: bool,
     pub tray_style: TrayStyle,
-    /// Windows' own volume icon is hidden by policy, so ours can take its place.
-    pub hide_native_volume: bool,
 }
 
 impl Default for Settings {
@@ -180,7 +178,6 @@ impl Default for Settings {
             close_to_tray: true,
             album_art: false,
             tray_style: TrayStyle::Ring,
-            hide_native_volume: false,
         }
     }
 }
@@ -195,7 +192,22 @@ pub enum Setting {
     CloseToTray(bool),
     AlbumArt(bool),
     TrayStyle(TrayStyle),
-    HideNativeVolume(bool),
+}
+
+/// Windows pages for arranging tray icons. Windows lets only the user move icons,
+/// so the app opens the right page instead.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[cfg_attr(feature = "serde", derive(Deserialize), serde(rename_all = "camelCase"))]
+pub enum IconPage {
+    /// Notification Area Icons: set this app to always show on the taskbar.
+    ShowOurs,
+    /// System Icons: turn off the Windows volume icon.
+    HideWindows,
+}
+
+/// Opens a Windows page for arranging tray icons.
+pub fn open_icon_page(page: IconPage) {
+    util::open_icon_page(page);
 }
 
 #[derive(Clone, Debug, Default, PartialEq)]
