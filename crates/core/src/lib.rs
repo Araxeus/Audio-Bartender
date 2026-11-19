@@ -167,6 +167,8 @@ pub struct Settings {
     /// Show the current track's album art in place of the app icon.
     pub album_art: bool,
     pub tray_style: TrayStyle,
+    /// Windows' own volume icon is hidden by policy, so ours can take its place.
+    pub hide_native_volume: bool,
 }
 
 impl Default for Settings {
@@ -178,6 +180,7 @@ impl Default for Settings {
             close_to_tray: true,
             album_art: false,
             tray_style: TrayStyle::Ring,
+            hide_native_volume: false,
         }
     }
 }
@@ -192,6 +195,7 @@ pub enum Setting {
     CloseToTray(bool),
     AlbumArt(bool),
     TrayStyle(TrayStyle),
+    HideNativeVolume(bool),
 }
 
 #[derive(Clone, Debug, Default, PartialEq)]
@@ -262,6 +266,8 @@ pub enum Event {
     State(State),
     /// The user asked to see the main window (a second launch or the tray menu).
     Show,
+    /// The user picked Settings in the tray menu.
+    ShowSettings,
     /// The tray icon was left-clicked. Show the flyout next to it.
     Flyout(Anchor),
     /// The user picked Quit in the tray menu. The tray icon is already gone.
@@ -367,6 +373,7 @@ impl Core {
     }
 
     pub fn set_master(&self, level: f32) {
+        util::log(format!("set master {level:.2}"));
         util::com_init();
         audio::set_master(level);
     }
@@ -400,6 +407,11 @@ pub fn preview_tray_icon(level: f32, muted: bool, style: TrayStyle, light_taskba
     let mut pixels = tray_icon::bgra(&look, size)?;
     pixels.chunks_exact_mut(4).for_each(|px| px.swap(0, 2));
     Some(icon::encode_png(size as u32, size as u32, &pixels))
+}
+
+/// True when the app was launched with `--settings` and should open on its settings page.
+pub fn start_in_settings() -> bool {
+    std::env::args().any(|a| a == "--settings")
 }
 
 /// True when the app was launched by autostart and should stay in the tray.

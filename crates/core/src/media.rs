@@ -183,6 +183,7 @@ impl Worker {
                     Setting::CloseToTray(on) => s.close_to_tray = on,
                     Setting::AlbumArt(on) => s.album_art = on,
                     Setting::TrayStyle(style) => s.tray_style = style,
+                    Setting::HideNativeVolume(hide) => config::hide_native_volume(hide),
                 }
                 self.config.save();
                 self.refresh(false);
@@ -312,6 +313,7 @@ impl Worker {
         let (volume, muted) = self.watcher.as_ref().and_then(|w| w.master()).map(audio::read).unwrap_or_default();
         let mut settings = self.config.settings.clone();
         settings.autostart = config::autostart();
+        settings.hide_native_volume = config::native_volume_hidden();
 
         let state = State {
             targets,

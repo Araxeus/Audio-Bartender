@@ -20,26 +20,37 @@ use windows::Win32::UI::Shell::{
     NOTIFYICONIDENTIFIER, Shell_NotifyIconGetRect, Shell_NotifyIconW,
 };
 use windows::Win32::UI::WindowsAndMessaging::*;
-use windows::core::{BOOL, PCSTR, PCWSTR, w};
+use windows::Win32::Graphics::Gdi::InvalidateRect;
+use windows::core::{BOOL, PCSTR, PCWSTR, PWSTR, w};
 
 use crate::tray_icon::{self, Look};
 use crate::util::fill_wide;
-use crate::{Anchor, Cmd, Event, MediaKey, Rect, Setting, Shared, State, TrayStyle, audio};
+use crate::{Anchor, Cmd, Event, MediaKey, Rect, Setting, Shared, State, TrayStyle, audio, volume};
 
 const CLASS: PCWSTR = w!("MediaKeysSelector.Tray");
 const WM_TRAY: u32 = WM_APP + 1;
 const WM_SHOW: u32 = WM_APP + 2;
 const WM_REDRAW: u32 = WM_APP + 3;
 const WM_WHEEL: u32 = WM_APP + 4;
+const WM_MENU_WHEEL: u32 = WM_APP + 5;
 
 const ID_OPEN: usize = 1;
 const ID_AUTOMATIC: usize = 2;
 const ID_AUTOSTART: usize = 3;
 const ID_QUIT: usize = 4;
+const ID_SETTINGS: usize = 5;
+const ID_MASTER: usize = 6;
 const ID_TARGET: usize = 100;
+const ID_MIXER: usize = 500;
 
 /// Master volume change per wheel notch over the tray icon, like the volume keys.
 const WHEEL_STEP: f32 = 0.02;
+
+/// Volume change per wheel notch over a menu entry, matching the flyout.
+const MENU_STEP: f32 = 0.05;
+
+/// Volume id of the master volume in the menu.
+const MASTER: &str = "master";
 
 /// How long after the pointer last hovered the icon its cached position is trusted.
 const HOVER_TRUST_MS: u64 = 30_000;
@@ -47,6 +58,10 @@ const HOVER_TRUST_MS: u64 = 30_000;
 static SHARED: OnceLock<Arc<Shared>> = OnceLock::new();
 static TRAY: AtomicIsize = AtomicIsize::new(0);
 static TASKBAR_CREATED: AtomicU32 = AtomicU32::new(0);
+
+/// The open context menu, for the mouse hook. Zero when no menu is open.
+static MENU: AtomicIsize = AtomicIsize::new(0);
+static MENU_WHEEL: Mutex<Vec<WheelItem>> = Mutex::new(Vec::new());
 static ROUTING: AtomicBool = AtomicBool::new(false);
 
 /// What the tray shows. The worker writes it; the tray thread draws it.
@@ -153,10 +168,14 @@ pub fn remove_tray() {
 }
 
 fn post(msg: u32, wparam: usize) {
+    post_with(msg, wparam, 0);
+}
+
+fn post_with(msg: u32, wparam: usize, lparam: isize) {
     let hwnd = HWND(TRAY.load(Relaxed) as _);
     if !hwnd.is_invalid() {
         unsafe {
-            let _ = PostMessageW(Some(hwnd), msg, WPARAM(wparam), LPARAM(0));
+            let _ = PostMessageW(Some(hwnd), msg, WPARAM(wparam), LPARAM(lparam));
         }
     }
 }
@@ -231,11 +250,25 @@ unsafe extern "system" fn keyboard_hook(code: i32, wparam: WPARAM, lparam: LPARA
 unsafe extern "system" fn mouse_hook(code: i32, wparam: WPARAM, lparam: LPARAM) -> LRESULT {
     if code == HC_ACTION as i32 && wparam.0 as u32 == WM_MOUSEWHEEL {
         let event = unsafe { &*(lparam.0 as *const MSLLHOOKSTRUCT) };
+        let delta = (event.mouseData >> 16) as i16;
+
+        // Over a volume entry of the open context menu.
+        let menu = HMENU(MENU.load(Relaxed) as _);
+        if !menu.is_invalid() {
+            let position = unsafe { MenuItemFromPoint(None, menu, event.pt) };
+            if position >= 0 {
+                let command = unsafe { GetMenuItemID(menu, position) };
+                if MENU_WHEEL.lock().unwrap().iter().any(|w| w.command == command) {
+                    post_with(WM_MENU_WHEEL, delta as u16 as usize, command as isize);
+                    return LRESULT(1);
+                }
+            }
+        }
+
         let [l, t, r, b] = ICON_RECT.each_ref().map(|v| v.load(Relaxed));
         let (x, y) = (event.pt.x, event.pt.y);
         let fresh = now_ms().saturating_sub(LAST_HOVER_MS.load(Relaxed)) < HOVER_TRUST_MS;
         if fresh && x >= l && x < r && y >= t && y < b {
-            let delta = (event.mouseData >> 16) as i16;
             post(WM_WHEEL, delta as u16 as usize);
             return LRESULT(1);
         }
@@ -272,6 +305,7 @@ unsafe extern "system" fn wndproc(hwnd: HWND, msg: u32, wparam: WPARAM, lparam: 
                 unsafe { set_icon(hwnd, NIM_MODIFY) };
             }
         }
+        WM_MENU_WHEEL => unsafe { menu_wheel(lparam.0 as u32, wparam.0 as u16 as i16) },
         WM_SHOW => shared().emit(Event::Show),
         WM_REDRAW => unsafe { set_icon(hwnd, NIM_MODIFY) },
         WM_SETTINGCHANGE => unsafe { set_icon(hwnd, NIM_MODIFY) },
@@ -382,6 +416,18 @@ unsafe fn allow_dark_menus(hwnd: HWND) {
     }
 }
 
+/// A menu entry whose volume the wheel changes: its command id and the volume id.
+struct WheelItem {
+    command: u32,
+    id: String,
+    name: String,
+}
+
+/// Formats a menu label with the volume right-aligned in the shortcut column.
+fn volume_label(name: &str, level: f32, muted: bool) -> String {
+    if muted { format!("{name}\tMuted") } else { format!("{name}\t{}%", (level * 100.0).round()) }
+}
+
 unsafe fn show_menu(hwnd: HWND) {
     let state = shared().state();
     unsafe {
@@ -391,42 +437,71 @@ unsafe fn show_menu(hwnd: HWND) {
             let _ = AppendMenuW(menu, flags, id, PCWSTR(text.as_ptr()));
         };
         let check = |on: bool| if on { MF_CHECKED } else { MF_UNCHECKED };
+        let mut wheel = Vec::new();
 
         add(MF_STRING, ID_OPEN, "Open Media Keys Selector");
+        add(MF_STRING, ID_SETTINGS, "Settings…");
+        add(MF_SEPARATOR, 0, "");
+        let audio = &state.audio;
+        add(MF_STRING, ID_MASTER, &volume_label("Volume", audio.volume, audio.muted));
+        wheel.push(WheelItem { command: ID_MASTER as u32, id: MASTER.into(), name: "Volume".into() });
         add(MF_SEPARATOR, 0, "");
         add(MF_STRING | MF_GRAYED, 0, "Send media keys to");
         add(MF_STRING | check(state.selected.is_none()), ID_AUTOMATIC, "Automatic (Windows decides)");
         for (i, target) in state.targets.iter().enumerate() {
             let selected = state.selected.as_deref() == Some(target.id.as_str());
-            // Text after a tab sits right-aligned in the menu's shortcut column.
-            let label = match (target.running, target.volume) {
-                (false, _) => format!("{} (not running)", target.name),
-                (true, Some(_)) if target.muted => format!("{}\tMuted", target.name),
-                (true, Some(level)) => format!("{}\t{}%", target.name, (level * 100.0).round()),
-                (true, None) => target.name.clone(),
+            let label = match target.volume {
+                _ if !target.running => format!("{} (not running)", target.name),
+                Some(level) => {
+                    wheel.push(WheelItem { command: (ID_TARGET + i) as u32, id: target.id.clone(), name: target.name.clone() });
+                    volume_label(&target.name, level, target.muted)
+                }
+                None => target.name.clone(),
             };
             add(MF_STRING | check(selected), ID_TARGET + i, &label);
         }
+        if !state.mixer.is_empty() {
+            add(MF_SEPARATOR, 0, "");
+            add(MF_STRING | MF_GRAYED, 0, "Other apps (click mutes)");
+            for (i, app) in state.mixer.iter().enumerate() {
+                wheel.push(WheelItem { command: (ID_MIXER + i) as u32, id: app.id.clone(), name: app.name.clone() });
+                add(MF_STRING, ID_MIXER + i, &volume_label(&app.name, app.volume, app.muted));
+            }
+        }
         add(MF_SEPARATOR, 0, "");
+        add(MF_STRING | MF_GRAYED, 0, "Scroll over a volume to change it");
         add(MF_STRING | check(state.settings.autostart), ID_AUTOSTART, "Start with Windows");
         add(MF_STRING, ID_QUIT, "Quit");
         let _ = SetMenuDefaultItem(menu, ID_OPEN as u32, 0);
+
+        *MENU_WHEEL.lock().unwrap() = wheel;
+        MENU.store(menu.0 as isize, Relaxed);
 
         let mut at = POINT::default();
         let _ = GetCursorPos(&mut at);
         // The menu only closes on outside clicks while its owner is foreground.
         let _ = SetForegroundWindow(hwnd);
         let picked = TrackPopupMenu(menu, TPM_RETURNCMD | TPM_RIGHTBUTTON | TPM_NONOTIFY, at.x, at.y, None, hwnd, None);
+        MENU.store(0, Relaxed);
+        MENU_WHEEL.lock().unwrap().clear();
         let _ = PostMessageW(Some(hwnd), WM_NULL, WPARAM(0), LPARAM(0));
         let _ = DestroyMenu(menu);
 
         match picked.0 as usize {
             ID_OPEN => shared().emit(Event::Show),
+            ID_SETTINGS => shared().emit(Event::ShowSettings),
+            ID_MASTER => audio::toggle_master_mute(),
             ID_AUTOMATIC => shared().send(Cmd::Select(None)),
             ID_AUTOSTART => shared().send(Cmd::Set(Setting::Autostart(!state.settings.autostart))),
             ID_QUIT => {
                 remove_tray();
                 shared().emit(Event::Quit);
+            }
+            id if id >= ID_MIXER => {
+                if let Some(app) = state.mixer.get(id - ID_MIXER) {
+                    volume::toggle_mute(&app.id);
+                    shared().send(Cmd::RefreshAudio { devices: false });
+                }
             }
             id if id >= ID_TARGET => {
                 if let Some(target) = state.targets.get(id - ID_TARGET) {
@@ -434,6 +509,43 @@ unsafe fn show_menu(hwnd: HWND) {
                 }
             }
             _ => {}
+        }
+    }
+}
+
+/// Applies a wheel step to a menu entry and rewrites its label while the menu stays open.
+/// The menu's modal loop still dispatches posted messages, so this runs mid-menu.
+unsafe fn menu_wheel(command: u32, delta: i16) {
+    let item = MENU_WHEEL.lock().unwrap().iter().find(|w| w.command == command).map(|w| (w.id.clone(), w.name.clone()));
+    let Some((id, name)) = item else { return };
+    crate::util::log(format!("menu wheel {command} {delta}"));
+    let step = delta as f32 / WHEEL_DELTA as f32 * MENU_STEP;
+    let level = if id == MASTER {
+        audio::adjust_master(step)
+    } else {
+        volume::adjust(&id, |level| level + step);
+        let sessions = volume::sessions(&crate::util::processes());
+        volume::level(&sessions, &volume::exes_for(&id))
+    };
+    shared().send(Cmd::RefreshAudio { devices: false });
+    let Some((level, muted)) = level else { return };
+
+    let menu = HMENU(MENU.load(Relaxed) as _);
+    if menu.is_invalid() {
+        return;
+    }
+    let mut text = crate::util::wide(&volume_label(&name, level, muted));
+    let info = MENUITEMINFOW {
+        cbSize: size_of::<MENUITEMINFOW>() as u32,
+        fMask: MIIM_STRING,
+        dwTypeData: PWSTR(text.as_mut_ptr()),
+        ..Default::default()
+    };
+    unsafe {
+        let _ = SetMenuItemInfoW(menu, command, false, &info);
+        // Popup menus live in windows of the system class "#32768".
+        if let Ok(popup) = FindWindowW(w!("#32768"), None) {
+            let _ = InvalidateRect(Some(popup), None, true);
         }
     }
 }
