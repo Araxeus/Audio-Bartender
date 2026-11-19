@@ -154,6 +154,8 @@ main {
 }
 
 .avatar svg { width: 18px; height: 18px; fill: currentColor; }
+.avatar.app-icon img { width: 30px; height: 30px; }
+.option.offline .avatar.app-icon { filter: grayscale(1); opacity: .6; }
 
 .text { flex: 1; min-width: 0; }
 .name { font-weight: 600; }

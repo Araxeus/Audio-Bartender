@@ -10,6 +10,7 @@
 //! and shows or quits on [`Event::Show`] and [`Event::Quit`].
 
 mod config;
+mod icon;
 mod input;
 mod media;
 mod names;
@@ -41,6 +42,29 @@ pub enum Playback {
     Stopped,
 }
 
+/// An app icon as PNG bytes. Serializes as a `data:` URL.
+#[derive(Clone, PartialEq)]
+pub struct AppIcon(pub Arc<[u8]>);
+
+impl AppIcon {
+    pub fn png(&self) -> &[u8] {
+        &self.0
+    }
+}
+
+impl std::fmt::Debug for AppIcon {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "AppIcon({} bytes)", self.0.len())
+    }
+}
+
+#[cfg(feature = "serde")]
+impl Serialize for AppIcon {
+    fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        serializer.serialize_str(&format!("data:image/png;base64,{}", icon::base64(&self.0)))
+    }
+}
+
 /// One app that can receive media keys.
 #[derive(Clone, Debug, PartialEq)]
 #[cfg_attr(feature = "serde", derive(Serialize), serde(rename_all = "camelCase"))]
@@ -57,6 +81,8 @@ pub struct Target {
     pub via_window: bool,
     /// App volume from 0 to 1, when the app has an audio session.
     pub volume: Option<f32>,
+    /// The app's own icon, when its exe has one.
+    pub icon: Option<AppIcon>,
 }
 
 #[derive(Clone, Debug, Default, PartialEq)]

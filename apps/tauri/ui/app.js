@@ -133,8 +133,17 @@ function render(state) {
   ];
 
   for (const target of state.targets) {
-    const avatar = el("span", "avatar", target.name.charAt(0).toUpperCase());
-    avatar.style.background = colorFor(target.name);
+    let avatar;
+    if (target.icon) {
+      avatar = el("span", "avatar app-icon");
+      const img = el("img");
+      img.src = target.icon;
+      img.alt = "";
+      avatar.append(img);
+    } else {
+      avatar = el("span", "avatar", target.name.charAt(0).toUpperCase());
+      avatar.style.background = colorFor(target.name);
+    }
     options.push(
       option({
         id: target.id,

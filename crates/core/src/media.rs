@@ -1,3 +1,4 @@
+use std::collections::HashMap;
 use std::sync::Arc;
 use std::sync::mpsc::{Receiver, RecvTimeoutError, Sender};
 use std::time::Duration;
@@ -15,9 +16,9 @@ use windows::core::RuntimeType;
 
 use crate::config::{self, Config};
 use crate::names::Names;
-use crate::util::{Process, main_window, processes};
+use crate::util::{Process, main_window, process_path, processes};
 use crate::volume;
-use crate::{Cmd, Event, MediaKey, Playback, Shared, State, Target, input};
+use crate::{AppIcon, Cmd, Event, MediaKey, Playback, Shared, State, Target, icon, input};
 
 /// Players without SMTC support. They get keys as WM_APPCOMMAND window messages.
 const WINDOW_PLAYERS: &[&str] = &[
@@ -61,6 +62,8 @@ struct Worker {
     subscriptions: Vec<Subscription>,
     config: Config,
     names: Names,
+    /// Icons by exe name. `None` marks an exe without a usable icon.
+    icons: HashMap<String, Option<AppIcon>>,
 }
 
 impl Worker {
@@ -71,7 +74,7 @@ impl Worker {
             let _ = manager.SessionsChanged(&refresh_on(&tx, true));
             let _ = manager.CurrentSessionChanged(&refresh_on(&tx, false));
         }
-        Worker { shared, tx, manager, subscriptions: Vec::new(), config: Config::load(), names: Names::default() }
+        Worker { shared, tx, manager, subscriptions: Vec::new(), config: Config::load(), names: Names::default(), icons: HashMap::new() }
     }
 
     fn run(mut self, rx: Receiver<Cmd>) {
@@ -173,7 +176,16 @@ impl Worker {
                 continue;
             }
             let name = self.names.for_aumid(&aumid, &procs);
-            targets.push(Target { id, name, playback, track, running: true, via_window: false, volume: None });
+            targets.push(Target {
+                id,
+                name,
+                playback,
+                track,
+                running: true,
+                via_window: false,
+                volume: None,
+                icon: None,
+            });
         }
 
         for exe in WINDOW_PLAYERS {
@@ -191,6 +203,7 @@ impl Worker {
                 running: true,
                 via_window: true,
                 volume: None,
+                icon: None,
             });
         }
 
@@ -207,12 +220,15 @@ impl Worker {
                 running: false,
                 via_window: id.starts_with("exe:"),
                 volume: None,
+                icon: None,
             });
         }
 
         let sessions = volume::sessions(&procs);
         for target in targets.iter_mut().filter(|t| t.running) {
-            target.volume = volume::level(&sessions, &volume::exes_for(&target.id));
+            let exes = volume::exes_for(&target.id);
+            target.volume = volume::level(&sessions, &exes);
+            target.icon = self.icon_for(&exes, &procs);
         }
 
         targets.sort_by_key(|t| (!t.running, t.name.to_lowercase()));
@@ -224,6 +240,17 @@ impl Worker {
             custom_title_bar: self.config.custom_title_bar,
         };
         self.publish(state);
+    }
+
+    /// The icon of the first running exe in `exes`, extracted once per exe.
+    fn icon_for(&mut self, exes: &[String], procs: &[Process]) -> Option<AppIcon> {
+        let process = procs.iter().find(|p| exes.contains(&p.exe))?;
+        if let Some(icon) = self.icons.get(&process.exe) {
+            return icon.clone();
+        }
+        let icon = process_path(process.pid).and_then(|path| icon::extract(&path));
+        self.icons.insert(process.exe.clone(), icon.clone());
+        icon
     }
 
     fn publish(&self, state: State) {

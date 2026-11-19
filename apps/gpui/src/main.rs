@@ -1,6 +1,7 @@
 #![windows_subsystem = "windows"]
 
 use std::borrow::Cow;
+use std::sync::Arc;
 
 use futures::StreamExt;
 use gpui_kit::assets::IconName;
@@ -295,9 +296,18 @@ impl Render for MainView {
                 .into_any_element(),
         ];
         for target in &state.targets {
-            let initial = target.name.chars().next().unwrap_or('?').to_uppercase().to_string();
-            let avatar =
-                avatar(&theme).bg(avatar_color(&target.name)).text_color(white()).font_semibold().child(initial);
+            let avatar = match &target.icon {
+                // GPUI decodes each distinct image once and caches it by content hash.
+                Some(icon) => avatar(&theme).child(
+                    img(Arc::new(Image::from_bytes(ImageFormat::Png, icon.png().to_vec())))
+                        .size(px(30.))
+                        .when(!target.running, |i| i.grayscale(true).opacity(0.6)),
+                ),
+                None => {
+                    let initial = target.name.chars().next().unwrap_or('?').to_uppercase().to_string();
+                    avatar(&theme).bg(avatar_color(&target.name)).text_color(white()).font_semibold().child(initial)
+                }
+            };
             let checked = state.selected.as_deref() == Some(target.id.as_str());
             let detail = Self::detail(target, cx);
             options.push(
