@@ -16,7 +16,8 @@ use windows::Win32::UI::Input::KeyboardAndMouse::{
     VIRTUAL_KEY, VK_MEDIA_NEXT_TRACK, VK_MEDIA_PLAY_PAUSE, VK_MEDIA_PREV_TRACK, VK_MEDIA_STOP,
 };
 use windows::Win32::UI::Shell::{
-    NIF_ICON, NIF_MESSAGE, NIF_TIP, NIM_ADD, NIM_DELETE, NIM_MODIFY, NOTIFY_ICON_MESSAGE, NOTIFYICONDATAW,
+    NIF_ICON, NIF_MESSAGE, NIF_TIP, NIN_POPUPCLOSE, NIN_POPUPOPEN, NIM_ADD, NIM_DELETE, NIM_MODIFY, NIM_SETVERSION,
+    NOTIFYICON_VERSION_4, NOTIFY_ICON_MESSAGE, NOTIFYICONDATAW,
     NOTIFYICONIDENTIFIER, Shell_NotifyIconGetRect, Shell_NotifyIconW,
 };
 use windows::Win32::UI::WindowsAndMessaging::*;
@@ -24,6 +25,7 @@ use windows::Win32::Graphics::Gdi::InvalidateRect;
 use windows::core::{BOOL, PCSTR, PCWSTR, PWSTR, w};
 
 use crate::tray_icon::{self, Look};
+use crate::tooltip;
 use crate::util::fill_wide;
 use crate::{Anchor, Cmd, Event, MediaKey, Rect, Setting, Shared, State, TrayStyle, audio, volume};
 
@@ -33,6 +35,9 @@ const WM_SHOW: u32 = WM_APP + 2;
 const WM_REDRAW: u32 = WM_APP + 3;
 const WM_WHEEL: u32 = WM_APP + 4;
 const WM_MENU_WHEEL: u32 = WM_APP + 5;
+
+/// Polls the pointer while our tooltip outlives the shell's hover.
+const TIMER_TOOLTIP: usize = 1;
 
 const ID_OPEN: usize = 1;
 const ID_AUTOMATIC: usize = 2;
@@ -65,13 +70,30 @@ static MENU_WHEEL: Mutex<Vec<WheelItem>> = Mutex::new(Vec::new());
 static ROUTING: AtomicBool = AtomicBool::new(false);
 
 /// What the tray shows. The worker writes it; the tray thread draws it.
-static TRAY_STATE: Mutex<TrayState> = Mutex::new(TrayState { level: 0.0, muted: false, style: TrayStyle::Ring, tip: String::new() });
+static TRAY_STATE: Mutex<TrayState> = Mutex::new(TrayState {
+    level: 0.0,
+    muted: false,
+    style: TrayStyle::Ring,
+    device: String::new(),
+    keys: String::new(),
+});
 
 struct TrayState {
     level: f32,
     muted: bool,
     style: TrayStyle,
-    tip: String,
+    /// " · Speakers", or empty without a device.
+    device: String,
+    /// "Media keys → Spotify".
+    keys: String,
+}
+
+impl TrayState {
+    /// Built on every redraw, so a wheel step shows its new volume right away.
+    fn tip(&self) -> String {
+        let volume = if self.muted { "Muted".to_owned() } else { format!("Volume {}%", (self.level * 100.0).round()) };
+        format!("{volume}{}\n{}", self.device, self.keys)
+    }
 }
 
 /// The icon's screen rectangle as last reported by the shell, for the mouse hook.
@@ -144,15 +166,13 @@ pub fn update_tray(state: &State) {
     ROUTING.store(routed.is_some(), Relaxed);
 
     let audio = &state.audio;
-    let volume = if audio.muted { "Muted".to_owned() } else { format!("Volume {}%", (audio.volume * 100.0).round()) };
-    let device = audio.device().map(|d| format!(" · {}", d.name)).unwrap_or_default();
-    let keys = routed.map(|name| format!("Media keys → {name}")).unwrap_or_else(|| "Media keys → Automatic".into());
     {
         let mut tray = TRAY_STATE.lock().unwrap();
         tray.level = audio.volume;
         tray.muted = audio.muted;
         tray.style = state.settings.tray_style;
-        tray.tip = format!("{volume}{device}\n{keys}");
+        tray.device = audio.device().map(|d| format!(" · {}", d.name)).unwrap_or_default();
+        tray.keys = routed.map(|name| format!("Media keys → {name}")).unwrap_or_else(|| "Media keys → Automatic".into());
     }
     post(WM_REDRAW, 0);
 }
@@ -206,6 +226,7 @@ fn run_tray() {
             return;
         };
         TRAY.store(hwnd.0 as isize, Relaxed);
+        tooltip::create(hwnd);
         allow_dark_menus(hwnd);
         set_icon(hwnd, NIM_ADD);
     }
@@ -278,9 +299,26 @@ unsafe extern "system" fn mouse_hook(code: i32, wparam: WPARAM, lparam: LPARAM) 
 
 unsafe extern "system" fn wndproc(hwnd: HWND, msg: u32, wparam: WPARAM, lparam: LPARAM) -> LRESULT {
     match msg {
-        WM_TRAY => match lparam.0 as u32 {
+        // Version 4 callbacks carry the event in the low word.
+        WM_TRAY => match lparam.0 as u32 & 0xFFFF {
             WM_MOUSEMOVE => remember_icon_rect(hwnd, false),
+            NIN_POPUPOPEN => {
+                let tip = TRAY_STATE.lock().unwrap().tip();
+                tooltip::show(&tip, icon_rect(hwnd).unwrap_or_else(|| cursor_rect()));
+            }
+            // Redrawing the icon also makes the shell close the tooltip, so while the
+            // pointer stays on the icon, keep it and watch for the pointer to leave.
+            NIN_POPUPCLOSE => {
+                if tooltip::pointer_on_icon() {
+                    unsafe {
+                        SetTimer(Some(hwnd), TIMER_TOOLTIP, 150, None);
+                    }
+                } else {
+                    tooltip::hide();
+                }
+            }
             WM_LBUTTONUP => {
+                tooltip::hide();
                 if let Some(anchor) = anchor(hwnd) {
                     shared().emit(Event::Flyout(anchor));
                 }
@@ -288,7 +326,10 @@ unsafe extern "system" fn wndproc(hwnd: HWND, msg: u32, wparam: WPARAM, lparam: 
             WM_MBUTTONUP => {
                 audio::toggle_master_mute();
             }
-            WM_RBUTTONUP | WM_CONTEXTMENU => unsafe { show_menu(hwnd) },
+            WM_CONTEXTMENU => {
+                tooltip::hide();
+                unsafe { show_menu(hwnd) }
+            }
             _ => {}
         },
         WM_WHEEL => {
@@ -306,6 +347,14 @@ unsafe extern "system" fn wndproc(hwnd: HWND, msg: u32, wparam: WPARAM, lparam: 
             }
         }
         WM_MENU_WHEEL => unsafe { menu_wheel(lparam.0 as u32, wparam.0 as u16 as i16) },
+        WM_TIMER if wparam.0 == TIMER_TOOLTIP => {
+            if !tooltip::visible() || !tooltip::pointer_on_icon() {
+                tooltip::hide();
+                unsafe {
+                    let _ = KillTimer(Some(hwnd), TIMER_TOOLTIP);
+                }
+            }
+        }
         WM_SHOW => shared().emit(Event::Show),
         WM_REDRAW => unsafe { set_icon(hwnd, NIM_MODIFY) },
         WM_SETTINGCHANGE => unsafe { set_icon(hwnd, NIM_MODIFY) },
@@ -334,22 +383,27 @@ fn remember_icon_rect(hwnd: HWND, force: bool) {
     if !force && now.saturating_sub(last) < 500 {
         return;
     }
-    let r = icon_rect(hwnd).unwrap_or_default();
-    for (slot, value) in ICON_RECT.iter().zip([r.left, r.top, r.right, r.bottom]) {
-        slot.store(value, Relaxed);
+    // Keep the last good position when the shell's answer doesn't match the pointer.
+    if let Some(r) = icon_rect(hwnd) {
+        for (slot, value) in ICON_RECT.iter().zip([r.left, r.top, r.right, r.bottom]) {
+            slot.store(value, Relaxed);
+        }
     }
+}
+
+/// A 1-pixel rectangle at the pointer.
+fn cursor_rect() -> RECT {
+    let mut at = POINT::default();
+    unsafe {
+        let _ = GetCursorPos(&mut at);
+    }
+    RECT { left: at.x, top: at.y, right: at.x + 1, bottom: at.y + 1 }
 }
 
 fn anchor(hwnd: HWND) -> Option<Anchor> {
     remember_icon_rect(hwnd, true);
     // In the overflow area, anchor on the pointer instead.
-    let icon = icon_rect(hwnd).unwrap_or_else(|| {
-        let mut at = POINT::default();
-        unsafe {
-            let _ = GetCursorPos(&mut at);
-        }
-        RECT { left: at.x, top: at.y, right: at.x + 1, bottom: at.y + 1 }
-    });
+    let icon = icon_rect(hwnd).unwrap_or_else(cursor_rect);
     unsafe {
         let monitor = MonitorFromRect(&icon, MONITOR_DEFAULTTONEAREST);
         let mut info = MONITORINFO { cbSize: size_of::<MONITORINFO>() as u32, ..Default::default() };
@@ -368,7 +422,7 @@ unsafe fn set_icon(hwnd: HWND, action: NOTIFY_ICON_MESSAGE) {
         let tray = TRAY_STATE.lock().unwrap();
         let look =
             Look { level: tray.level, muted: tray.muted, style: tray.style, light_taskbar: tray_icon::light_taskbar() };
-        (look, tray.tip.clone())
+        (look, tray.tip())
     };
     let size = unsafe { GetSystemMetrics(SM_CXSMICON) };
     let Some(icon) = tray_icon::render(&look, size) else { return };
@@ -376,14 +430,22 @@ unsafe fn set_icon(hwnd: HWND, action: NOTIFY_ICON_MESSAGE) {
     let mut data = NOTIFYICONDATAW {
         cbSize: size_of::<NOTIFYICONDATAW>() as u32,
         hWnd: hwnd,
+        // Without NIF_SHOWTIP the shell leaves the tooltip to us (see `tooltip`). The
+        // text still goes to the shell for accessibility.
         uFlags: NIF_ICON | NIF_MESSAGE | NIF_TIP,
         uCallbackMessage: WM_TRAY,
         hIcon: icon,
         ..Default::default()
     };
     fill_wide(&mut data.szTip, if tip.is_empty() { "Media Keys Selector" } else { &tip });
+    tooltip::update(&tip);
     unsafe {
         let _ = Shell_NotifyIconW(action, &data);
+        if action == NIM_ADD {
+            // Version 4 sends the hover events that drive our own tooltip.
+            data.Anonymous.uVersion = NOTIFYICON_VERSION_4;
+            let _ = Shell_NotifyIconW(NIM_SETVERSION, &data);
+        }
         // The shell keeps its own copy, so the previous icon can go.
         let old = CURRENT.swap(icon.0 as isize, Relaxed);
         if old != 0 {

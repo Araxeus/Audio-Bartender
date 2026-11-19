@@ -20,7 +20,8 @@ pub fn log(line: impl AsRef<str>) {
     }
     let path = std::env::temp_dir().join("mediakeys.log");
     if let Ok(mut file) = std::fs::OpenOptions::new().create(true).append(true).open(path) {
-        let _ = writeln!(file, "{}", line.as_ref());
+        let ms = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_millis() % 100_000).unwrap_or(0);
+        let _ = writeln!(file, "{ms:>5} pid {} {}", std::process::id(), line.as_ref());
     }
 }
 
