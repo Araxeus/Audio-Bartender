@@ -1,182 +1,227 @@
-const { invoke } = window.__TAURI__.core;
-const { listen } = window.__TAURI__.event;
+import {
+  MASTER,
+  Volumes,
+  avatar,
+  button,
+  detailText,
+  el,
+  follow,
+  icon,
+  invoke,
+  isDark,
+  logo,
+  setting,
+  status,
+} from "./common.js";
 
-const list = document.getElementById("list");
-const status = document.getElementById("status");
-const statusText = document.getElementById("status-text");
-const autostart = document.getElementById("autostart");
-const themeButton = document.getElementById("theme");
-const titleBarButton = document.getElementById("titlebar-toggle");
 const appWindow = window.__TAURI__.window.getCurrentWindow();
-const systemDark = window.matchMedia("(prefers-color-scheme: dark)");
+const $ = (id) => document.getElementById(id);
 
-const AUTO_ICON = '<svg viewBox="0 0 24 24"><path d="M12 2l2.4 6.6L21 11l-6.6 2.4L12 20l-2.4-6.6L3 11l6.6-2.4z"/></svg>';
-const SPEAKER = '<svg viewBox="0 0 24 24"><path d="M4 9h4l5-4v14l-5-4H4z"/><path d="M16 8.5a5 5 0 0 1 0 7" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>';
-const MUTED = '<svg viewBox="0 0 24 24"><path d="M4 9h4l5-4v14l-5-4H4z"/><path d="M16 9l5 6M21 9l-5 6" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>';
-const PALETTE = ["#6d5ef5", "#0ea5e9", "#f97316", "#10b981", "#ec4899", "#eab308", "#ef4444", "#14b8a6"];
+let page = "targets";
+let first = true;
+const volumes = new Volumes(() => {});
 
-/** Volume change per wheel notch. */
-const STEP = 0.05;
+function radio(checked) {
+  return el("span", "radio" + (checked ? " checked" : ""));
+}
 
-let current = null;
-
-function el(tag, className, text) {
-  const node = document.createElement(tag);
-  if (className) node.className = className;
-  if (text !== undefined) node.textContent = text;
+function card(id, checked, offline) {
+  const node = el("div", "option" + (offline ? " offline" : ""));
+  node.setAttribute("role", "radio");
+  node.setAttribute("aria-checked", String(checked));
+  node.tabIndex = 0;
+  if (id !== undefined) node.addEventListener("click", () => invoke("select", { id }));
   return node;
 }
 
-function colorFor(name) {
-  let hash = 0;
-  for (const c of name) hash = (hash * 31 + c.charCodeAt(0)) | 0;
-  return PALETTE[Math.abs(hash) % PALETTE.length];
-}
-
-function isDark() {
-  return current?.dark ?? systemDark.matches;
-}
-
-function applyTheme() {
-  document.documentElement.dataset.theme = isDark() ? "dark" : "light";
-}
-
-function detail(target) {
-  const line = el("div", "detail");
-  if (!target.running) {
-    line.textContent = "Not running · keys go to Windows until it starts";
-    return line;
-  }
-  if (target.playback === "playing") {
-    const playing = el("span", "playing");
-    const bars = el("span", "bars");
-    bars.append(el("i"), el("i"), el("i"));
-    playing.append(bars, "Playing");
-    line.append(playing);
-  } else if (target.playback === "paused") {
-    line.append("Paused");
-  } else if (target.playback === "stopped") {
-    line.append("Stopped");
-  } else {
-    line.append(target.viaWindow ? "Window messages" : "Idle");
-  }
-  if (target.track) line.append(" · " + target.track);
-  return line;
-}
-
-function volumeNodes(button, target) {
-  const pill = el("span", "volume");
-  pill.innerHTML = target.volume === 0 ? MUTED : SPEAKER;
-  pill.append(Math.round(target.volume * 100) + "%");
-
-  const bar = el("span", "volume-bar");
-  bar.style.width = target.volume * 100 + "%";
-
-  button.title = "Scroll to change volume";
-  button.addEventListener(
-    "wheel",
-    (event) => {
-      event.preventDefault();
-      // One mouse notch is about 100 px; touchpads send smaller steps.
-      invoke("adjust_volume", { id: target.id, delta: (-event.deltaY / 100) * STEP });
-    },
-    { passive: false },
+function automatic(state) {
+  const checked = state.selected === null;
+  const node = card(null, checked);
+  node.append(
+    el(
+      "div",
+      "option-row",
+      logo(),
+      el("div", "text", el("div", "name", "Automatic"), el("div", "detail", "Windows picks the most recent player")),
+      radio(checked),
+    ),
   );
-  return [pill, bar];
+  return node;
 }
 
-function option({ id, name, avatar, detailNode, checked, offline, target }) {
-  const button = el("button", "option" + (offline ? " offline" : ""));
-  button.setAttribute("role", "radio");
-  button.setAttribute("aria-checked", String(checked));
-  button.addEventListener("click", () => invoke("select", { id }));
-
-  const text = el("div", "text");
-  text.append(el("div", "name", name), detailNode);
-  button.append(avatar, text);
-  if (target?.volume != null) {
-    const [pill, bar] = volumeNodes(button, target);
-    button.append(pill, el("span", "radio"), bar);
+function target(state, t) {
+  const checked = state.selected === t.id;
+  const node = card(t.id, checked, !t.running);
+  const { text, playing } = detailText(t);
+  const detail = el("div", "detail");
+  if (playing) {
+    const bars = el("span", "bars", el("i"), el("i"), el("i"));
+    detail.append(el("span", "playing", bars, "Playing"), text.slice("Playing".length));
   } else {
-    button.append(el("span", "radio"));
+    detail.textContent = text;
   }
-  return button;
+  node.append(
+    el(
+      "div",
+      "option-row",
+      avatar(t.icon, t.name, t.running),
+      el("div", "text", el("div", "name", t.name), detail),
+      t.volume != null ? volumes.pill(t.id, t.volume, t.muted) : null,
+      radio(checked),
+    ),
+  );
+  if (t.volume != null) {
+    volumes.wheel(node, t.id);
+    if (volumes.expanded === t.id) node.append(volumes.sliderRow(t.id, t.volume, t.muted));
+  }
+  return node;
+}
+
+function mixerApp(app) {
+  const node = el("div", "option mixer");
+  node.append(
+    el(
+      "div",
+      "option-row",
+      avatar(app.icon, app.name),
+      el("div", "text", el("div", "name small", app.name)),
+      volumes.pill(app.id, app.volume, app.muted),
+    ),
+  );
+  volumes.wheel(node, app.id);
+  if (volumes.expanded === app.id) node.append(volumes.sliderRow(app.id, app.volume, app.muted));
+  return node;
+}
+
+function targetsPage(state) {
+  const items = [automatic(state), ...state.targets.map((t) => target(state, t))];
+  if (state.targets.length === 0) {
+    items.push(el("div", "hint", "No media apps found. Start playing something and it shows up here."));
+  }
+  if (state.mixer.length > 0) {
+    items.push(el("div", "section-label", "Other apps"), ...state.mixer.map(mixerApp));
+  }
+  items.push(el("div", "hint", "Scroll over an app to change its volume"));
+  return items;
+}
+
+function toggle(on, onChange) {
+  const label = el("label", "switch");
+  const input = el("input");
+  input.type = "checkbox";
+  input.checked = on;
+  input.addEventListener("change", () => onChange(input.checked));
+  label.append(input, el("span", "track", el("span", "thumb")));
+  return label;
+}
+
+function choices(options) {
+  return el(
+    "div",
+    "segmented",
+    ...options.map(([label, selected, action]) => button(selected ? "selected" : "", null, label, action)),
+  );
+}
+
+function settingsPage(state) {
+  const s = state.settings;
+  const row = (title, detail, control) =>
+    el("div", "setting", el("div", "text", el("div", "name small", title), el("div", "detail", detail)), control);
+  return [
+    el(
+      "div",
+      "settings",
+      row("Start with Windows", "Launch in the tray when you sign in", toggle(s.autostart, (on) => setting("autostart", on))),
+      row(
+        "Close button hides to tray",
+        "Off: closing the window quits the app",
+        toggle(s.closeToTray, (on) => setting("closeToTray", on)),
+      ),
+      row(
+        "In-app title bar",
+        "Draw the title bar in the app's theme",
+        toggle(s.customTitleBar, (on) => setting("customTitleBar", on)),
+      ),
+      row(
+        "Album art as app icon",
+        "Show the playing track's cover instead",
+        toggle(s.albumArt, (on) => setting("albumArt", on)),
+      ),
+      row(
+        "Theme",
+        "Follow Windows or pick one",
+        choices([
+          ["System", s.dark === null, () => setting("dark", null)],
+          ["Light", s.dark === false, () => setting("dark", false)],
+          ["Dark", s.dark === true, () => setting("dark", true)],
+        ]),
+      ),
+      row(
+        "Tray icon",
+        "How the tray shows the volume",
+        choices([
+          ["Ring", s.trayStyle === "ring", () => setting("trayStyle", "ring")],
+          ["Number", s.trayStyle === "number", () => setting("trayStyle", "number")],
+        ]),
+      ),
+    ),
+  ];
 }
 
 function render(state) {
-  current = state;
-  applyTheme();
-  document.documentElement.dataset.titlebar = state.customTitleBar ? "custom" : "native";
-  titleBarButton.setAttribute("aria-pressed", String(state.customTitleBar));
+  document.documentElement.dataset.titlebar = state.settings.customTitleBar ? "custom" : "native";
 
-  const routed = state.targets.find((t) => t.id === state.selected && t.running);
-  status.classList.toggle("routed", Boolean(routed));
-  statusText.textContent = routed
-    ? `Captured · sending to ${routed.name}`
-    : state.selected
-      ? "Waiting for the chosen app · Windows decides meanwhile"
-      : "Windows decides";
-  autostart.checked = state.autostart;
+  const { routed, text } = status(state);
+  $("status").classList.toggle("routed", routed);
+  $("status-text").textContent = text;
 
-  const autoAvatar = el("span", "avatar");
-  autoAvatar.style.background = "linear-gradient(135deg, #6366f1, #a855f7)";
-  autoAvatar.innerHTML = AUTO_ICON;
+  const setPage = (next) => {
+    page = next;
+    render(state);
+  };
+  $("heading").replaceChildren(
+    page === "settings"
+      ? el(
+          "div",
+          "heading-row",
+          button("icon ghost", "Back", icon("back"), () => setPage("targets")),
+          el("h1", "", "Settings"),
+        )
+      : el("h1", "", "Media keys go to"),
+  );
+  const dark = isDark();
+  const gear = button("icon ghost" + (page === "settings" ? " active" : ""), "Settings", icon("settings"), () =>
+    setPage(page === "settings" ? "targets" : "settings"),
+  );
+  $("tools").replaceChildren(
+    button("icon ghost", "Toggle dark mode", icon(dark ? "sun" : "moon"), () => setting("dark", !dark)),
+    gear,
+  );
 
-  const options = [
-    option({
-      id: null,
-      name: "Automatic",
-      avatar: autoAvatar,
-      detailNode: el("div", "detail", "Windows picks the most recent player"),
-      checked: state.selected === null,
-    }),
-  ];
+  $("body").replaceChildren(...(page === "settings" ? settingsPage(state) : targetsPage(state)));
 
-  for (const target of state.targets) {
-    let avatar;
-    if (target.icon) {
-      avatar = el("span", "avatar app-icon");
-      const img = el("img");
-      img.src = target.icon;
-      img.alt = "";
-      avatar.append(img);
-    } else {
-      avatar = el("span", "avatar", target.name.charAt(0).toUpperCase());
-      avatar.style.background = colorFor(target.name);
-    }
-    options.push(
-      option({
-        id: target.id,
-        name: target.name,
-        avatar,
-        detailNode: detail(target),
-        checked: state.selected === target.id,
-        offline: !target.running,
-        target,
-      }),
-    );
+  const device = state.audio.devices.find((d) => d.default);
+  $("master").replaceChildren(
+    el("div", "device-label", icon("speaker"), el("span", "", device?.name ?? "No output device")),
+    volumes.sliderRow(MASTER, state.audio.volume, state.audio.muted),
+  );
+  $("footer-row").replaceChildren(
+    el(
+      "div",
+      "transport",
+      button("icon", "Previous track", icon("prev"), () => invoke("press", { key: "previous" })),
+      button("icon primary", "Play / pause", icon("play"), () => invoke("press", { key: "playPause" })),
+      button("icon", "Next track", icon("next"), () => invoke("press", { key: "next" })),
+    ),
+    button("ghost text-button", "Quit", [icon("power"), "Quit"], () => invoke("quit")),
+  );
+
+  if (first) {
+    first = false;
+    invoke("ready");
   }
-
-  if (state.targets.length === 0) {
-    options.push(el("div", "empty", "No media apps found. Start playing something and it shows up here."));
-  } else if (state.targets.some((t) => t.volume != null)) {
-    options.push(el("div", "hint", "Scroll over an app to change its volume"));
-  }
-  list.replaceChildren(...options);
 }
 
-for (const button of document.querySelectorAll("[data-key]")) {
-  button.addEventListener("click", () => invoke("press", { key: button.dataset.key }));
-}
-autostart.addEventListener("change", () => invoke("set_autostart", { on: autostart.checked }));
-themeButton.addEventListener("click", () => invoke("set_dark", { dark: !isDark() }));
-systemDark.addEventListener("change", applyTheme);
-titleBarButton.addEventListener("click", () => invoke("set_custom_title_bar", { on: !current.customTitleBar }));
-document.getElementById("minimize").addEventListener("click", () => appWindow.minimize());
-document.getElementById("close").addEventListener("click", () => appWindow.close());
-
-listen("state", (event) => render(event.payload));
-invoke("state").then((state) => {
-  render(state);
-  invoke("ready");
-});
+$("minimize").addEventListener("click", () => appWindow.minimize());
+$("close").addEventListener("click", () => appWindow.close());
+follow(volumes, render);

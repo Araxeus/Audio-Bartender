@@ -1,0 +1,248 @@
+// Shared by the main window and the tray flyout.
+
+export const { invoke } = window.__TAURI__.core;
+const { listen } = window.__TAURI__.event;
+
+/** Volume change per wheel notch. */
+const WHEEL_STEP = 0.05;
+
+/** Slider id of the master volume. */
+export const MASTER = "master";
+
+const PALETTE = ["#6d5ef5", "#0ea5e9", "#f97316", "#10b981", "#ec4899", "#eab308", "#ef4444", "#14b8a6"];
+
+// Lucide-style stroke icons, drawn on a 24-unit grid.
+const SPEAKER_BODY =
+  '<path d="M11 4.7a.7.7 0 0 0-1.2-.5L6.4 7.6A1.4 1.4 0 0 1 5.4 8H3a1 1 0 0 0-1 1v6a1 1 0 0 0 1 1h2.4a1.4 1.4 0 0 1 1 .4l3.4 3.4a.7.7 0 0 0 1.2-.5z"/>';
+const STROKES = {
+  volume: SPEAKER_BODY,
+  volume1: SPEAKER_BODY + '<path d="M16 9a5 5 0 0 1 0 6"/>',
+  volume2: SPEAKER_BODY + '<path d="M16 9a5 5 0 0 1 0 6"/><path d="M19.4 5.6a9 9 0 0 1 0 12.8"/>',
+  mute: SPEAKER_BODY + '<path d="M22 9l-6 6M16 9l6 6"/>',
+  check: '<path d="M20 6 9 17l-5-5"/>',
+  chevronDown: '<path d="m6 9 6 6 6-6"/>',
+  chevronUp: '<path d="m18 15-6-6-6 6"/>',
+  settings: '<path d="M20 7h-9M14 17H5"/><circle cx="17" cy="17" r="3"/><circle cx="7" cy="7" r="3"/>',
+  power: '<path d="M12 2v10"/><path d="M18.4 6.6a9 9 0 1 1-12.77.04"/>',
+  back: '<path d="m12 19-7-7 7-7"/><path d="M19 12H5"/>',
+  window: '<rect x="2" y="4" width="20" height="16" rx="2"/><path d="M2 8h20M6 4v4M10 4v4"/>',
+  moon: '<path d="M12 3a6 6 0 0 0 9 9 9 9 0 1 1-9-9Z"/>',
+  sun: '<circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M6.3 17.7l-1.4 1.4M19.1 4.9l-1.4 1.4"/>',
+  speaker: '<rect width="16" height="20" x="4" y="2" rx="2"/><circle cx="12" cy="14" r="4"/><path d="M12 6h.01"/>',
+  prev: '<path d="M19 20 9 12l10-8zM5 19V5"/>',
+  next: '<path d="m5 4 10 8-10 8zM19 5v14"/>',
+  play: '<path d="M6 3l14 9-14 9z"/>',
+};
+const SPARKLES = '<path fill="currentColor" d="M12 2l2.4 6.6L21 11l-6.6 2.4L12 20l-2.4-6.6L3 11l6.6-2.4z"/>';
+
+export function icon(name) {
+  const span = document.createElement("span");
+  span.className = "icon-glyph";
+  span.innerHTML =
+    name === "sparkles"
+      ? `<svg viewBox="0 0 24 24">${SPARKLES}</svg>`
+      : `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">${STROKES[name]}</svg>`;
+  return span;
+}
+
+export function el(tag, className, ...children) {
+  const node = document.createElement(tag);
+  if (className) node.className = className;
+  node.append(...children.filter((c) => c != null));
+  return node;
+}
+
+/** A button that runs `action` without also triggering the row it sits in. */
+export function button(className, title, content, action) {
+  const node = el("button", className, ...[content].flat());
+  if (title) {
+    node.title = title;
+    node.setAttribute("aria-label", title);
+  }
+  node.addEventListener("click", (event) => {
+    event.stopPropagation();
+    action(event);
+  });
+  return node;
+}
+
+function colorFor(name) {
+  let hash = 0;
+  for (const c of name) hash = (hash * 31 + c.charCodeAt(0)) | 0;
+  return PALETTE[Math.abs(hash) % PALETTE.length];
+}
+
+/** The app's icon (or album art), else its first letter on a colored square. */
+export function avatar(image, name, running = true) {
+  const box = el("span", "avatar" + (running ? "" : " offline"));
+  if (image) {
+    const img = el("img", image.startsWith("data:image/png") ? "app-icon" : "art");
+    img.src = image;
+    img.alt = "";
+    box.append(img);
+  } else {
+    box.textContent = name.charAt(0).toUpperCase();
+    box.style.background = colorFor(name);
+  }
+  return box;
+}
+
+export function logo(className = "avatar") {
+  const box = el("span", className + " logo", icon("sparkles"));
+  return box;
+}
+
+function volumeIcon(level, muted) {
+  if (muted || level === 0) return "mute";
+  if (level < 0.34) return "volume";
+  if (level < 0.67) return "volume1";
+  return "volume2";
+}
+
+let current = null;
+const systemDark = window.matchMedia("(prefers-color-scheme: dark)");
+
+export function isDark() {
+  return current?.settings.dark ?? systemDark.matches;
+}
+
+function applyTheme() {
+  document.documentElement.dataset.theme = isDark() ? "dark" : "light";
+}
+
+/**
+ * Volume pills, sliders and wheel handling for one page, plus which app row
+ * has its slider revealed. `rerender` redraws the page.
+ */
+export class Volumes {
+  constructor(rerender) {
+    this.rerender = rerender;
+    this.expanded = null;
+    this.dragging = false;
+  }
+
+  setVolume(id, level) {
+    if (id === MASTER) invoke("set_master", { level });
+    else invoke("set_volume", { id, level });
+  }
+
+  toggleMute(id) {
+    if (id === MASTER) invoke("toggle_master_mute");
+    else invoke("toggle_mute", { id });
+  }
+
+  /** Scrolling over `node` changes `id`'s volume and reveals its slider. */
+  wheel(node, id) {
+    node.addEventListener(
+      "wheel",
+      (event) => {
+        event.preventDefault();
+        event.stopPropagation();
+        // One mouse notch is about 100 px; touchpads send smaller steps.
+        const delta = (-event.deltaY / 100) * WHEEL_STEP;
+        if (id === MASTER) {
+          invoke("adjust_master", { delta });
+        } else {
+          invoke("adjust_volume", { id, delta });
+          if (this.expanded !== id) {
+            this.expanded = id;
+            this.rerender();
+          }
+        }
+      },
+      { passive: false },
+    );
+  }
+
+  /** The "80%" pill on an app row. Clicking it reveals or hides the slider. */
+  pill(id, level, muted) {
+    const open = this.expanded === id;
+    return button(
+      "pill" + (open ? " open" : ""),
+      "Volume",
+      [icon(volumeIcon(level, muted)), muted ? "Muted" : `${Math.round(level * 100)}%`],
+      () => {
+        this.expanded = open ? null : id;
+        this.rerender();
+      },
+    );
+  }
+
+  /** Mute button, slider and value, for the master volume or a revealed app row. */
+  sliderRow(id, level, muted) {
+    const row = el("div", "slider-row");
+    const mute = button("mute" + (muted ? " muted" : ""), muted ? "Unmute" : "Mute", icon(volumeIcon(level, muted)), () =>
+      this.toggleMute(id),
+    );
+
+    const range = el("input", "range");
+    range.type = "range";
+    range.min = "0";
+    range.max = "100";
+    range.value = String(Math.round(level * 100));
+    range.style.setProperty("--fill", `${range.value}%`);
+    const value = el("span", "value", range.value);
+
+    range.addEventListener("click", (event) => event.stopPropagation());
+    range.addEventListener("pointerdown", () => (this.dragging = true));
+    range.addEventListener("input", () => {
+      range.style.setProperty("--fill", `${range.value}%`);
+      value.textContent = range.value;
+      this.setVolume(id, Number(range.value) / 100);
+    });
+    const release = () => {
+      if (!this.dragging) return;
+      this.dragging = false;
+      this.rerender();
+    };
+    range.addEventListener("pointerup", release);
+    range.addEventListener("change", release);
+
+    row.append(mute, range, value);
+    this.wheel(row, id);
+    return row;
+  }
+}
+
+/** Calls `render(state)` now and on every change, holding renders while a slider drags. */
+export function follow(volumes, render) {
+  const draw = () => {
+    applyTheme();
+    if (!volumes.dragging) render(current);
+  };
+  volumes.rerender = draw;
+  systemDark.addEventListener("change", draw);
+  listen("state", (event) => {
+    current = event.payload;
+    draw();
+  });
+  return invoke("state").then((state) => {
+    current = state;
+    draw();
+  });
+}
+
+export function setting(name, value) {
+  invoke("set_setting", { setting: { [name]: value } });
+}
+
+/** Status line text and whether keys are captured. */
+export function status(state) {
+  const routed = state.targets.find((t) => t.id === state.selected && t.running);
+  const text = routed
+    ? `Captured · sending to ${routed.name}`
+    : state.selected
+      ? "Waiting for the chosen app · Windows decides meanwhile"
+      : "Windows decides";
+  return { routed: Boolean(routed), text };
+}
+
+/** "Playing · Title — Artist" and friends. */
+export function detailText(target) {
+  if (!target.running) return { text: "Not running · keys go to Windows until it starts", playing: false };
+  const playing = target.playback === "playing";
+  const label =
+    { playing: "Playing", paused: "Paused", stopped: "Stopped" }[target.playback] ??
+    (target.viaWindow ? "Window messages" : "Idle");
+  return { text: target.track ? `${label} · ${target.track}` : label, playing };
+}
