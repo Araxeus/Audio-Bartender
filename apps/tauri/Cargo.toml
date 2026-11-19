@@ -1,0 +1,16 @@
+[package]
+name = "mediakeys-tauri"
+version.workspace = true
+edition.workspace = true
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+mediakeys-core = { workspace = true, features = ["serde"] }
+tauri = { version = "2", features = [] }
+serde = "1"
+
+[features]
+default = ["custom-protocol"]
+custom-protocol = ["tauri/custom-protocol"]

@@ -1,0 +1,66 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Media Keys Selector</title>
+  <link rel="stylesheet" href="style.css">
+  <script src="app.js" defer></script>
+</head>
+<body>
+  <div class="titlebar" id="titlebar" data-tauri-drag-region>
+    <svg class="logo" viewBox="0 0 16 16" data-tauri-drag-region>
+      <defs><linearGradient id="lg" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#6366f1"/><stop offset="1" stop-color="#a855f7"/></linearGradient></defs>
+      <rect width="16" height="16" rx="3.5" fill="url(#lg)"/>
+      <path d="M3.6 4.2 9.2 8l-5.6 3.8zM10 4.2h1.5v7.6H10zM12.4 4.2h1.5v7.6h-1.5z" fill="#fff"/>
+    </svg>
+    <span class="title" data-tauri-drag-region>Media Keys Selector</span>
+    <button class="caption" id="minimize" title="Minimize" aria-label="Minimize">
+      <svg viewBox="0 0 10 10"><path d="M0 5h10" stroke="currentColor"/></svg>
+    </button>
+    <button class="caption close" id="close" title="Close to tray" aria-label="Close">
+      <svg viewBox="0 0 10 10"><path d="M0 0l10 10M10 0 0 10" stroke="currentColor"/></svg>
+    </button>
+  </div>
+
+  <header>
+    <div>
+      <div class="status" id="status">
+        <span class="dot"></span>
+        <span id="status-text">Starting…</span>
+      </div>
+      <h1>Media keys go to</h1>
+    </div>
+    <div class="tools">
+    <button class="icon ghost" id="titlebar-toggle" title="Toggle in-app title bar" aria-label="Toggle in-app title bar">
+      <svg viewBox="0 0 24 24"><path d="M4 4h16a1 1 0 0 1 1 1v14a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V5a1 1 0 0 1 1-1zm1 5v9h14V9z"/></svg>
+    </button>
+    <button class="icon ghost" id="theme" title="Toggle dark mode" aria-label="Toggle dark mode">
+      <svg class="moon" viewBox="0 0 24 24"><path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8z"/></svg>
+      <svg class="sun" viewBox="0 0 24 24"><circle cx="12" cy="12" r="4.5"/><path d="M12 1.5v3M12 19.5v3M1.5 12h3M19.5 12h3M4.6 4.6l2.1 2.1M17.3 17.3l2.1 2.1M4.6 19.4l2.1-2.1M17.3 6.7l2.1-2.1" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
+    </button>
+    </div>
+  </header>
+
+  <main id="list" role="radiogroup" aria-label="Media key target"></main>
+
+  <footer>
+    <div class="transport" role="group" aria-label="Test the media keys">
+      <button class="icon" data-key="previous" title="Previous track" aria-label="Previous track">
+        <svg viewBox="0 0 24 24"><path d="M6 5h2v14H6zM20 5v14L9.5 12z"/></svg>
+      </button>
+      <button class="icon primary" data-key="playPause" title="Play / pause" aria-label="Play or pause">
+        <svg viewBox="0 0 24 24"><path d="M3 5v14l9-7zM14 5h3v14h-3zM19 5h3v14h-3z"/></svg>
+      </button>
+      <button class="icon" data-key="next" title="Next track" aria-label="Next track">
+        <svg viewBox="0 0 24 24"><path d="M16 5h2v14h-2zM4 5v14l10.5-7z"/></svg>
+      </button>
+    </div>
+    <label class="switch">
+      <input type="checkbox" id="autostart">
+      <span class="track"><span class="thumb"></span></span>
+      Start with Windows
+    </label>
+  </footer>
+</body>
+</html>
