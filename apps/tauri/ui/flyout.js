@@ -23,7 +23,7 @@ function deviceHeader(state) {
   return button(
     "device-header",
     "Choose output device",
-    [icon("speaker"), el("span", "device-name", device?.name ?? "No output device"), icon(devicesOpen ? "chevronUp" : "chevronDown")],
+    [icon("speaker"), el("span", "device-name", device?.name ?? "No output device"), icon(devicesOpen ? "chevronDown" : "chevronUp")],
     () => {
       devicesOpen = !devicesOpen;
       volumes.rerender();
@@ -96,7 +96,7 @@ function render(state) {
       ];
   $("middle").replaceChildren(...middle);
 
-  $("footer").replaceChildren(
+  $("controls").replaceChildren(
     el(
       "div",
       "transport",

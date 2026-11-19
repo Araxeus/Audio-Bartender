@@ -335,8 +335,8 @@ body.flyout {
   background: var(--bg);
 }
 
-.flyout-top { padding: 8px 8px 12px; border-bottom: 1px solid var(--border); background: var(--card); }
-.flyout-top .slider-row { padding: 2px 8px 0; }
+.flyout-volume { padding: 8px 8px 12px; border-top: 1px solid var(--border); background: var(--card); }
+.flyout-volume .slider-row { padding: 2px 8px 0; }
 
 .device-header {
   display: flex;
@@ -386,13 +386,13 @@ body.flyout {
 .fly-row > .slider-row { padding: 0 8px 8px; }
 .fly-row-main { display: flex; align-items: center; gap: 12px; padding: 8px; }
 
-.flyout-footer {
+.flyout-controls {
   display: flex;
   align-items: center;
   justify-content: space-between;
   padding: 8px 12px;
-  border-top: 1px solid var(--border);
+  border-bottom: 1px solid var(--border);
   background: var(--footer);
 }
 
-.flyout-footer .transport { gap: 4px; }
+.flyout-controls .transport { gap: 4px; }

@@ -14,17 +14,16 @@ use crate::ui::{self, Volumes};
 
 pub const WIDTH: f32 = 360.;
 
-/// Room for one revealed slider, so revealing doesn't need a resize.
-const SLIDER_ROOM: f32 = 40.;
 const MAX_HEIGHT: f32 = 640.;
 
-/// Height that fits the current content.
+/// Height that fits the current content. A revealed slider scrolls the app list,
+/// so the volume section stays against the taskbar.
 pub fn height(state: &State) -> f32 {
-    let header = 104.;
-    let targets = 30. + 48. * (1 + state.targets.len()) as f32;
-    let mixer = if state.mixer.is_empty() { 0. } else { 30. + 40. * state.mixer.len() as f32 };
-    let footer = 56.;
-    (header + targets + mixer + footer + SLIDER_ROOM + 12.).min(MAX_HEIGHT)
+    let controls = 45.;
+    let targets = 34. + 58. * (1 + state.targets.len()) as f32;
+    let mixer = if state.mixer.is_empty() { 0. } else { 34. + 35. * state.mixer.len() as f32 };
+    let volume = 92.;
+    (controls + targets + mixer + volume + 12.).min(MAX_HEIGHT)
 }
 
 pub struct Flyout {
@@ -70,7 +69,7 @@ impl Flyout {
             .hover(|s| s.bg(theme.secondary_hover))
             .child(Icon::new(IconName::Speaker).small())
             .child(div().flex_1().min_w_0().truncate().text_sm().child(name))
-            .child(Icon::new(if open { IconName::ChevronUp } else { IconName::ChevronDown }).small())
+            .child(Icon::new(if open { IconName::ChevronDown } else { IconName::ChevronUp }).small())
             .on_click(cx.listener(|this, _, _, cx| {
                 this.devices_open = !this.devices_open;
                 cx.notify();
@@ -260,24 +259,11 @@ impl Render for Flyout {
             .border_1()
             .border_color(theme.border)
             .child(
-                v_flex()
-                    .gap_1()
-                    .px_2()
-                    .pt_2()
-                    .pb_3()
-                    .bg(theme.background)
-                    .border_b_1()
-                    .border_color(theme.border)
-                    .child(device_header)
-                    .child(div().px_2().child(master)),
-            )
-            .child(div().id("middle").flex_1().overflow_y_scroll().pb_2().children(middle))
-            .child(
                 h_flex()
                     .justify_between()
                     .px_3()
                     .py_2()
-                    .border_t_1()
+                    .border_b_1()
                     .border_color(theme.border)
                     .when(dark, |d| d.bg(hex(DARK_FOOTER)))
                     .child(
@@ -313,6 +299,20 @@ impl Render for Flyout {
                                     }),
                             ),
                     ),
+            )
+            .child(div().id("middle").flex_1().overflow_y_scroll().pb_2().children(middle))
+            // Volume sits at the bottom, next to the tray icon the user just clicked.
+            .child(
+                v_flex()
+                    .gap_1()
+                    .px_2()
+                    .pt_2()
+                    .pb_3()
+                    .bg(theme.background)
+                    .border_t_1()
+                    .border_color(theme.border)
+                    .child(device_header)
+                    .child(div().px_2().child(master)),
             )
     }
 }
