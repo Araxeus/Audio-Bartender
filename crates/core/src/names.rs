@@ -37,6 +37,10 @@ impl Names {
 
     /// Friendly name for a running exe, e.g. `vlc.exe` -> "VLC media player".
     pub fn for_exe(&mut self, exe: &str, procs: &[Process]) -> String {
+        // Toolhelp's name for PID 0, which owns the system sounds session.
+        if exe == "[system process]" {
+            return "System sounds".to_owned();
+        }
         if let Some(name) = self.cache.get(exe) {
             return name.clone();
         }

@@ -4,13 +4,13 @@
 use std::collections::HashMap;
 
 use windows::Win32::Media::Audio::{
-    AudioSessionStateExpired, DEVICE_STATE_ACTIVE, IAudioSessionControl2, IAudioSessionManager2,
-    IMMDeviceEnumerator, ISimpleAudioVolume, MMDeviceEnumerator, eRender,
+    AudioSessionStateExpired, DEVICE_STATE_ACTIVE, IAudioSessionControl2, IAudioSessionManager2, ISimpleAudioVolume,
+    eRender,
 };
-use windows::Win32::System::Com::{CLSCTX_ALL, CoCreateInstance};
+use windows::Win32::System::Com::CLSCTX_ALL;
 use windows::core::Interface;
 
-use crate::util::Process;
+use crate::util::{Process, processes};
 
 pub struct Session {
     /// Lowercased exe name of the process that owns the session.
@@ -19,13 +19,23 @@ pub struct Session {
 }
 
 impl Session {
-    pub fn get(&self) -> f32 {
+    pub fn level(&self) -> f32 {
         unsafe { self.volume.GetMasterVolume() }.unwrap_or(0.0)
     }
 
-    pub fn set(&self, level: f32) {
+    pub fn muted(&self) -> bool {
+        unsafe { self.volume.GetMute() }.map(|m| m.as_bool()).unwrap_or(false)
+    }
+
+    fn set(&self, level: f32) {
         unsafe {
             let _ = self.volume.SetMasterVolume(level.clamp(0.0, 1.0), std::ptr::null());
+        }
+    }
+
+    fn set_mute(&self, mute: bool) {
+        unsafe {
+            let _ = self.volume.SetMute(mute, std::ptr::null());
         }
     }
 }
@@ -33,11 +43,10 @@ impl Session {
 /// Live audio sessions on every active output device.
 pub fn sessions(procs: &[Process]) -> Vec<Session> {
     let exe_of: HashMap<u32, &str> = procs.iter().map(|p| (p.pid, p.exe.as_str())).collect();
+    let own = std::process::id();
     let mut out = Vec::new();
+    let Some(enumerator) = crate::audio::enumerator() else { return out };
     unsafe {
-        let Ok(enumerator) = CoCreateInstance::<_, IMMDeviceEnumerator>(&MMDeviceEnumerator, None, CLSCTX_ALL) else {
-            return out;
-        };
         let Ok(devices) = enumerator.EnumAudioEndpoints(eRender, DEVICE_STATE_ACTIVE) else { return out };
         for d in 0..devices.GetCount().unwrap_or(0) {
             let Ok(device) = devices.Item(d) else { continue };
@@ -49,7 +58,11 @@ pub fn sessions(procs: &[Process]) -> Vec<Session> {
                     continue;
                 }
                 let Ok(control2) = control.cast::<IAudioSessionControl2>() else { continue };
-                let Some(exe) = control2.GetProcessId().ok().and_then(|pid| exe_of.get(&pid)) else { continue };
+                let Ok(pid) = control2.GetProcessId() else { continue };
+                if pid == own {
+                    continue;
+                }
+                let Some(exe) = exe_of.get(&pid) else { continue };
                 let Ok(volume) = control.cast::<ISimpleAudioVolume>() else { continue };
                 out.push(Session { exe: (*exe).to_owned(), volume });
             }
@@ -84,17 +97,34 @@ pub fn exes_for(id: &str) -> Vec<String> {
     vec![format!("{}.exe", app.to_lowercase())]
 }
 
-/// The target's volume, from its first audio session.
-pub fn level(sessions: &[Session], exes: &[String]) -> Option<f32> {
-    let level = sessions.iter().find(|s| exes.contains(&s.exe))?.get();
-    Some((level * 100.0).round() / 100.0)
+/// Volume and mute of the first matching session.
+pub fn level(sessions: &[Session], exes: &[String]) -> Option<(f32, bool)> {
+    let session = sessions.iter().find(|s| exes.contains(&s.exe))?;
+    Some(((session.level() * 100.0).round() / 100.0, session.muted()))
 }
 
-/// Moves every session of the target to the first session's level plus `delta`.
-pub fn adjust(sessions: &[Session], exes: &[String], delta: f32) {
-    let mut matching = sessions.iter().filter(|s| exes.contains(&s.exe));
-    let Some(first) = matching.next() else { return };
-    let level = (first.get() + delta).clamp(0.0, 1.0);
-    first.set(level);
-    matching.for_each(|s| s.set(level));
+/// Moves every session of `id` to `change(first session's level)`.
+/// Raising the volume also unmutes, like the Volume Mixer.
+pub fn adjust(id: &str, change: impl Fn(f32) -> f32) {
+    let exes = exes_for(id);
+    let sessions = sessions(&processes());
+    let mut matching = sessions.iter().filter(|s| exes.contains(&s.exe)).peekable();
+    let Some(first) = matching.peek() else { return };
+    let before = first.level();
+    let level = (change(before) * 100.0).round().clamp(0.0, 100.0) / 100.0;
+    for session in matching {
+        session.set(level);
+        if level > before {
+            session.set_mute(false);
+        }
+    }
+}
+
+pub fn toggle_mute(id: &str) {
+    let exes = exes_for(id);
+    let sessions = sessions(&processes());
+    let matching: Vec<&Session> = sessions.iter().filter(|s| exes.contains(&s.exe)).collect();
+    let Some(first) = matching.first() else { return };
+    let mute = !first.muted();
+    matching.iter().for_each(|s| s.set_mute(mute));
 }

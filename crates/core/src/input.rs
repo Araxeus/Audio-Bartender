@@ -1,31 +1,36 @@
 //! Two threads with their own message loops:
-//! - the hook thread runs the low-level keyboard hook and nothing else, because Windows
-//!   silently removes a hook whose thread is too slow to answer,
+//! - the hook thread runs the low-level keyboard and mouse hooks and nothing else,
+//!   because Windows silently removes a hook whose thread is too slow to answer,
 //! - the tray thread owns the hidden window, the tray icon and its menu.
 
-use std::sync::atomic::{AtomicBool, AtomicIsize, AtomicU32, Ordering::Relaxed};
+use std::sync::atomic::{AtomicBool, AtomicI32, AtomicIsize, AtomicU32, AtomicU64, Ordering::Relaxed};
 use std::sync::{Arc, Mutex, OnceLock};
+use std::time::{SystemTime, UNIX_EPOCH};
 
-use windows::Win32::Foundation::{
-    ERROR_ALREADY_EXISTS, GetLastError, HMODULE, HWND, LPARAM, LRESULT, POINT, WPARAM,
-};
-use windows::Win32::System::LibraryLoader::{
-    EnumResourceNamesW, GetModuleHandleW, GetProcAddress, LoadLibraryW,
-};
+use windows::Win32::Foundation::{ERROR_ALREADY_EXISTS, GetLastError, HWND, LPARAM, LRESULT, POINT, RECT, WPARAM};
+use windows::Win32::Graphics::Gdi::{GetMonitorInfoW, MONITOR_DEFAULTTONEAREST, MONITORINFO, MonitorFromRect};
+use windows::Win32::System::LibraryLoader::{GetModuleHandleW, GetProcAddress, LoadLibraryW};
 use windows::Win32::System::Threading::CreateMutexW;
+use windows::Win32::UI::HiDpi::{GetDpiForMonitor, MDT_EFFECTIVE_DPI};
+use windows::Win32::UI::Input::KeyboardAndMouse::{
+    VIRTUAL_KEY, VK_MEDIA_NEXT_TRACK, VK_MEDIA_PLAY_PAUSE, VK_MEDIA_PREV_TRACK, VK_MEDIA_STOP,
+};
 use windows::Win32::UI::Shell::{
-    NIF_ICON, NIF_MESSAGE, NIF_TIP, NIM_ADD, NIM_DELETE, NIM_MODIFY, NOTIFYICONDATAW, Shell_NotifyIconW,
+    NIF_ICON, NIF_MESSAGE, NIF_TIP, NIM_ADD, NIM_DELETE, NIM_MODIFY, NOTIFY_ICON_MESSAGE, NOTIFYICONDATAW,
+    NOTIFYICONIDENTIFIER, Shell_NotifyIconGetRect, Shell_NotifyIconW,
 };
 use windows::Win32::UI::WindowsAndMessaging::*;
 use windows::core::{BOOL, PCSTR, PCWSTR, w};
 
+use crate::tray_icon::{self, Look};
 use crate::util::fill_wide;
-use crate::{Cmd, Event, MediaKey, Shared};
+use crate::{Anchor, Cmd, Event, MediaKey, Rect, Setting, Shared, State, TrayStyle, audio};
 
 const CLASS: PCWSTR = w!("MediaKeysSelector.Tray");
 const WM_TRAY: u32 = WM_APP + 1;
 const WM_SHOW: u32 = WM_APP + 2;
-const WM_TOOLTIP: u32 = WM_APP + 3;
+const WM_REDRAW: u32 = WM_APP + 3;
+const WM_WHEEL: u32 = WM_APP + 4;
 
 const ID_OPEN: usize = 1;
 const ID_AUTOMATIC: usize = 2;
@@ -33,11 +38,30 @@ const ID_AUTOSTART: usize = 3;
 const ID_QUIT: usize = 4;
 const ID_TARGET: usize = 100;
 
+/// Master volume change per wheel notch over the tray icon, like the volume keys.
+const WHEEL_STEP: f32 = 0.02;
+
+/// How long after the pointer last hovered the icon its cached position is trusted.
+const HOVER_TRUST_MS: u64 = 30_000;
+
 static SHARED: OnceLock<Arc<Shared>> = OnceLock::new();
 static TRAY: AtomicIsize = AtomicIsize::new(0);
 static TASKBAR_CREATED: AtomicU32 = AtomicU32::new(0);
 static ROUTING: AtomicBool = AtomicBool::new(false);
-static TOOLTIP: Mutex<String> = Mutex::new(String::new());
+
+/// What the tray shows. The worker writes it; the tray thread draws it.
+static TRAY_STATE: Mutex<TrayState> = Mutex::new(TrayState { level: 0.0, muted: false, style: TrayStyle::Ring, tip: String::new() });
+
+struct TrayState {
+    level: f32,
+    muted: bool,
+    style: TrayStyle,
+    tip: String,
+}
+
+/// The icon's screen rectangle as last reported by the shell, for the mouse hook.
+static ICON_RECT: [AtomicI32; 4] = [AtomicI32::new(0), AtomicI32::new(0), AtomicI32::new(0), AtomicI32::new(0)];
+static LAST_HOVER_MS: AtomicU64 = AtomicU64::new(0);
 
 /// Bit per media key that is currently held, to ignore auto-repeat.
 static HELD: AtomicU32 = AtomicU32::new(0);
@@ -71,6 +95,14 @@ pub fn spawn(shared: Arc<Shared>) {
     std::thread::Builder::new().name("mediakeys-tray".into()).spawn(run_tray).expect("spawn tray thread");
 }
 
+fn shared() -> &'static Shared {
+    SHARED.get().expect("core started")
+}
+
+fn now_ms() -> u64 {
+    SystemTime::now().duration_since(UNIX_EPOCH).map(|d| d.as_millis() as u64).unwrap_or(0)
+}
+
 fn pump_messages() {
     let mut msg = MSG::default();
     unsafe {
@@ -84,25 +116,30 @@ fn pump_messages() {
 fn run_hook() {
     unsafe {
         let instance = GetModuleHandleW(None).unwrap_or_default();
-        let hook = SetWindowsHookExW(WH_KEYBOARD_LL, Some(keyboard_hook), Some(instance.into()), 0);
-        crate::util::log(format!("hook installed: {}", hook.is_ok()));
+        let keyboard = SetWindowsHookExW(WH_KEYBOARD_LL, Some(keyboard_hook), Some(instance.into()), 0);
+        let mouse = SetWindowsHookExW(WH_MOUSE_LL, Some(mouse_hook), Some(instance.into()), 0);
+        crate::util::log(format!("hooks installed: keyboard {} mouse {}", keyboard.is_ok(), mouse.is_ok()));
     }
     pump_messages();
 }
 
-fn shared() -> &'static Shared {
-    SHARED.get().expect("core started")
-}
+/// Called by the worker after each state change: updates key capture, icon and tooltip.
+pub fn update_tray(state: &State) {
+    let routed = state.routed().map(|t| t.name.clone());
+    ROUTING.store(routed.is_some(), Relaxed);
 
-/// Turns key capture on or off and updates the tray tooltip. Called by the media worker.
-pub fn set_routing(target: Option<String>) {
-    crate::util::log(format!("routing -> {target:?}"));
-    ROUTING.store(target.is_some(), Relaxed);
-    *TOOLTIP.lock().unwrap() = match target {
-        Some(name) => format!("Media keys → {name}"),
-        None => "Media keys → Automatic".to_owned(),
-    };
-    post(WM_TOOLTIP);
+    let audio = &state.audio;
+    let volume = if audio.muted { "Muted".to_owned() } else { format!("Volume {}%", (audio.volume * 100.0).round()) };
+    let device = audio.device().map(|d| format!(" · {}", d.name)).unwrap_or_default();
+    let keys = routed.map(|name| format!("Media keys → {name}")).unwrap_or_else(|| "Media keys → Automatic".into());
+    {
+        let mut tray = TRAY_STATE.lock().unwrap();
+        tray.level = audio.volume;
+        tray.muted = audio.muted;
+        tray.style = state.settings.tray_style;
+        tray.tip = format!("{volume}{device}\n{keys}");
+    }
+    post(WM_REDRAW, 0);
 }
 
 pub fn remove_tray() {
@@ -115,19 +152,21 @@ pub fn remove_tray() {
     }
 }
 
-fn post(msg: u32) {
+fn post(msg: u32, wparam: usize) {
     let hwnd = HWND(TRAY.load(Relaxed) as _);
     if !hwnd.is_invalid() {
         unsafe {
-            let _ = PostMessageW(Some(hwnd), msg, WPARAM(0), LPARAM(0));
+            let _ = PostMessageW(Some(hwnd), msg, WPARAM(wparam), LPARAM(0));
         }
     }
 }
 
 fn run_tray() {
+    crate::util::com_init();
     unsafe {
         let instance = GetModuleHandleW(None).unwrap_or_default();
-        let class = WNDCLASSW { lpfnWndProc: Some(wndproc), hInstance: instance.into(), lpszClassName: CLASS, ..Default::default() };
+        let class =
+            WNDCLASSW { lpfnWndProc: Some(wndproc), hInstance: instance.into(), lpszClassName: CLASS, ..Default::default() };
         RegisterClassW(&class);
         TASKBAR_CREATED.store(RegisterWindowMessageW(w!("TaskbarCreated")), Relaxed);
 
@@ -149,7 +188,7 @@ fn run_tray() {
         };
         TRAY.store(hwnd.0 as isize, Relaxed);
         allow_dark_menus(hwnd);
-        tray_icon(hwnd, NIM_ADD);
+        set_icon(hwnd, NIM_ADD);
     }
     pump_messages();
 }
@@ -163,10 +202,6 @@ fn media_key(vk: u32) -> Option<(MediaKey, u32)> {
         _ => None,
     }
 }
-
-use windows::Win32::UI::Input::KeyboardAndMouse::{
-    VIRTUAL_KEY, VK_MEDIA_NEXT_TRACK, VK_MEDIA_PLAY_PAUSE, VK_MEDIA_PREV_TRACK, VK_MEDIA_STOP,
-};
 
 /// Swallows media keys while a target is routed and hands them to the media worker.
 /// Windows drops hooks that block, so this only flips bits and sends on a channel.
@@ -191,63 +226,139 @@ unsafe extern "system" fn keyboard_hook(code: i32, wparam: WPARAM, lparam: LPARA
     unsafe { CallNextHookEx(None, code, wparam, lparam) }
 }
 
+/// Turns the wheel over the tray icon into master volume. The shell never forwards
+/// wheel events to tray icons, so this is the only way to get them.
+unsafe extern "system" fn mouse_hook(code: i32, wparam: WPARAM, lparam: LPARAM) -> LRESULT {
+    if code == HC_ACTION as i32 && wparam.0 as u32 == WM_MOUSEWHEEL {
+        let event = unsafe { &*(lparam.0 as *const MSLLHOOKSTRUCT) };
+        let [l, t, r, b] = ICON_RECT.each_ref().map(|v| v.load(Relaxed));
+        let (x, y) = (event.pt.x, event.pt.y);
+        let fresh = now_ms().saturating_sub(LAST_HOVER_MS.load(Relaxed)) < HOVER_TRUST_MS;
+        if fresh && x >= l && x < r && y >= t && y < b {
+            let delta = (event.mouseData >> 16) as i16;
+            post(WM_WHEEL, delta as u16 as usize);
+            return LRESULT(1);
+        }
+    }
+    unsafe { CallNextHookEx(None, code, wparam, lparam) }
+}
+
 unsafe extern "system" fn wndproc(hwnd: HWND, msg: u32, wparam: WPARAM, lparam: LPARAM) -> LRESULT {
     match msg {
         WM_TRAY => match lparam.0 as u32 {
-            WM_LBUTTONUP => shared().emit(Event::Show),
+            WM_MOUSEMOVE => remember_icon_rect(hwnd, false),
+            WM_LBUTTONUP => {
+                if let Some(anchor) = anchor(hwnd) {
+                    shared().emit(Event::Flyout(anchor));
+                }
+            }
+            WM_MBUTTONUP => {
+                audio::toggle_master_mute();
+            }
             WM_RBUTTONUP | WM_CONTEXTMENU => unsafe { show_menu(hwnd) },
             _ => {}
         },
+        WM_WHEEL => {
+            let notches = wparam.0 as u16 as i16 as f32 / WHEEL_DELTA as f32;
+            let result = audio::adjust_master(notches * WHEEL_STEP);
+            crate::util::log(format!("tray wheel {notches:+} -> {result:?}"));
+            if let Some((level, muted)) = result {
+                // Redraw now rather than waiting for the worker's round trip.
+                {
+                    let mut tray = TRAY_STATE.lock().unwrap();
+                    tray.level = level;
+                    tray.muted = muted;
+                }
+                unsafe { set_icon(hwnd, NIM_MODIFY) };
+            }
+        }
         WM_SHOW => shared().emit(Event::Show),
-        WM_TOOLTIP => unsafe { tray_icon(hwnd, NIM_MODIFY) },
-        _ if msg == TASKBAR_CREATED.load(Relaxed) => unsafe { tray_icon(hwnd, NIM_ADD) },
+        WM_REDRAW => unsafe { set_icon(hwnd, NIM_MODIFY) },
+        WM_SETTINGCHANGE => unsafe { set_icon(hwnd, NIM_MODIFY) },
+        _ if msg == TASKBAR_CREATED.load(Relaxed) => unsafe { set_icon(hwnd, NIM_ADD) },
         _ => return unsafe { DefWindowProcW(hwnd, msg, wparam, lparam) },
     }
     LRESULT(0)
 }
 
-unsafe fn tray_icon(hwnd: HWND, action: windows::Win32::UI::Shell::NOTIFY_ICON_MESSAGE) {
+/// The icon's rectangle, if the pointer is on it. For an icon hidden in the overflow
+/// area the shell reports the overflow button instead, which must not count.
+fn icon_rect(hwnd: HWND) -> Option<RECT> {
+    let id = NOTIFYICONIDENTIFIER { cbSize: size_of::<NOTIFYICONIDENTIFIER>() as u32, hWnd: hwnd, ..Default::default() };
+    let rect = unsafe { Shell_NotifyIconGetRect(&id).ok()? };
+    let mut at = POINT::default();
+    unsafe { GetCursorPos(&mut at).ok()? };
+    let inside = at.x >= rect.left && at.x < rect.right && at.y >= rect.top && at.y < rect.bottom;
+    inside.then_some(rect)
+}
+
+/// Caches the icon position for the mouse hook. Hover callbacks are frequent, so
+/// the shell is asked at most twice a second unless `force` is set.
+fn remember_icon_rect(hwnd: HWND, force: bool) {
+    let now = now_ms();
+    let last = LAST_HOVER_MS.swap(now, Relaxed);
+    if !force && now.saturating_sub(last) < 500 {
+        return;
+    }
+    let r = icon_rect(hwnd).unwrap_or_default();
+    for (slot, value) in ICON_RECT.iter().zip([r.left, r.top, r.right, r.bottom]) {
+        slot.store(value, Relaxed);
+    }
+}
+
+fn anchor(hwnd: HWND) -> Option<Anchor> {
+    remember_icon_rect(hwnd, true);
+    // In the overflow area, anchor on the pointer instead.
+    let icon = icon_rect(hwnd).unwrap_or_else(|| {
+        let mut at = POINT::default();
+        unsafe {
+            let _ = GetCursorPos(&mut at);
+        }
+        RECT { left: at.x, top: at.y, right: at.x + 1, bottom: at.y + 1 }
+    });
+    unsafe {
+        let monitor = MonitorFromRect(&icon, MONITOR_DEFAULTTONEAREST);
+        let mut info = MONITORINFO { cbSize: size_of::<MONITORINFO>() as u32, ..Default::default() };
+        GetMonitorInfoW(monitor, &mut info).ok().ok()?;
+        let (mut dpi, mut unused) = (96u32, 0u32);
+        let _ = GetDpiForMonitor(monitor, MDT_EFFECTIVE_DPI, &mut dpi, &mut unused);
+        let rect = |r: RECT| Rect { left: r.left, top: r.top, right: r.right, bottom: r.bottom };
+        Some(Anchor { icon: rect(icon), work: rect(info.rcWork), scale: dpi as f32 / 96.0 })
+    }
+}
+
+/// Draws the current volume and pushes it to the shell with `action`.
+unsafe fn set_icon(hwnd: HWND, action: NOTIFY_ICON_MESSAGE) {
+    static CURRENT: AtomicIsize = AtomicIsize::new(0);
+    let (look, tip) = {
+        let tray = TRAY_STATE.lock().unwrap();
+        let look =
+            Look { level: tray.level, muted: tray.muted, style: tray.style, light_taskbar: tray_icon::light_taskbar() };
+        (look, tray.tip.clone())
+    };
+    let size = unsafe { GetSystemMetrics(SM_CXSMICON) };
+    let Some(icon) = tray_icon::render(&look, size) else { return };
+
     let mut data = NOTIFYICONDATAW {
         cbSize: size_of::<NOTIFYICONDATAW>() as u32,
         hWnd: hwnd,
         uFlags: NIF_ICON | NIF_MESSAGE | NIF_TIP,
         uCallbackMessage: WM_TRAY,
-        hIcon: unsafe { app_icon() },
+        hIcon: icon,
         ..Default::default()
     };
-    let tip = TOOLTIP.lock().unwrap().clone();
     fill_wide(&mut data.szTip, if tip.is_empty() { "Media Keys Selector" } else { &tip });
     unsafe {
         let _ = Shell_NotifyIconW(action, &data);
-    }
-}
-
-/// The exe's first icon resource at small-icon size, or the stock application icon.
-unsafe fn app_icon() -> HICON {
-    static ICON: AtomicIsize = AtomicIsize::new(0);
-    let cached = ICON.load(Relaxed);
-    if cached != 0 {
-        return HICON(cached as _);
-    }
-
-    unsafe extern "system" fn first(module: HMODULE, _: PCWSTR, name: PCWSTR, out: isize) -> BOOL {
-        let size = unsafe { GetSystemMetrics(SM_CXSMICON) };
-        if let Ok(icon) = unsafe { LoadImageW(Some(module.into()), name, IMAGE_ICON, size, size, LR_DEFAULTCOLOR) } {
-            unsafe { *(out as *mut isize) = icon.0 as isize };
-        }
-        false.into()
-    }
-
-    let mut found: isize = 0;
-    unsafe {
-        let module = GetModuleHandleW(None).unwrap_or_default();
-        let _ = EnumResourceNamesW(Some(module), RT_GROUP_ICON, Some(first), &mut found as *mut isize as isize);
-        if found == 0 {
-            found = LoadIconW(None, IDI_APPLICATION).map(|i| i.0 as isize).unwrap_or(0);
+        // The shell keeps its own copy, so the previous icon can go.
+        let old = CURRENT.swap(icon.0 as isize, Relaxed);
+        if old != 0 {
+            let _ = DestroyIcon(HICON(old as _));
         }
     }
-    ICON.store(found, Relaxed);
-    HICON(found as _)
+    if action == NIM_ADD {
+        remember_icon_rect(hwnd, true);
+    }
 }
 
 /// Opts into dark context menus when Windows uses dark mode. These uxtheme exports
@@ -281,16 +392,23 @@ unsafe fn show_menu(hwnd: HWND) {
         };
         let check = |on: bool| if on { MF_CHECKED } else { MF_UNCHECKED };
 
+        add(MF_STRING, ID_OPEN, "Open Media Keys Selector");
+        add(MF_SEPARATOR, 0, "");
         add(MF_STRING | MF_GRAYED, 0, "Send media keys to");
         add(MF_STRING | check(state.selected.is_none()), ID_AUTOMATIC, "Automatic (Windows decides)");
         for (i, target) in state.targets.iter().enumerate() {
             let selected = state.selected.as_deref() == Some(target.id.as_str());
-            let label = if target.running { target.name.clone() } else { format!("{} (not running)", target.name) };
+            // Text after a tab sits right-aligned in the menu's shortcut column.
+            let label = match (target.running, target.volume) {
+                (false, _) => format!("{} (not running)", target.name),
+                (true, Some(_)) if target.muted => format!("{}\tMuted", target.name),
+                (true, Some(level)) => format!("{}\t{}%", target.name, (level * 100.0).round()),
+                (true, None) => target.name.clone(),
+            };
             add(MF_STRING | check(selected), ID_TARGET + i, &label);
         }
         add(MF_SEPARATOR, 0, "");
-        add(MF_STRING | check(state.autostart), ID_AUTOSTART, "Start with Windows");
-        add(MF_STRING, ID_OPEN, "Open");
+        add(MF_STRING | check(state.settings.autostart), ID_AUTOSTART, "Start with Windows");
         add(MF_STRING, ID_QUIT, "Quit");
         let _ = SetMenuDefaultItem(menu, ID_OPEN as u32, 0);
 
@@ -305,7 +423,7 @@ unsafe fn show_menu(hwnd: HWND) {
         match picked.0 as usize {
             ID_OPEN => shared().emit(Event::Show),
             ID_AUTOMATIC => shared().send(Cmd::Select(None)),
-            ID_AUTOSTART => shared().send(Cmd::SetAutostart(!state.autostart)),
+            ID_AUTOSTART => shared().send(Cmd::Set(Setting::Autostart(!state.settings.autostart))),
             ID_QUIT => {
                 remove_tray();
                 shared().emit(Event::Quit);

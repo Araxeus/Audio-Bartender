@@ -7,18 +7,21 @@ use windows::Foundation::TypedEventHandler;
 use windows::Media::Control::{
     GlobalSystemMediaTransportControlsSession as Session,
     GlobalSystemMediaTransportControlsSessionManager as Manager,
+    GlobalSystemMediaTransportControlsSessionMediaProperties as MediaProperties,
     GlobalSystemMediaTransportControlsSessionPlaybackStatus as Status,
 };
+use windows::Storage::Streams::DataReader;
 use windows::Win32::Foundation::{LPARAM, WPARAM};
-use windows::Win32::System::Com::{COINIT_MULTITHREADED, CoInitializeEx};
 use windows::Win32::UI::WindowsAndMessaging::{PostMessageW, WM_APPCOMMAND};
 use windows::core::RuntimeType;
 
 use crate::config::{self, Config};
 use crate::names::Names;
 use crate::util::{Process, main_window, process_path, processes};
-use crate::volume;
-use crate::{AppIcon, Cmd, Event, MediaKey, Playback, Shared, State, Target, icon, input};
+use crate::{
+    AppIcon, Audio, Cmd, Device, Event, ImageKind, MediaKey, MixerApp, Playback, Setting, Shared, State, Target,
+    audio, icon, input, volume,
+};
 
 /// Players without SMTC support. They get keys as WM_APPCOMMAND window messages.
 const WINDOW_PLAYERS: &[&str] = &[
@@ -35,16 +38,17 @@ const WINDOW_PLAYERS: &[&str] = &[
     "foobar2000.exe",
 ];
 
-/// Window-only players appear and vanish without events, so they are polled.
+/// Window-only players and app volumes change without events, so they are polled.
 const POLL: Duration = Duration::from_secs(2);
+
+/// Album art above this size is skipped to keep state snapshots small.
+const MAX_ART_BYTES: u64 = 512 * 1024;
 
 pub fn spawn(shared: Arc<Shared>, rx: Receiver<Cmd>) {
     std::thread::Builder::new()
         .name("mediakeys-media".into())
         .spawn(move || {
-            unsafe {
-                let _ = CoInitializeEx(None, COINIT_MULTITHREADED);
-            }
+            crate::util::com_init();
             Worker::new(shared).run(rx);
         })
         .expect("spawn media thread");
@@ -55,15 +59,28 @@ struct Subscription {
     tokens: [i64; 2],
 }
 
+/// A media target before volumes and icons are filled in.
+struct MediaTarget {
+    target: Target,
+    /// Album art cache key: the app id plus the track.
+    art_key: Option<String>,
+    props: Option<MediaProperties>,
+}
+
 struct Worker {
     shared: Arc<Shared>,
     tx: Sender<Cmd>,
     manager: Option<Manager>,
     subscriptions: Vec<Subscription>,
+    watcher: Option<audio::Watcher>,
     config: Config,
     names: Names,
-    /// Icons by exe name. `None` marks an exe without a usable icon.
+    media: Vec<MediaTarget>,
+    devices: Vec<Device>,
+    /// Exe icons by exe name. `None` marks an exe without a usable icon.
     icons: HashMap<String, Option<AppIcon>>,
+    /// Album art by target id, with the key it was fetched for.
+    art: HashMap<String, (String, Option<AppIcon>)>,
 }
 
 impl Worker {
@@ -74,13 +91,30 @@ impl Worker {
             let _ = manager.SessionsChanged(&refresh_on(&tx, true));
             let _ = manager.CurrentSessionChanged(&refresh_on(&tx, false));
         }
-        Worker { shared, tx, manager, subscriptions: Vec::new(), config: Config::load(), names: Names::default(), icons: HashMap::new() }
+        let audio_tx = tx.clone();
+        let watcher = audio::Watcher::new(move |devices| {
+            let _ = audio_tx.send(Cmd::RefreshAudio { devices });
+        });
+        Worker {
+            shared,
+            tx,
+            manager,
+            subscriptions: Vec::new(),
+            watcher,
+            config: Config::load(),
+            names: Names::default(),
+            media: Vec::new(),
+            devices: Vec::new(),
+            icons: HashMap::new(),
+            art: HashMap::new(),
+        }
     }
 
     fn run(mut self, rx: Receiver<Cmd>) {
+        self.devices = self.watcher.as_ref().map(|w| audio::devices(w.enumerator())).unwrap_or_default();
         self.refresh(true);
         loop {
-            let cmd = match rx.recv_timeout(POLL) {
+            let first = match rx.recv_timeout(POLL) {
                 Ok(cmd) => cmd,
                 Err(RecvTimeoutError::Timeout) => {
                     // Another running front end may have changed the shared config.
@@ -89,22 +123,34 @@ impl Worker {
                 }
                 Err(RecvTimeoutError::Disconnected) => return,
             };
-            match cmd {
-                Cmd::Refresh { mut resubscribe } => {
-                    // Session events arrive in bursts, so fold queued refreshes into one.
-                    let mut pending = Vec::new();
-                    while let Ok(next) = rx.try_recv() {
-                        match next {
-                            Cmd::Refresh { resubscribe: r } => resubscribe |= r,
-                            other => pending.push(other),
-                        }
+
+            // Events arrive in bursts (wheel ticks, session changes), so fold queued
+            // refreshes into one and run the other commands in order.
+            let (mut refresh, mut resubscribe, mut audio, mut devices) = (false, false, false, false);
+            let mut commands = Vec::new();
+            for cmd in std::iter::once(first).chain(std::iter::from_fn(|| rx.try_recv().ok())) {
+                match cmd {
+                    Cmd::Refresh { resubscribe: r } => {
+                        refresh = true;
+                        resubscribe |= r;
                     }
-                    self.refresh(resubscribe);
-                    for cmd in pending {
-                        self.handle(cmd);
+                    Cmd::RefreshAudio { devices: d } => {
+                        audio = true;
+                        devices |= d;
                     }
+                    other => commands.push(other),
                 }
-                other => self.handle(other),
+            }
+            if devices {
+                self.reload_devices();
+            }
+            if refresh {
+                self.refresh(resubscribe);
+            } else if audio {
+                self.publish();
+            }
+            for cmd in commands {
+                self.handle(cmd);
             }
         }
     }
@@ -112,35 +158,42 @@ impl Worker {
     fn handle(&mut self, cmd: Cmd) {
         match cmd {
             Cmd::Refresh { resubscribe } => self.refresh(resubscribe),
+            Cmd::RefreshAudio { devices } => {
+                if devices {
+                    self.reload_devices();
+                }
+                self.publish();
+            }
             Cmd::Select(id) => {
-                let state = self.shared.state();
-                self.config.target_name =
-                    id.as_ref().and_then(|id| state.targets.iter().find(|t| &t.id == id)).map(|t| t.name.clone());
+                self.config.target_name = id
+                    .as_ref()
+                    .and_then(|id| self.media.iter().find(|m| &m.target.id == id))
+                    .map(|m| m.target.name.clone());
                 self.config.target = id;
                 self.config.save();
                 self.refresh(false);
             }
             Cmd::Press(key) => self.press(key),
-            Cmd::SetAutostart(on) => {
-                config::set_autostart(on);
-                self.refresh(false);
-            }
-            Cmd::Volume { id, delta } => {
-                let procs = processes();
-                volume::adjust(&volume::sessions(&procs), &volume::exes_for(&id), delta);
-                // Queue the refresh so a burst of wheel events costs one refresh.
-                let _ = self.tx.send(Cmd::Refresh { resubscribe: false });
-            }
-            Cmd::SetDark(dark) => {
-                self.config.dark = dark;
+            Cmd::Set(setting) => {
+                let s = &mut self.config.settings;
+                match setting {
+                    Setting::Autostart(on) => config::set_autostart(on),
+                    Setting::Dark(dark) => s.dark = dark,
+                    Setting::CustomTitleBar(on) => s.custom_title_bar = on,
+                    Setting::CloseToTray(on) => s.close_to_tray = on,
+                    Setting::AlbumArt(on) => s.album_art = on,
+                    Setting::TrayStyle(style) => s.tray_style = style,
+                }
                 self.config.save();
                 self.refresh(false);
             }
-            Cmd::SetCustomTitleBar(on) => {
-                self.config.custom_title_bar = on;
-                self.config.save();
-                self.refresh(false);
-            }
+        }
+    }
+
+    fn reload_devices(&mut self) {
+        if let Some(watcher) = &mut self.watcher {
+            watcher.follow_default();
+            self.devices = audio::devices(watcher.enumerator());
         }
     }
 
@@ -151,95 +204,137 @@ impl Worker {
         (0..n).filter_map(|i| list.GetAt(i).ok()).collect()
     }
 
-    /// Re-reads every session and player, then publishes the state if it changed.
+    /// Re-reads every media session and player, then publishes.
     fn refresh(&mut self, resubscribe: bool) {
         let sessions = self.sessions();
         if resubscribe {
             self.resubscribe(&sessions);
         }
         let procs = processes();
-        let mut targets: Vec<Target> = Vec::new();
+        let mut media: Vec<MediaTarget> = Vec::new();
 
         for session in &sessions {
             let Ok(aumid) = session.SourceAppUserModelId() else { continue };
             let aumid = aumid.to_string();
             let id = format!("smtc:{aumid}");
             let playback = playback(session);
-            let track = track(session);
+            let props = session.TryGetMediaPropertiesAsync().ok().and_then(|op| op.join().ok());
+            let track = props.as_ref().and_then(track);
+            let art_key = track.as_ref().map(|t| format!("{id}|{t}"));
 
             // Browsers expose one session per tab, so merge them and prefer the playing one.
-            if let Some(existing) = targets.iter_mut().find(|t| t.id == id) {
-                if existing.playback != Playback::Playing && playback == Playback::Playing {
-                    existing.playback = playback;
-                    existing.track = track;
+            if let Some(existing) = media.iter_mut().find(|m| m.target.id == id) {
+                if existing.target.playback != Playback::Playing && playback == Playback::Playing {
+                    existing.target.playback = playback;
+                    existing.target.track = track;
+                    existing.art_key = art_key;
+                    existing.props = props;
                 }
                 continue;
             }
             let name = self.names.for_aumid(&aumid, &procs);
-            targets.push(Target {
-                id,
-                name,
-                playback,
-                track,
-                running: true,
-                via_window: false,
-                volume: None,
-                icon: None,
-            });
+            media.push(MediaTarget { target: target(id, name, playback, track, true, false), art_key, props });
         }
 
         for exe in WINDOW_PLAYERS {
-            let has_session = targets.iter().any(|t| t.id.to_lowercase() == format!("smtc:{exe}"));
+            let has_session = media.iter().any(|m| m.target.id.to_lowercase() == format!("smtc:{exe}"));
             let windowed = procs.iter().any(|p| p.exe == *exe && main_window(p.pid).is_some());
             if has_session || !windowed {
                 continue;
             }
             let name = self.names.for_exe(exe, &procs);
-            targets.push(Target {
-                id: format!("exe:{exe}"),
-                name,
-                playback: Playback::Unknown,
-                track: None,
-                running: true,
-                via_window: true,
-                volume: None,
-                icon: None,
-            });
+            let target = target(format!("exe:{exe}"), name, Playback::Unknown, None, true, true);
+            media.push(MediaTarget { target, art_key: None, props: None });
         }
 
         // Keep a remembered target in the list while its app is closed.
         if let Some(id) = &self.config.target
-            && !targets.iter().any(|t| &t.id == id)
+            && !media.iter().any(|m| &m.target.id == id)
         {
             let name = self.config.target_name.clone().unwrap_or_else(|| id.clone());
-            targets.push(Target {
-                id: id.clone(),
-                name,
-                playback: Playback::Unknown,
-                track: None,
-                running: false,
-                via_window: id.starts_with("exe:"),
-                volume: None,
-                icon: None,
+            let target = target(id.clone(), name, Playback::Unknown, None, false, id.starts_with("exe:"));
+            media.push(MediaTarget { target, art_key: None, props: None });
+        }
+
+        if self.config.settings.album_art {
+            for m in &media {
+                let (Some(key), Some(props)) = (&m.art_key, &m.props) else { continue };
+                if self.art.get(&m.target.id).is_some_and(|(cached, _)| cached == key) {
+                    continue;
+                }
+                self.art.insert(m.target.id.clone(), (key.clone(), read_art(props)));
+            }
+        }
+
+        media.sort_by_key(|m| (!m.target.running, m.target.name.to_lowercase()));
+        self.media = media;
+        self.publish();
+    }
+
+    /// Fills in volumes, icons, the mixer and the master volume, then publishes if anything changed.
+    fn publish(&mut self) {
+        let procs = processes();
+        let sessions = volume::sessions(&procs);
+
+        let mut covered: Vec<String> = Vec::new();
+        let mut targets = Vec::with_capacity(self.media.len());
+        for i in 0..self.media.len() {
+            let mut target = self.media[i].target.clone();
+            if target.running {
+                let exes = volume::exes_for(&target.id);
+                if let Some((level, muted)) = volume::level(&sessions, &exes) {
+                    target.volume = Some(level);
+                    target.muted = muted;
+                }
+                let art = if self.config.settings.album_art { self.art_for(&self.media[i]) } else { None };
+                target.icon = art.or_else(|| self.icon_for(&exes, &procs));
+                covered.extend(exes);
+            }
+            targets.push(target);
+        }
+
+        let mut mixer: Vec<MixerApp> = Vec::new();
+        for session in &sessions {
+            if covered.contains(&session.exe) || mixer.iter().any(|a| a.id[4..] == session.exe) {
+                continue;
+            }
+            let exe = session.exe.clone();
+            mixer.push(MixerApp {
+                id: format!("exe:{exe}"),
+                name: self.names.for_exe(&exe, &procs),
+                volume: (session.level() * 100.0).round() / 100.0,
+                muted: session.muted(),
+                icon: self.icon_for(std::slice::from_ref(&exe), &procs),
             });
         }
+        mixer.sort_by_key(|a| a.name.to_lowercase());
 
-        let sessions = volume::sessions(&procs);
-        for target in targets.iter_mut().filter(|t| t.running) {
-            let exes = volume::exes_for(&target.id);
-            target.volume = volume::level(&sessions, &exes);
-            target.icon = self.icon_for(&exes, &procs);
-        }
+        let (volume, muted) = self.watcher.as_ref().and_then(|w| w.master()).map(audio::read).unwrap_or_default();
+        let mut settings = self.config.settings.clone();
+        settings.autostart = config::autostart();
 
-        targets.sort_by_key(|t| (!t.running, t.name.to_lowercase()));
         let state = State {
             targets,
+            mixer,
+            audio: Audio { devices: self.devices.clone(), volume, muted },
             selected: self.config.target.clone(),
-            autostart: config::autostart(),
-            dark: self.config.dark,
-            custom_title_bar: self.config.custom_title_bar,
+            settings,
         };
-        self.publish(state);
+        {
+            let mut current = self.shared.state.lock().unwrap();
+            if *current == state {
+                return;
+            }
+            *current = state.clone();
+        }
+        input::update_tray(&state);
+        self.shared.emit(Event::State(state));
+    }
+
+    fn art_for(&self, m: &MediaTarget) -> Option<AppIcon> {
+        let key = m.art_key.as_ref()?;
+        let (cached, art) = self.art.get(&m.target.id)?;
+        if cached == key { art.clone() } else { None }
     }
 
     /// The icon of the first running exe in `exes`, extracted once per exe.
@@ -253,18 +348,6 @@ impl Worker {
         icon
     }
 
-    fn publish(&self, state: State) {
-        {
-            let mut current = self.shared.state.lock().unwrap();
-            if *current == state {
-                return;
-            }
-            *current = state.clone();
-        }
-        input::set_routing(state.routed().map(|t| t.name.clone()));
-        self.shared.emit(Event::State(state));
-    }
-
     fn resubscribe(&mut self, sessions: &[Session]) {
         for sub in self.subscriptions.drain(..) {
             let _ = sub.session.RemovePlaybackInfoChanged(sub.tokens[0]);
@@ -274,8 +357,7 @@ impl Worker {
             let (Ok(a), Ok(b)) = (
                 session.PlaybackInfoChanged(&refresh_on(&self.tx, false)),
                 session.MediaPropertiesChanged(&refresh_on(&self.tx, false)),
-            )
-            else {
+            ) else {
                 continue;
             };
             self.subscriptions.push(Subscription { session: session.clone(), tokens: [a, b] });
@@ -295,10 +377,8 @@ impl Worker {
                     .into_iter()
                     .filter(|s| s.SourceAppUserModelId().is_ok_and(|a| a.to_string() == aumid))
                     .collect();
-                let session = matching
-                    .iter()
-                    .find(|s| playback(s) == Playback::Playing)
-                    .or_else(|| matching.first());
+                let session =
+                    matching.iter().find(|s| playback(s) == Playback::Playing).or_else(|| matching.first());
                 if let Some(session) = session {
                     press_session(session, key);
                 }
@@ -311,6 +391,10 @@ impl Worker {
             }
         }
     }
+}
+
+fn target(id: String, name: String, playback: Playback, track: Option<String>, running: bool, via_window: bool) -> Target {
+    Target { id, name, playback, track, running, via_window, volume: None, muted: false, icon: None }
 }
 
 /// An event handler that queues a refresh.
@@ -335,14 +419,40 @@ fn playback(session: &Session) -> Playback {
     }
 }
 
-fn track(session: &Session) -> Option<String> {
-    let props = session.TryGetMediaPropertiesAsync().ok()?.join().ok()?;
+fn track(props: &MediaProperties) -> Option<String> {
     let title = props.Title().ok()?.to_string();
     let artist = props.Artist().map(|a| a.to_string()).unwrap_or_default();
     match (title.is_empty(), artist.is_empty()) {
         (true, _) => None,
         (false, true) => Some(title),
         (false, false) => Some(format!("{title} — {artist}")),
+    }
+}
+
+/// The track's thumbnail as reported by the app, usually a square album cover.
+fn read_art(props: &MediaProperties) -> Option<AppIcon> {
+    let stream = props.Thumbnail().ok()?.OpenReadAsync().ok()?.join().ok()?;
+    let size = stream.Size().ok()?;
+    if size == 0 || size > MAX_ART_BYTES {
+        return None;
+    }
+    let reader = DataReader::CreateDataReader(&stream).ok()?;
+    reader.LoadAsync(size as u32).ok()?.join().ok()?;
+    let mut data = vec![0u8; size as usize];
+    reader.ReadBytes(&mut data).ok()?;
+    let kind = sniff(&data)?;
+    Some(AppIcon { data: Arc::from(data), kind })
+}
+
+/// Apps often leave the content type blank, so read the magic bytes.
+fn sniff(data: &[u8]) -> Option<ImageKind> {
+    match data {
+        [0x89, b'P', b'N', b'G', ..] => Some(ImageKind::Png),
+        [0xFF, 0xD8, ..] => Some(ImageKind::Jpeg),
+        [b'G', b'I', b'F', ..] => Some(ImageKind::Gif),
+        [b'B', b'M', ..] => Some(ImageKind::Bmp),
+        [b'R', b'I', b'F', b'F', _, _, _, _, b'W', b'E', b'B', b'P', ..] => Some(ImageKind::Webp),
+        _ => None,
     }
 }
 
@@ -365,15 +475,10 @@ fn press_window(exe: &str, key: MediaKey) {
         MediaKey::Stop => 13,
         MediaKey::PlayPause => 14,
     };
-    let windows = processes().into_iter().filter(|p: &Process| p.exe == exe).find_map(|p| main_window(p.pid));
-    if let Some(hwnd) = windows {
+    let window = processes().into_iter().filter(|p: &Process| p.exe == exe).find_map(|p| main_window(p.pid));
+    if let Some(hwnd) = window {
         unsafe {
-            let _ = PostMessageW(
-                Some(hwnd),
-                WM_APPCOMMAND,
-                WPARAM(hwnd.0 as usize),
-                LPARAM(command << 16),
-            );
+            let _ = PostMessageW(Some(hwnd), WM_APPCOMMAND, WPARAM(hwnd.0 as usize), LPARAM(command << 16));
         }
     }
 }

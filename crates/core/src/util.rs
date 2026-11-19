@@ -45,6 +45,15 @@ pub fn set_dark_title_bar(hwnd: isize, dark: bool) {
     }
 }
 
+/// Joins COM on the calling thread if it hasn't yet. A thread that already chose an
+/// apartment keeps it, which is fine for the audio APIs.
+pub fn com_init() {
+    use windows::Win32::System::Com::{COINIT_MULTITHREADED, CoInitializeEx};
+    unsafe {
+        let _ = CoInitializeEx(None, COINIT_MULTITHREADED);
+    }
+}
+
 pub fn wide(s: &str) -> Vec<u16> {
     s.encode_utf16().chain(Some(0)).collect()
 }

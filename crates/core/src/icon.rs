@@ -10,7 +10,7 @@ use windows::Win32::UI::Shell::SHDefExtractIconW;
 use windows::Win32::UI::WindowsAndMessaging::{DI_NORMAL, DestroyIcon, DrawIconEx, HICON};
 use windows::core::PCWSTR;
 
-use crate::AppIcon;
+use crate::{AppIcon, ImageKind};
 use crate::util::wide;
 
 /// Big enough for a 34 px avatar at 150% scaling.
@@ -28,7 +28,7 @@ pub fn extract(exe_path: &str) -> Option<AppIcon> {
         }
         let rgba = render(icon);
         let _ = DestroyIcon(icon);
-        Some(AppIcon(Arc::from(encode_png(SIZE, SIZE, &rgba?))))
+        Some(AppIcon { data: Arc::from(encode_png(SIZE, SIZE, &rgba?)), kind: ImageKind::Png })
     }
 }
 
@@ -79,7 +79,7 @@ unsafe fn render(icon: HICON) -> Option<Vec<u8>> {
 
 /// A minimal PNG encoder with uncompressed deflate blocks. The icons are small,
 /// so skipping compression costs a few KB and saves a dependency.
-fn encode_png(width: u32, height: u32, rgba: &[u8]) -> Vec<u8> {
+pub fn encode_png(width: u32, height: u32, rgba: &[u8]) -> Vec<u8> {
     let row = width as usize * 4;
     let mut raw = Vec::with_capacity((row + 1) * height as usize);
     for line in rgba.chunks_exact(row) {
@@ -139,6 +139,7 @@ fn adler32(data: &[u8]) -> u32 {
     (b << 16) | a
 }
 
+#[cfg_attr(not(feature = "serde"), allow(dead_code))]
 pub fn base64(data: &[u8]) -> String {
     const TABLE: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
     let mut out = String::with_capacity(data.len().div_ceil(3) * 4);
