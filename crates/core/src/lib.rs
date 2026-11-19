@@ -12,7 +12,6 @@
 mod audio;
 mod config;
 mod icon;
-mod icon_streams;
 mod input;
 mod media;
 mod names;
@@ -168,8 +167,6 @@ pub struct Settings {
     /// Show the current track's album art in place of the app icon.
     pub album_art: bool,
     pub tray_style: TrayStyle,
-    /// Explorer is set to show this icon on the taskbar and hide Windows' volume icon.
-    pub replace_native_volume: bool,
 }
 
 impl Default for Settings {
@@ -181,7 +178,6 @@ impl Default for Settings {
             close_to_tray: true,
             album_art: false,
             tray_style: TrayStyle::Ring,
-            replace_native_volume: false,
         }
     }
 }
@@ -196,6 +192,22 @@ pub enum Setting {
     CloseToTray(bool),
     AlbumArt(bool),
     TrayStyle(TrayStyle),
+}
+
+/// Windows pages for arranging tray icons. Windows lets only the user move icons,
+/// so the app opens the right page instead.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[cfg_attr(feature = "serde", derive(Deserialize), serde(rename_all = "camelCase"))]
+pub enum IconPage {
+    /// Notification Area Icons: set this app to always show on the taskbar.
+    ShowOurs,
+    /// System Icons: turn off the Windows volume icon.
+    HideWindows,
+}
+
+/// Opens a Windows page for arranging tray icons.
+pub fn open_icon_page(page: IconPage) {
+    util::open_icon_page(page);
 }
 
 #[derive(Clone, Debug, Default, PartialEq)]
@@ -326,19 +338,7 @@ impl Core {
         let shared = Arc::new(Shared { state: Mutex::new(State::default()), on_event: Box::new(on_event), tx });
         input::spawn(shared.clone());
         media::spawn(shared.clone(), rx);
-        let core = Core { shared };
-
-        // `--replace-volume-icon=on|off` runs the settings switch from the command line.
-        let replace = std::env::args().find_map(|a| a.strip_prefix("--replace-volume-icon=").map(|v| v == "on"));
-        if let Some(replace) = replace {
-            let core = core.clone();
-            std::thread::spawn(move || {
-                // Explorer must have our icon before it saves its list.
-                std::thread::sleep(std::time::Duration::from_secs(3));
-                core.replace_native_volume(replace);
-            });
-        }
-        Some(core)
+        Some(Core { shared })
     }
 
     pub fn state(&self) -> State {
@@ -395,17 +395,6 @@ impl Core {
         audio::toggle_master_mute();
     }
 
-    /// Shows this icon on the taskbar and hides Windows' volume icon, or brings it back.
-    /// Restarts Explorer, which closes open File Explorer windows. Runs in the background.
-    pub fn replace_native_volume(&self, replace: bool) {
-        let shared = self.shared.clone();
-        std::thread::spawn(move || {
-            let result = icon_streams::apply(replace);
-            util::log(format!("replace native volume {replace}: {result:?}"));
-            shared.send(Cmd::Refresh { resubscribe: false });
-        });
-    }
-
     /// Makes `id` the default output device.
     pub fn set_device(&self, id: &str) {
         util::com_init();
@@ -431,12 +420,6 @@ pub fn preview_tray_icon(level: f32, muted: bool, style: TrayStyle, light_taskba
     let mut pixels = tray_icon::bgra(&look, size)?;
     pixels.chunks_exact_mut(4).for_each(|px| px.swap(0, 2));
     Some(icon::encode_png(size as u32, size as u32, &pixels))
-}
-
-/// What [`Core::replace_native_volume`] would change, without changing anything.
-#[doc(hidden)]
-pub fn replace_native_volume_dry_run(replace: bool) -> Vec<String> {
-    icon_streams::dry_run(replace)
 }
 
 /// True when the app was launched with `--settings` and should open on its settings page.

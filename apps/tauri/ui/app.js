@@ -150,8 +150,13 @@ function settingsPage(state) {
       ),
       row(
         "Replace the Windows volume icon",
-        "Show this icon on the taskbar, hide Windows' one. Restarts Explorer",
-        toggle(s.replaceNativeVolume, (on) => invoke("replace_native_volume", { replace: on })),
+        "Show this icon on the taskbar, then turn Volume off",
+        el(
+          "div",
+          "buttons",
+          button("small-button", null, "Show this", () => invoke("open_icon_page", { page: "showOurs" })),
+          button("small-button", null, "Hide Windows'", () => invoke("open_icon_page", { page: "hideWindows" })),
+        ),
       ),
       row(
         "Theme",
