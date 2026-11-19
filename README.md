@@ -45,6 +45,8 @@ Stored in `%APPDATA%\MediaKeysSelector\config.ini` and shared by both front ends
 - Theme: System, Light, Dark
 - Tray icon: Ring or Number
 
+`--replace-volume-icon=on` (or `off`) flips that switch from the command line.
+
 `--settings` opens the main window on the settings page, as does Settings… in the tray menu.
 
 The single-instance lock is off for now (`SINGLE_INSTANCE` in `crates/core/src/input.rs`), so both front ends can run side by side. With it on, a second launch focuses the running instance.

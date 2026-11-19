@@ -326,7 +326,19 @@ impl Core {
         let shared = Arc::new(Shared { state: Mutex::new(State::default()), on_event: Box::new(on_event), tx });
         input::spawn(shared.clone());
         media::spawn(shared.clone(), rx);
-        Some(Core { shared })
+        let core = Core { shared };
+
+        // `--replace-volume-icon=on|off` runs the settings switch from the command line.
+        let replace = std::env::args().find_map(|a| a.strip_prefix("--replace-volume-icon=").map(|v| v == "on"));
+        if let Some(replace) = replace {
+            let core = core.clone();
+            std::thread::spawn(move || {
+                // Explorer must have our icon before it saves its list.
+                std::thread::sleep(std::time::Duration::from_secs(3));
+                core.replace_native_volume(replace);
+            });
+        }
+        Some(core)
     }
 
     pub fn state(&self) -> State {
