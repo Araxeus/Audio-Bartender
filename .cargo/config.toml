@@ -1,0 +1,3 @@
+# GPUI hardcodes Windows SDK 10.0.26100 for fxc.exe; this machine has 10.0.22621.
+[env]
+GPUI_FXC_PATH = 'C:\Program Files (x86)\Windows Kits\10\bin\10.0.22621.0\x64\fxc.exe'
