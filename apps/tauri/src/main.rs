@@ -93,7 +93,7 @@ fn open_main(app: AppHandle) {
     if let Some(flyout) = app.get_webview_window(FLYOUT) {
         let _ = flyout.hide();
     }
-    std::thread::spawn(move || show_main(&app));
+    std::thread::spawn(move || show_main(&app, false));
 }
 
 /// The flyout page reports its content height, so the window fits it exactly.
@@ -115,18 +115,22 @@ fn theme(dark: Option<bool>) -> Option<Theme> {
     dark.map(|dark| if dark { Theme::Dark } else { Theme::Light })
 }
 
-/// Focuses the main window, or creates it. Closing it destroys the webview, so the
-/// tray-only state costs no WebView2 memory.
-fn show_main(app: &AppHandle) {
+/// Focuses the main window, or creates it, optionally on its settings page. Closing
+/// it destroys the webview, so the tray-only state costs no WebView2 memory.
+fn show_main(app: &AppHandle, settings: bool) {
     if let Some(window) = app.get_webview_window(MAIN) {
         let _ = window.unminimize();
         let _ = window.show();
         let _ = window.set_focus();
+        if settings {
+            let _ = window.emit_to(MAIN, "page", "settings");
+        }
         return;
     }
+    let page = if settings { "index.html#settings" } else { "index.html" };
     // Must run off the main thread, because WebView2 creation deadlocks inside event-loop callbacks.
     let settings = app.state::<Core>().state().settings;
-    let _ = WebviewWindowBuilder::new(app, MAIN, WebviewUrl::default())
+    let _ = WebviewWindowBuilder::new(app, MAIN, WebviewUrl::App(page.into()))
         .theme(theme(settings.dark))
         .decorations(!settings.custom_title_bar)
         .title("Media Keys Selector")
@@ -220,6 +224,7 @@ fn main() {
         return;
     };
     let hidden = mediakeys_core::start_hidden();
+    let settings = mediakeys_core::start_in_settings();
 
     let app = tauri::Builder::default()
         // tao's raw keyboard input registration stops low-level hooks in this process.
@@ -258,8 +263,8 @@ fn main() {
         .setup(move |app| {
             let handle = app.handle().clone();
             std::thread::spawn(move || {
-                if !hidden {
-                    show_main(&handle);
+                if settings || !hidden {
+                    show_main(&handle, settings);
                 }
                 for event in rx {
                     match event {
@@ -274,7 +279,8 @@ fn main() {
                             }
                             let _ = handle.emit("state", state);
                         }
-                        Event::Show => show_main(&handle),
+                        Event::Show => show_main(&handle, false),
+                        Event::ShowSettings => show_main(&handle, true),
                         Event::Flyout(anchor) => toggle_flyout(&handle, anchor),
                         Event::Quit => handle.exit(0),
                     }

@@ -3,7 +3,7 @@ use gpui_kit::base::{h_flex, v_flex};
 use gpui_kit::component::button::{Button, ButtonVariants};
 use gpui_kit::component::switch::Switch;
 use gpui_kit::component::theme::Theme;
-use gpui_kit::component::{ActiveTheme, Icon, Selectable, Sizable, StyledExt, TitleBar};
+use gpui_kit::component::{ActiveTheme, Icon, Sizable, StyledExt, TitleBar};
 use gpui_kit::prelude::FluentBuilder;
 use gpui_kit::*;
 use mediakeys_core::{Core, MediaKey, MixerApp, Playback, Setting, State, Target, TrayStyle};
@@ -59,6 +59,11 @@ impl MainView {
             volumes,
             _subscriptions,
         }
+    }
+
+    pub fn open_settings(&mut self, cx: &mut Context<Self>) {
+        self.page = Page::Settings;
+        cx.notify();
     }
 
     fn header(&self, state: &State, theme: &Theme, cx: &mut Context<Self>) -> Div {
@@ -311,7 +316,11 @@ impl MainView {
         };
         let choice = |id: &'static str, label: &'static str, selected: bool, setting: Setting| {
             let core = self.core.clone();
-            Button::new(id).small().label(label).selected(selected).on_click(move |_, _, _| core.set(setting.clone()))
+            Button::new(id)
+                .small()
+                .label(label)
+                .map(|b| if selected { b.primary() } else { b.ghost() })
+                .on_click(move |_, _, _| core.set(setting.clone()))
         };
 
         v_flex()
@@ -335,6 +344,11 @@ impl MainView {
                 "Album art as app icon",
                 "Show the playing track's cover instead",
                 switch("album-art", s.album_art, Setting::AlbumArt),
+            ))
+            .child(row(
+                "Hide Windows volume icon",
+                "So this icon can replace it. Applies after Explorer restarts",
+                switch("hide-native", s.hide_native_volume, Setting::HideNativeVolume),
             ))
             .child(row(
                 "Theme",

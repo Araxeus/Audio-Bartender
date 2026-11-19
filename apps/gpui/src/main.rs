@@ -46,6 +46,7 @@ struct Globals {
     core: Core,
     state: Entity<State>,
     main: Option<AnyWindowHandle>,
+    main_view: Option<WeakEntity<MainView>>,
     flyout: Option<AnyWindowHandle>,
     flyout_closed: Option<Instant>,
 }
@@ -102,8 +103,18 @@ pub fn open_main(cx: &mut App, bounds: Option<Bounds<Pixels>>) {
         let (core, state) = (cx.global::<Globals>().core.clone(), cx.global::<Globals>().state.clone());
         cx.new(|cx| MainView::new(core, state, window, cx))
     });
-    if let Ok((handle, _)) = opened {
-        cx.global_mut::<Globals>().main = Some(handle);
+    if let Ok((handle, view)) = opened {
+        let globals = cx.global_mut::<Globals>();
+        globals.main = Some(handle);
+        globals.main_view = Some(view.downgrade());
+    }
+}
+
+/// Shows the main window on its settings page.
+pub fn show_settings(cx: &mut App) {
+    show_main(cx);
+    if let Some(view) = cx.global::<Globals>().main_view.clone().and_then(|v| v.upgrade()) {
+        view.update(cx, |view, cx| view.open_settings(cx));
     }
 }
 
@@ -164,8 +175,10 @@ fn main() {
         gpui_kit::init(cx);
         cx.set_quit_mode(QuitMode::Explicit);
         let state = cx.new(|_| core.state());
-        cx.set_global(Globals { core, state, main: None, flyout: None, flyout_closed: None });
-        if !hidden {
+        cx.set_global(Globals { core, state, main: None, main_view: None, flyout: None, flyout_closed: None });
+        if mediakeys_core::start_in_settings() {
+            show_settings(cx);
+        } else if !hidden {
             show_main(cx);
         }
 
@@ -180,6 +193,7 @@ fn main() {
                         });
                     }
                     Event::Show => show_main(cx),
+                    Event::ShowSettings => show_settings(cx),
                     Event::Flyout(anchor) => toggle_flyout(cx, anchor),
                     Event::Quit => cx.quit(),
                 });

@@ -17,7 +17,8 @@ import {
 const appWindow = window.__TAURI__.window.getCurrentWindow();
 const $ = (id) => document.getElementById(id);
 
-let page = "targets";
+let page = location.hash === "#settings" ? "settings" : "targets";
+let latest = null;
 let first = true;
 const volumes = new Volumes(() => {});
 
@@ -148,6 +149,11 @@ function settingsPage(state) {
         toggle(s.albumArt, (on) => setting("albumArt", on)),
       ),
       row(
+        "Hide Windows volume icon",
+        "So this icon can replace it. Applies after Explorer restarts",
+        toggle(s.hideNativeVolume, (on) => setting("hideNativeVolume", on)),
+      ),
+      row(
         "Theme",
         "Follow Windows or pick one",
         choices([
@@ -169,6 +175,7 @@ function settingsPage(state) {
 }
 
 function render(state) {
+  latest = state;
   document.documentElement.dataset.titlebar = state.settings.customTitleBar ? "custom" : "native";
 
   const { routed, text } = status(state);
@@ -225,3 +232,7 @@ function render(state) {
 $("minimize").addEventListener("click", () => appWindow.minimize());
 $("close").addEventListener("click", () => appWindow.close());
 follow(volumes, render);
+window.__TAURI__.event.listen("page", (event) => {
+  page = event.payload;
+  if (latest) render(latest);
+});
