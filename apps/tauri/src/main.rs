@@ -4,7 +4,7 @@ use std::sync::Mutex;
 use std::sync::mpsc;
 use std::time::{Duration, Instant};
 
-use mediakeys_core::{Anchor, Core, Event, IconPage, MediaKey, Setting, State};
+use mediakeys_core::{Anchor, Core, Event, MediaKey, Setting, State};
 use tauri::{
     AppHandle, Emitter, LogicalSize, Manager, PhysicalPosition, RunEvent, Theme, WebviewUrl, WebviewWindow,
     WebviewWindowBuilder, WindowEvent,
@@ -83,8 +83,8 @@ fn set_device(core: tauri::State<Core>, id: String) {
 }
 
 #[tauri::command]
-fn open_icon_page(page: IconPage) {
-    mediakeys_core::open_icon_page(page);
+fn replace_native_volume(core: tauri::State<Core>, replace: bool) {
+    core.replace_native_volume(replace);
 }
 
 #[tauri::command]
@@ -248,7 +248,7 @@ fn main() {
             set_master,
             toggle_master_mute,
             set_device,
-            open_icon_page,
+            replace_native_volume,
             quit,
             open_main,
             flyout_size,

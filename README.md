@@ -31,7 +31,7 @@ Picks which app receives the keyboard media keys (play/pause, next, previous, st
   - media controls, open, quit
 - In the flyout and the main window, scrolling over an app changes its volume (5% per notch) and reveals its slider. Clicking the percentage also reveals it.
 - Right click opens a quick menu: master volume, targets and other apps with their volumes, settings, autostart and quit. Scrolling over a volume entry changes it while the menu stays open; clicking an app in Other apps mutes it.
-- New tray icons start in the overflow area, and Windows lets only the user move them. Settings → "Replace the Windows volume icon" opens the two Windows pages for it: Notification Area Icons (set Media Keys Selector to show) and System Icons (turn Volume off).
+- Settings → "Replace the Windows volume icon" shows this icon on the taskbar and hides Windows' volume icon, or brings it back. It edits Explorer's `IconStreams` store, so it restarts Explorer (open File Explorer windows close).
 
 ## Settings
 
@@ -41,7 +41,7 @@ Stored in `%APPDATA%\MediaKeysSelector\config.ini` and shared by both front ends
 - Close button hides to tray, or quits
 - In-app title bar
 - Album art as app icon (the track thumbnail the app reports to SMTC)
-- Replace the Windows volume icon (opens the Windows pages above)
+- Replace the Windows volume icon (restarts Explorer)
 - Theme: System, Light, Dark
 - Tray icon: Ring or Number
 
@@ -65,7 +65,7 @@ Set `MEDIAKEYS_LOG=1` to log routing, forwarded keys and tray wheel steps to `%T
 - The hooks run on their own thread. Windows silently drops a hook whose thread answers slowly, so nothing else may run there.
 - The shell never sends wheel events to tray icons. The mouse hook checks the pointer against the icon's last known rectangle instead.
 - For an icon in the overflow area the shell reports the overflow button's rectangle. The core ignores rectangles that don't contain the pointer.
-- Apps can't move tray icons on Windows 10. Explorer's `ITrayNotify` (the interface behind the Notification Area Icons page) lists every item, including the volume icon by GUID `7820AE73-23E3-4229-82C1-E41CB67D5B9C`, but `SetPreference` returns `ERROR_NOT_FOUND` for every item on 19045, from any thread or apartment. The other route edits Explorer's binary `IconStreams` value and needs an Explorer restart. So the settings open the two Windows pages instead.
+- Apps can't move tray icons on Windows 10 through any API. Explorer's `ITrayNotify` lists items but `SetPreference` returns `ERROR_NOT_FOUND` for every item on 19045. The replace setting therefore edits `IconStreams` (20-byte header, 1640-byte records: ROT13 exe path at 0, preference at 528, icon GUID at 1068; the volume icon is GUID `7820AE73-23E3-4229-82C1-E41CB67D5B9C`). Explorer only saves this value on a clean exit, so the setting asks Explorer to exit, edits, and starts it again.
 - Changing the default output device uses `IPolicyConfig`, which is undocumented but stable since Windows 7.
 - The Tauri flyout keeps its webview for 60 s after closing, so reopening is instant, then frees it.
 - GPUI hardcodes Windows SDK 10.0.26100 for `fxc.exe`. `.cargo/config.toml` points `GPUI_FXC_PATH` at 10.0.22621.

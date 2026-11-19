@@ -20,7 +20,7 @@ use crate::names::Names;
 use crate::util::{Process, main_window, process_path, processes};
 use crate::{
     AppIcon, Audio, Cmd, Device, Event, ImageKind, MediaKey, MixerApp, Playback, Setting, Shared, State, Target,
-    audio, icon, input, volume,
+    audio, icon, icon_streams, input, volume,
 };
 
 /// Players without SMTC support. They get keys as WM_APPCOMMAND window messages.
@@ -81,6 +81,9 @@ struct Worker {
     icons: HashMap<String, Option<AppIcon>>,
     /// Album art by target id, with the key it was fetched for.
     art: HashMap<String, (String, Option<AppIcon>)>,
+    /// Whether Explorer is set to show our icon instead of Windows' volume icon.
+    /// Read from the registry on full refreshes only.
+    replaced: bool,
 }
 
 impl Worker {
@@ -107,6 +110,7 @@ impl Worker {
             devices: Vec::new(),
             icons: HashMap::new(),
             art: HashMap::new(),
+            replaced: false,
         }
     }
 
@@ -268,6 +272,7 @@ impl Worker {
 
         media.sort_by_key(|m| (!m.target.running, m.target.name.to_lowercase()));
         self.media = media;
+        self.replaced = icon_streams::replaced();
         self.publish();
     }
 
@@ -312,6 +317,7 @@ impl Worker {
         let (volume, muted) = self.watcher.as_ref().and_then(|w| w.master()).map(audio::read).unwrap_or_default();
         let mut settings = self.config.settings.clone();
         settings.autostart = config::autostart();
+        settings.replace_native_volume = self.replaced;
 
         let state = State {
             targets,
