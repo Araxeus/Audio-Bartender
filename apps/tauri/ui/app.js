@@ -149,9 +149,14 @@ function settingsPage(state) {
         toggle(s.albumArt, (on) => setting("albumArt", on)),
       ),
       row(
-        "Hide Windows volume icon",
-        "So this icon can replace it. Applies after Explorer restarts",
-        toggle(s.hideNativeVolume, (on) => setting("hideNativeVolume", on)),
+        "Replace the Windows volume icon",
+        "Show this icon on the taskbar, then turn Volume off",
+        el(
+          "div",
+          "buttons",
+          button("small-button", null, "Show this", () => invoke("open_icon_page", { page: "showOurs" })),
+          button("small-button", null, "Hide Windows'", () => invoke("open_icon_page", { page: "hideWindows" })),
+        ),
       ),
       row(
         "Theme",

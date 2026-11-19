@@ -31,7 +31,7 @@ Picks which app receives the keyboard media keys (play/pause, next, previous, st
   - media controls, open, quit
 - In the flyout and the main window, scrolling over an app changes its volume (5% per notch) and reveals its slider. Clicking the percentage also reveals it.
 - Right click opens a quick menu: master volume, targets and other apps with their volumes, settings, autostart and quit. Scrolling over a volume entry changes it while the menu stays open; clicking an app in Other apps mutes it.
-- New tray icons start in the overflow area, and Windows offers no API to move them, so drag the icon onto the taskbar once. The "Hide Windows volume icon" setting hides the native one through the per-user `HideSCAVolume` policy, which Explorer applies on its next start.
+- New tray icons start in the overflow area, and Windows lets only the user move them. Settings → "Replace the Windows volume icon" opens the two Windows pages for it: Notification Area Icons (set Media Keys Selector to show) and System Icons (turn Volume off).
 
 ## Settings
 
@@ -41,7 +41,7 @@ Stored in `%APPDATA%\MediaKeysSelector\config.ini` and shared by both front ends
 - Close button hides to tray, or quits
 - In-app title bar
 - Album art as app icon (the track thumbnail the app reports to SMTC)
-- Hide Windows volume icon
+- Replace the Windows volume icon (opens the Windows pages above)
 - Theme: System, Light, Dark
 - Tray icon: Ring or Number
 

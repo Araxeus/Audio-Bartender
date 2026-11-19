@@ -6,7 +6,7 @@ use gpui_kit::component::theme::Theme;
 use gpui_kit::component::{ActiveTheme, Icon, Sizable, StyledExt, TitleBar};
 use gpui_kit::prelude::FluentBuilder;
 use gpui_kit::*;
-use mediakeys_core::{Core, MediaKey, MixerApp, Playback, Setting, State, Target, TrayStyle};
+use mediakeys_core::{Core, IconPage, MediaKey, MixerApp, Playback, Setting, State, Target, TrayStyle};
 
 use crate::theme::{self, DARK_FOOTER, hex};
 use crate::ui::{self, Volumes};
@@ -346,9 +346,23 @@ impl MainView {
                 switch("album-art", s.album_art, Setting::AlbumArt),
             ))
             .child(row(
-                "Hide Windows volume icon",
-                "So this icon can replace it. Applies after Explorer restarts",
-                switch("hide-native", s.hide_native_volume, Setting::HideNativeVolume),
+                "Replace the Windows volume icon",
+                "Show this icon on the taskbar, then turn Volume off",
+                h_flex()
+                    .gap_1()
+                    .child(
+                        Button::new("show-ours")
+                            .small()
+                            .label("Show this")
+                            .on_click(|_, _, _| mediakeys_core::open_icon_page(IconPage::ShowOurs)),
+                    )
+                    .child(
+                        Button::new("hide-windows")
+                            .small()
+                            .label("Hide Windows'")
+                            .on_click(|_, _, _| mediakeys_core::open_icon_page(IconPage::HideWindows)),
+                    )
+                    .into_any_element(),
             ))
             .child(row(
                 "Theme",

@@ -4,7 +4,7 @@ use std::sync::Mutex;
 use std::sync::mpsc;
 use std::time::{Duration, Instant};
 
-use mediakeys_core::{Anchor, Core, Event, MediaKey, Setting, State};
+use mediakeys_core::{Anchor, Core, Event, IconPage, MediaKey, Setting, State};
 use tauri::{
     AppHandle, Emitter, LogicalSize, Manager, PhysicalPosition, RunEvent, Theme, WebviewUrl, WebviewWindow,
     WebviewWindowBuilder, WindowEvent,
@@ -80,6 +80,11 @@ fn toggle_master_mute(core: tauri::State<Core>) {
 #[tauri::command]
 fn set_device(core: tauri::State<Core>, id: String) {
     core.set_device(&id);
+}
+
+#[tauri::command]
+fn open_icon_page(page: IconPage) {
+    mediakeys_core::open_icon_page(page);
 }
 
 #[tauri::command]
@@ -243,6 +248,7 @@ fn main() {
             set_master,
             toggle_master_mute,
             set_device,
+            open_icon_page,
             quit,
             open_main,
             flyout_size,

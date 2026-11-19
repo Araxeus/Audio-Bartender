@@ -320,6 +320,10 @@ footer.main-footer, body.main-window > footer {
 .switch input:checked + .track .thumb { transform: translateX(20px); background: #fff; }
 .switch input:focus-visible + .track { outline: 2px solid var(--accent); outline-offset: 2px; }
 
+.buttons { display: flex; gap: 4px; }
+.small-button { padding: 3px 9px; border: 1px solid var(--border); border-radius: 6px; background: var(--card); font-size: 12px; white-space: nowrap; cursor: pointer; }
+.small-button:hover { background: var(--card-hover); }
+
 /* Flyout */
 
 html:has(body.flyout), body.flyout { height: auto; }
