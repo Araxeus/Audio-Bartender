@@ -65,6 +65,7 @@ Set `MEDIAKEYS_LOG=1` to log routing, forwarded keys and tray wheel steps to `%T
 - The hooks run on their own thread. Windows silently drops a hook whose thread answers slowly, so nothing else may run there.
 - The shell never sends wheel events to tray icons. The mouse hook checks the pointer against the icon's last known rectangle instead.
 - For an icon in the overflow area the shell reports the overflow button's rectangle. The core ignores rectangles that don't contain the pointer.
+- Apps can't move tray icons on Windows 10. Explorer's `ITrayNotify` (the interface behind the Notification Area Icons page) lists every item, including the volume icon by GUID `7820AE73-23E3-4229-82C1-E41CB67D5B9C`, but `SetPreference` returns `ERROR_NOT_FOUND` for every item on 19045, from any thread or apartment. The other route edits Explorer's binary `IconStreams` value and needs an Explorer restart. So the settings open the two Windows pages instead.
 - Changing the default output device uses `IPolicyConfig`, which is undocumented but stable since Windows 7.
 - The Tauri flyout keeps its webview for 60 s after closing, so reopening is instant, then frees it.
 - GPUI hardcodes Windows SDK 10.0.26100 for `fxc.exe`. `.cargo/config.toml` points `GPUI_FXC_PATH` at 10.0.22621.

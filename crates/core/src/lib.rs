@@ -403,6 +403,7 @@ impl Core {
 
     /// Removes the tray icon. Call before exiting for reasons other than [`Event::Quit`].
     pub fn shutdown(&self) {
+        util::log("shutdown");
         input::remove_tray();
     }
 }
