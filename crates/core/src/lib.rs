@@ -15,6 +15,7 @@ mod icon;
 mod input;
 mod media;
 mod names;
+mod tooltip;
 mod tray_icon;
 mod util;
 mod volume;
@@ -250,9 +251,10 @@ pub struct Rect {
 }
 
 impl Anchor {
-    /// Top-left corner for a flyout of the given physical size: against the taskbar,
-    /// centered on the icon and kept inside the work area.
+    /// Top-left corner for a flyout of the given physical size: flush against the
+    /// taskbar like the Windows flyouts, centered on the icon, kept inside the work area.
     pub fn place(&self, width: i32, height: i32) -> (i32, i32) {
+        // Margin from the screen edges along the taskbar; none towards the taskbar.
         let gap = (12.0 * self.scale) as i32;
         let (w, i) = (self.work, self.icon);
         let clamp_x = |x: i32| x.clamp(w.left + gap, (w.right - width - gap).max(w.left + gap));
@@ -260,15 +262,15 @@ impl Anchor {
         let center_x = (i.left + i.right) / 2 - width / 2;
         let center_y = (i.top + i.bottom) / 2 - height / 2;
         if i.top >= w.bottom {
-            (clamp_x(center_x), w.bottom - height - gap)
+            (clamp_x(center_x), w.bottom - height)
         } else if i.bottom <= w.top {
-            (clamp_x(center_x), w.top + gap)
+            (clamp_x(center_x), w.top)
         } else if i.left >= w.right {
-            (w.right - width - gap, clamp_y(center_y))
+            (w.right - width, clamp_y(center_y))
         } else if i.right <= w.left {
-            (w.left + gap, clamp_y(center_y))
+            (w.left, clamp_y(center_y))
         } else {
-            (w.right - width - gap, w.bottom - height - gap)
+            (w.right - width - gap, w.bottom - height)
         }
     }
 }
