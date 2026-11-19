@@ -30,8 +30,8 @@ Picks which app receives the keyboard media keys (play/pause, next, previous, st
   - other apps playing audio, as in the Volume Mixer
   - media controls, open, quit
 - In the flyout and the main window, scrolling over an app changes its volume (5% per notch) and reveals its slider. Clicking the percentage also reveals it.
-- Right click opens a quick menu with the targets, their volumes, autostart and quit.
-- New tray icons start in the overflow area. Drag the icon onto the taskbar. To retire the native one, turn off Volume in Settings → Personalization → Taskbar → Turn system icons on or off.
+- Right click opens a quick menu: master volume, targets and other apps with their volumes, settings, autostart and quit. Scrolling over a volume entry changes it while the menu stays open; clicking an app in Other apps mutes it.
+- New tray icons start in the overflow area, and Windows offers no API to move them, so drag the icon onto the taskbar once. The "Hide Windows volume icon" setting hides the native one through the per-user `HideSCAVolume` policy, which Explorer applies on its next start.
 
 ## Settings
 
@@ -41,8 +41,11 @@ Stored in `%APPDATA%\MediaKeysSelector\config.ini` and shared by both front ends
 - Close button hides to tray, or quits
 - In-app title bar
 - Album art as app icon (the track thumbnail the app reports to SMTC)
+- Hide Windows volume icon
 - Theme: System, Light, Dark
 - Tray icon: Ring or Number
+
+`--settings` opens the main window on the settings page, as does Settings… in the tray menu.
 
 The single-instance lock is off for now (`SINGLE_INSTANCE` in `crates/core/src/input.rs`), so both front ends can run side by side. With it on, a second launch focuses the running instance.
 
