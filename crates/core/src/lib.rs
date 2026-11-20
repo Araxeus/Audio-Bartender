@@ -188,13 +188,23 @@ pub enum VolumeBars {
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 #[cfg_attr(feature = "serde", derive(Deserialize), serde(rename_all = "camelCase"))]
 pub enum Accent {
-    Blue,
+    Red,
+    Orange,
+    Amber,
+    Lime,
+    Green,
+    Teal,
     #[default]
     Cyan,
-    Teal,
+    Blue,
+    Indigo,
     Purple,
+    Fuchsia,
     Pink,
-    Orange,
+    /// Muted: a blue grey.
+    Slate,
+    /// Muted: a neutral grey, near black in light themes.
+    Graphite,
 }
 
 /// One accent's colors for a light or dark theme, as `0xRRGGBB`.
@@ -209,18 +219,41 @@ pub struct AccentColors {
 }
 
 impl Accent {
-    pub const ALL: [Accent; 6] =
-        [Accent::Blue, Accent::Cyan, Accent::Teal, Accent::Purple, Accent::Pink, Accent::Orange];
+    /// In swatch order: the hues around the wheel, then the muted ones.
+    pub const ALL: [Accent; 14] = [
+        Accent::Red,
+        Accent::Orange,
+        Accent::Amber,
+        Accent::Lime,
+        Accent::Green,
+        Accent::Teal,
+        Accent::Cyan,
+        Accent::Blue,
+        Accent::Indigo,
+        Accent::Purple,
+        Accent::Fuchsia,
+        Accent::Pink,
+        Accent::Slate,
+        Accent::Graphite,
+    ];
 
     /// The config file and front end name.
     pub fn name(self) -> &'static str {
         match self {
-            Accent::Blue => "blue",
-            Accent::Cyan => "cyan",
-            Accent::Teal => "teal",
-            Accent::Purple => "purple",
-            Accent::Pink => "pink",
+            Accent::Red => "red",
             Accent::Orange => "orange",
+            Accent::Amber => "amber",
+            Accent::Lime => "lime",
+            Accent::Green => "green",
+            Accent::Teal => "teal",
+            Accent::Cyan => "cyan",
+            Accent::Blue => "blue",
+            Accent::Indigo => "indigo",
+            Accent::Purple => "purple",
+            Accent::Fuchsia => "fuchsia",
+            Accent::Pink => "pink",
+            Accent::Slate => "slate",
+            Accent::Graphite => "graphite",
         }
     }
 
@@ -230,24 +263,41 @@ impl Accent {
 
     pub fn label(self) -> &'static str {
         match self {
-            Accent::Blue => "Blue",
-            Accent::Cyan => "Cyan",
-            Accent::Teal => "Teal",
-            Accent::Purple => "Purple",
-            Accent::Pink => "Hot pink",
+            Accent::Red => "Red",
             Accent::Orange => "Orange",
+            Accent::Amber => "Amber",
+            Accent::Lime => "Lime",
+            Accent::Green => "Green",
+            Accent::Teal => "Teal",
+            Accent::Cyan => "Cyan",
+            Accent::Blue => "Blue",
+            Accent::Indigo => "Indigo",
+            Accent::Purple => "Purple",
+            Accent::Fuchsia => "Fuchsia",
+            Accent::Pink => "Hot pink",
+            Accent::Slate => "Slate",
+            Accent::Graphite => "Graphite",
         }
     }
 
-    /// Light themes use a deeper shade, so white text on it stays readable.
+    /// Light themes use a deeper shade, so white text on it stays readable. Dark
+    /// themes use one bright enough to stand out, still dark enough for white text.
     pub fn colors(self, dark: bool) -> AccentColors {
         let (light, dark_accent, gradient) = match self {
-            Accent::Blue => (0x2563eb, 0x3b82f6, [0x3b82f6, 0x06b6d4]),
-            Accent::Cyan => (0x0891b2, 0x06b6d4, [0x22d3ee, 0x3b82f6]),
-            Accent::Teal => (0x0d9488, 0x14b8a6, [0x2dd4bf, 0x0ea5e9]),
-            Accent::Purple => (0x6d5ef5, 0x9d8cff, [0x6366f1, 0xa855f7]),
-            Accent::Pink => (0xdb2777, 0xf0469c, [0xf472b6, 0xa855f7]),
+            Accent::Red => (0xdc2626, 0xef4444, [0xf87171, 0xf97316]),
             Accent::Orange => (0xea580c, 0xf97316, [0xfb923c, 0xec4899]),
+            Accent::Amber => (0xb45309, 0xd97706, [0xfbbf24, 0xf97316]),
+            Accent::Lime => (0x4d7c0f, 0x65a30d, [0xa3e635, 0x22c55e]),
+            Accent::Green => (0x16a34a, 0x22c55e, [0x4ade80, 0x14b8a6]),
+            Accent::Teal => (0x0d9488, 0x14b8a6, [0x2dd4bf, 0x0ea5e9]),
+            Accent::Cyan => (0x0891b2, 0x06b6d4, [0x22d3ee, 0x3b82f6]),
+            Accent::Blue => (0x2563eb, 0x3b82f6, [0x3b82f6, 0x06b6d4]),
+            Accent::Indigo => (0x4f46e5, 0x6366f1, [0x818cf8, 0x3b82f6]),
+            Accent::Purple => (0x6d5ef5, 0x9d8cff, [0x6366f1, 0xa855f7]),
+            Accent::Fuchsia => (0xc026d3, 0xd946ef, [0xe879f9, 0x8b5cf6]),
+            Accent::Pink => (0xdb2777, 0xf0469c, [0xf472b6, 0xa855f7]),
+            Accent::Slate => (0x475569, 0x64748b, [0x64748b, 0x334155]),
+            Accent::Graphite => (0x27272a, 0x71717a, [0x52525b, 0x18181b]),
         };
         let accent = if dark { dark_accent } else { light };
         AccentColors { accent, hover: mix(accent, 0xffffff, 0.15), gradient }

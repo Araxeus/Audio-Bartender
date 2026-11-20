@@ -174,7 +174,8 @@ impl Volumes {
             .w(px(BAR_WIDTH))
             .h(px(22.))
             .overflow_hidden()
-            .justify_center()
+            .justify_end()
+            .px(px(6.))
             .gap_1()
             .rounded(theme.radius)
             .text_xs()
@@ -401,7 +402,7 @@ impl Volumes {
                     .flex_none()
                     .w(px(30.))
                     .text_right()
-                    .text_sm()
+                    .text_size(px(13.))
                     .text_color(theme.muted_foreground)
                     .on_scroll(self.on_wheel(id))
                     .child(format!("{}", (shown * 100.0).round())),

@@ -428,7 +428,7 @@ function settingsPanel(state) {
     updateRow(state.update),
     ...iconRows(state.iconOnTaskbar),
     el("div", "section-label", "Look"),
-    row("Accent color", swatches(s.accent)),
+    el("div", "mode", el("span", "mode-title", "Accent color"), swatches(s.accent)),
     segmented(s, "dark"),
     segmented(s, "trayStyle"),
   );

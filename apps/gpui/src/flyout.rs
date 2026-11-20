@@ -88,8 +88,8 @@ const TRACK_LIGHT: u32 = 0xdcdce4;
 // Estimated heights, for sizing the flyout before its content is measured.
 const CONTROLS: f32 = 45.;
 const VOLUME: f32 = 92.;
-const LABEL: f32 = 34.;
-const TARGET_ROW: f32 = 58.;
+const LABEL: f32 = 27.;
+const TARGET_ROW: f32 = 51.;
 const MIXER_ROW: f32 = 35.;
 const SLIDER: f32 = 32.;
 const SETTING_ROW: f32 = 40.;
@@ -640,12 +640,21 @@ impl Flyout {
     }
 
     fn label(text: &'static str, theme: &Theme) -> Div {
-        div().px_4().pt_3().pb_1().text_xs().font_semibold().text_color(theme.muted_foreground).child(text)
+        div()
+            .px_4()
+            .pt(px(10.))
+            .pb(px(2.))
+            .text_size(px(11.))
+            .line_height(px(15.))
+            .font_semibold()
+            .text_color(theme.muted_foreground)
+            .child(text)
     }
 
     fn controls(&self, theme: &Theme, cx: &mut Context<Self>) -> Div {
         let dark = theme.is_dark();
         let settings_open = self.page == Page::Settings;
+        let icon_color = theme.foreground.opacity(0.8);
         let (core_theme, core_quit) = (self.core.clone(), self.core.clone());
         h_flex()
             .justify_between()
@@ -663,7 +672,7 @@ impl Flyout {
                         ui::logo(px(18.), self.accent.colors(dark).gradient)
                             .child(svg().path("brand/glyph.svg").size(px(14.)).text_color(white())),
                     )
-                    .child(div().text_sm().font_semibold().child("Audio Bartender")),
+                    .child(div().text_size(px(13.)).font_semibold().child("Audio Bartender")),
             )
             .child(
                 h_flex()
@@ -672,7 +681,7 @@ impl Flyout {
                         Button::new("theme")
                             .small()
                             .ghost()
-                            .icon(if dark { IconName::Sun } else { IconName::Moon })
+                            .icon(Icon::new(if dark { IconName::Sun } else { IconName::Moon }).text_color(icon_color))
                             .tooltip("Toggle dark mode")
                             .tooltip_placement(Placement::Bottom)
                             .on_click(move |_, _, _| core_theme.set(Setting::Dark(Some(!dark)))),
@@ -681,7 +690,11 @@ impl Flyout {
                         Button::new("settings")
                             .small()
                             .ghost()
-                            .icon(Icon::new(IconName::Settings).when(settings_open, |i| i.text_color(theme.primary)))
+                            .icon(Icon::new(IconName::Settings).text_color(if settings_open {
+                                theme.primary
+                            } else {
+                                icon_color
+                            }))
                             .tooltip("Settings")
                             .tooltip_placement(Placement::Bottom)
                             .on_click(cx.listener(|this, _, _, cx| {
@@ -695,7 +708,7 @@ impl Flyout {
                             .ghost()
                             .icon(
                                 Icon::new(if self.pinned { IconName::Pin } else { IconName::PinOff })
-                                    .when(self.pinned, |i| i.text_color(theme.primary)),
+                                    .text_color(if self.pinned { theme.primary } else { icon_color }),
                             )
                             .tooltip(if self.pinned {
                                 "Unpin: close when clicking elsewhere"
@@ -712,7 +725,7 @@ impl Flyout {
                         Button::new("quit")
                             .small()
                             .ghost()
-                            .icon(IconName::Power)
+                            .icon(Icon::new(IconName::Power).text_color(icon_color))
                             .tooltip("Quit")
                             .tooltip_placement(Placement::Bottom)
                             .on_click(move |_, _, cx| {
@@ -789,7 +802,7 @@ impl Flyout {
             .cursor_pointer()
             .hover(|s| s.bg(theme.secondary_hover))
             .child(Icon::new(IconName::Speaker).small())
-            .child(div().flex_1().min_w_0().truncate().text_sm().child(name))
+            .child(div().flex_1().min_w_0().truncate().text_size(px(13.)).child(name))
             .child(Icon::new(if open { IconName::ChevronDown } else { IconName::ChevronUp }).small())
             .on_click(cx.listener(|this, _, _, cx| {
                 this.devices_open = !this.devices_open;
@@ -810,7 +823,7 @@ impl Flyout {
                 .hover(|s| s.bg(theme.secondary_hover))
                 .when(device.default, |d| d.text_color(theme.primary))
                 .child(div().w(px(16.)).when(device.default, |d| d.child(Icon::new(IconName::Check).small())))
-                .child(div().flex_1().min_w_0().truncate().text_sm().child(device.name.clone()))
+                .child(div().flex_1().min_w_0().truncate().text_size(px(13.)).child(device.name.clone()))
                 .on_click(cx.listener(move |this, _, _, cx| {
                     core.set_device(&id);
                     this.devices_open = false;
@@ -927,7 +940,7 @@ impl Flyout {
                         .child(
                             v_flex()
                                 .flex_1()
-                                .child(div().text_sm().font_semibold().child("Automatic"))
+                                .child(div().text_size(px(13.)).font_semibold().child("Automatic"))
                                 .child(div().text_xs().text_color(theme.muted_foreground).child("Windows decides")),
                         )
                         .child(Self::radio("automatic", &theme, automatic, &self.core, None)),
@@ -954,7 +967,7 @@ impl Flyout {
                 .gap_1p5()
                 .min_w_0()
                 .children((meters == LevelMeters::Bars).then(|| Self::live_bars(level, &theme)).flatten())
-                .child(div().text_sm().font_semibold().truncate().child(target.name.clone()));
+                .child(div().text_size(px(13.)).font_semibold().truncate().child(target.name.clone()));
             let detail = || Self::detail(target, &theme, meters != LevelMeters::Bars);
             rows.push(
                 Self::row(&theme, target.id.clone().into(), checked, true)
@@ -1028,7 +1041,7 @@ impl Flyout {
                 .gap_1p5()
                 .min_w_0()
                 .children((meters == LevelMeters::Bars).then(|| Self::live_bars(level, &theme)).flatten())
-                .child(div().text_sm().truncate().child(app.name.clone()));
+                .child(div().text_size(px(13.)).font_semibold().truncate().child(app.name.clone()));
             let avatar = ui::avatar(app.icon.as_ref(), &app.name, true, px(22.), &theme);
             let main = h_flex().gap_3().px_2().child(Self::ringed(
                 avatar,
@@ -1060,24 +1073,32 @@ impl Flyout {
     /// One color dot per accent; the chosen one gets a ring.
     fn swatches(&self, current: Accent, theme: &Theme) -> AnyElement {
         let dark = theme.is_dark();
-        h_flex()
+        let swatch = |accent: Accent| {
+            let core = self.core.clone();
+            let selected = accent == current;
+            let fill: Hsla = rgb(accent.colors(dark).accent).into();
+            div()
+                .id(SharedString::from(format!("accent-{}", accent.name())))
+                .size(px(22.))
+                .p(px(2.))
+                .rounded_full()
+                .cursor_pointer()
+                .border_2()
+                .border_color(if selected { fill } else { transparent_black() })
+                .child(div().size_full().rounded_full().bg(fill))
+                .tooltip(move |window, cx| Tooltip::new(accent.label()).build(window, cx))
+                .on_click(move |_, _, _| core.set(Setting::Accent(accent)))
+        };
+        v_flex()
+            .mx_2()
+            .px_2()
+            .pt(px(6.))
+            .pb_2()
             .gap(px(6.))
-            .children(Accent::ALL.into_iter().map(|accent| {
-                let core = self.core.clone();
-                let selected = accent == current;
-                let fill: Hsla = rgb(accent.colors(dark).accent).into();
-                div()
-                    .id(SharedString::from(format!("accent-{}", accent.name())))
-                    .size(px(22.))
-                    .p(px(2.))
-                    .rounded_full()
-                    .cursor_pointer()
-                    .border_2()
-                    .border_color(if selected { fill } else { transparent_black() })
-                    .child(div().size_full().rounded_full().bg(fill))
-                    .tooltip(move |window, cx| Tooltip::new(accent.label()).build(window, cx))
-                    .on_click(move |_, _, _| core.set(Setting::Accent(accent)))
-            }))
+            .child(div().text_size(px(13.)).line_height(px(18.)).child("Accent color"))
+            .children(
+                Accent::ALL.chunks(7).map(|row| h_flex().justify_between().children(row.iter().map(|a| swatch(*a)))),
+            )
             .into_any_element()
     }
 
@@ -1291,7 +1312,7 @@ impl Flyout {
             .child(icon_row)
             .children(volume_row)
             .child(Self::panel_label("LOOK", theme))
-            .child(row("Accent color", self.swatches(s.accent, theme)))
+            .child(self.swatches(s.accent, theme))
             .child(self.segmented(Mode::Theme, s, theme))
             .child(self.segmented(Mode::TrayIcon, s, theme));
         let right = v_flex()
@@ -1316,7 +1337,7 @@ impl Flyout {
                 Button::new("close-settings")
                     .small()
                     .ghost()
-                    .icon(IconName::Close)
+                    .icon(Icon::new(IconName::Close).text_color(theme.foreground.opacity(0.8)))
                     .tooltip("Close settings")
                     .tooltip_placement(Placement::Bottom)
                     .on_click(cx.listener(|this, _, _, cx| this.open_page(Page::Apps, cx))),
@@ -1437,6 +1458,8 @@ impl Render for Flyout {
             .map(|d| if self.anchor.grows_down() { d.items_start() } else { d.items_end() })
             .map(|d| if left { d.justify_end() } else { d.justify_start() })
             .text_color(theme.foreground)
+            // Tauri's line height. GPUI's default leaves taller rows.
+            .line_height(relative(1.4))
             .children(before)
             .child(flyout)
             .children(after)
