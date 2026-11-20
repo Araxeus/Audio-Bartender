@@ -121,6 +121,100 @@ fn position(hwnd: HWND, anchor: &crate::Anchor, frame: crate::Frame, border: (i3
     }
 }
 
+/// True on Windows 11, whose build numbers start at 22000.
+pub fn windows_11() -> bool {
+    use std::sync::OnceLock;
+    use windows::Win32::System::Registry::{HKEY_LOCAL_MACHINE, RRF_RT_REG_SZ, RegGetValueW};
+    static WINDOWS_11: OnceLock<bool> = OnceLock::new();
+    *WINDOWS_11.get_or_init(|| {
+        let mut buf = [0u16; 32];
+        let mut size = (buf.len() * 2) as u32;
+        let found = unsafe {
+            RegGetValueW(
+                HKEY_LOCAL_MACHINE,
+                windows::core::w!("SOFTWARE\\Microsoft\\Windows NT\\CurrentVersion"),
+                windows::core::w!("CurrentBuildNumber"),
+                RRF_RT_REG_SZ,
+                None,
+                Some(buf.as_mut_ptr().cast()),
+                Some(&mut size),
+            )
+        };
+        found.is_ok() && from_wide(&buf).parse::<u32>().is_ok_and(|build| build >= 22000)
+    })
+}
+
+/// Moves this app's tray icon out of the overflow on Windows 11. Explorer keeps each
+/// icon's place in a key under `NotifyIconSettings`, named for nothing we know, so this
+/// finds ours by its executable and sets `IsPromoted`, as dragging the icon does.
+/// Returns false when no key names this executable yet.
+pub fn promote_tray_icon() -> bool {
+    use windows::Win32::System::Registry::{
+        HKEY, HKEY_CURRENT_USER, KEY_READ, REG_DWORD, RRF_RT_REG_SZ, RegCloseKey, RegEnumKeyExW, RegGetValueW,
+        RegOpenKeyExW, RegSetKeyValueW,
+    };
+    const ROOT: &str = "Control Panel\\NotifyIconSettings";
+    let Some(exe) =
+        std::env::current_exe().ok().and_then(|p| p.file_name().map(|n| n.to_string_lossy().to_lowercase()))
+    else {
+        return false;
+    };
+    let root = wide(ROOT);
+    let mut promoted = false;
+    unsafe {
+        let mut key = HKEY::default();
+        if RegOpenKeyExW(HKEY_CURRENT_USER, windows::core::PCWSTR(root.as_ptr()), None, KEY_READ, &mut key).is_err() {
+            return false;
+        }
+        for index in 0.. {
+            let mut name = [0u16; 64];
+            let mut len = name.len() as u32;
+            let listed = RegEnumKeyExW(
+                key,
+                index,
+                Some(windows::core::PWSTR(name.as_mut_ptr())),
+                &mut len,
+                None,
+                None,
+                None,
+                None,
+            );
+            if listed.is_err() {
+                break;
+            }
+            let sub = wide(&format!("{ROOT}\\{}", from_wide(&name)));
+            let mut path = [0u16; 1024];
+            let mut size = (path.len() * 2) as u32;
+            let found = RegGetValueW(
+                HKEY_CURRENT_USER,
+                windows::core::PCWSTR(sub.as_ptr()),
+                windows::core::w!("ExecutablePath"),
+                RRF_RT_REG_SZ,
+                None,
+                Some(path.as_mut_ptr().cast()),
+                Some(&mut size),
+            );
+            // The path may start with a known folder's GUID, so match the file name.
+            let path = from_wide(&path).to_lowercase();
+            if found.is_ok() && path.rsplit('\\').next() == Some(exe.as_str()) {
+                let one = 1u32;
+                let set = RegSetKeyValueW(
+                    HKEY_CURRENT_USER,
+                    windows::core::PCWSTR(sub.as_ptr()),
+                    windows::core::w!("IsPromoted"),
+                    REG_DWORD.0,
+                    Some((&one as *const u32).cast()),
+                    4,
+                );
+                promoted |= set.is_ok();
+            }
+        }
+        let _ = RegCloseKey(key);
+    }
+    crate::log(format!("tray icon promoted: {promoted}"));
+    promoted
+}
+
 /// Puts a topmost window above the other topmost windows, such as a flyout that
 /// came to the front after it.
 pub(crate) fn raise_topmost(hwnd: HWND) {

@@ -16,7 +16,7 @@ use gpui_kit::component::button::{Button, ButtonVariants};
 use gpui_kit::component::scroll::ScrollableElement;
 use gpui_kit::component::theme::Theme;
 use gpui_kit::component::tooltip::Tooltip;
-use gpui_kit::component::{ActiveTheme, Icon, Sizable, StyledExt};
+use gpui_kit::component::{ActiveTheme, Icon, Placement, Sizable, StyledExt};
 use gpui_kit::prelude::FluentBuilder;
 use gpui_kit::*;
 use raw_window_handle::{HasWindowHandle, RawWindowHandle};
@@ -29,66 +29,58 @@ pub const WIDTH: f32 = 360.;
 pub const PANEL: f32 = 640.;
 const MAX_HEIGHT: f32 = 640.;
 
-/// The Windows 11 build draws each part as a rounded card with a shadow, `MARGIN`
-/// clear of the taskbar and of its box, so the shadow fits in the window region.
-#[cfg(feature = "win11")]
-mod look {
-    pub const MARGIN: f32 = 12.;
-    pub const RADIUS: f32 = 8.;
-    /// How far the panel's box overlaps the flyout's, leaving 8 px between the cards.
-    pub const OVERLAP: f32 = 2. * MARGIN - 8.;
-    pub const PANEL_CARD: f32 = super::PANEL;
-}
-
-/// The flyout and panel share a border, so the panel overlaps the flyout by a pixel.
-#[cfg(not(feature = "win11"))]
-mod look {
-    pub const MARGIN: f32 = 0.;
-    pub const RADIUS: f32 = 0.;
-    pub const OVERLAP: f32 = 1.;
-    pub const PANEL_CARD: f32 = super::PANEL + 1.;
-}
-
-use look::{MARGIN, OVERLAP, PANEL_CARD, RADIUS};
-
+/// Each part is a rounded card with a shadow, `MARGIN` inside its box so the shadow
+/// fits in the window region. Toward the taskbar the margin is [`edge`], so the cards
+/// float on Windows 11 and sit flush against the taskbar on Windows 10.
+const MARGIN: f32 = 12.;
+const RADIUS: f32 = 8.;
+/// How far the panel's box overlaps the flyout's, leaving 8 px between the cards.
+const OVERLAP: f32 = 2. * MARGIN - 8.;
 /// The width the panel adds to the window.
-const PANEL_PART: f32 = PANEL_CARD + 2. * MARGIN - OVERLAP;
+const PANEL_PART: f32 = PANEL + 2. * MARGIN - OVERLAP;
 /// The window's fixed size. Its region shows only the flyout and the open panel.
 pub const FRAME_WIDTH: f32 = WIDTH + 2. * MARGIN + PANEL_PART;
 pub const FRAME_HEIGHT: f32 = MAX_HEIGHT + 2. * MARGIN;
 
+/// The margin on the taskbar side of each card.
+fn edge(anchor: &Anchor) -> f32 {
+    if anchor.floats() { MARGIN } else { 0. }
+}
+
 /// The window in physical pixels, with the flyout `height` tall.
-pub fn frame(scale: f32, height: f32) -> audio_bartender_core::Frame {
-    let physical = |v: f32| (v * scale).round() as i32;
+pub fn frame(anchor: &Anchor, height: f32) -> audio_bartender_core::Frame {
+    let physical = |v: f32| (v * anchor.scale).round() as i32;
     audio_bartender_core::Frame {
         width: physical(FRAME_WIDTH),
         height: physical(FRAME_HEIGHT),
         panel: physical(PANEL_PART),
-        visible: physical(height + 2. * MARGIN),
+        visible: physical(height + MARGIN + edge(anchor)),
     }
 }
 
-/// The soft shadow under a Windows 11 card, kept inside its margin.
-fn card_shadow(dark: bool) -> Vec<BoxShadow> {
-    vec![BoxShadow {
+/// A part of the flyout as a rounded card with a soft shadow, kept inside its margin.
+fn card(element: Div, dark: bool) -> Div {
+    element.rounded(px(RADIUS)).shadow(vec![BoxShadow {
         color: black().opacity(if dark { 0.45 } else { 0.18 }),
         offset: point(px(0.), px(4.)),
         blur_radius: px(10.),
         spread_radius: px(-2.),
         inset: false,
-    }]
+    }])
 }
 
-/// A part of the flyout as a card: rounded with a shadow in the Windows 11 build.
-fn card(element: Div, dark: bool) -> Div {
-    let element = element.rounded(px(RADIUS));
-    if cfg!(feature = "win11") { element.shadow(card_shadow(dark)) } else { element }
+/// A card's box: its margin, with [`edge`] toward the taskbar.
+fn card_box(card: Div, anchor: &Anchor) -> Div {
+    let edge = px(edge(anchor));
+    let card_box = div().flex_none().p(px(MARGIN)).child(card);
+    if anchor.grows_down() { card_box.pt(edge) } else { card_box.pb(edge) }
 }
 
 /// The corner radius for a card's first and last children, inside its border.
 fn inner_radius() -> Pixels {
-    px((RADIUS - 1.).max(0.))
+    px(RADIUS - 1.)
 }
+
 /// The segmented control's track in light mode, as in the Tauri front end.
 const TRACK_LIGHT: u32 = 0xdcdce4;
 
@@ -588,7 +580,7 @@ impl Flyout {
     /// window in or out. The window itself keeps one size, so nothing jumps.
     fn fit(&mut self, state: &State, window: &mut Window, cx: &mut Context<Self>) {
         let Some(hwnd) = hwnd(window) else { return };
-        let (anchor, frame) = (self.anchor, self.frame(window));
+        let (anchor, frame) = (self.anchor, self.frame());
         // GPUI ignores bounds whose center is off screen, which the slide's start is.
         let size = size(px(FRAME_WIDTH), px(FRAME_HEIGHT));
         if window.viewport_size() != size {
@@ -612,7 +604,7 @@ impl Flyout {
             .measured
             .panel()
             .filter(|_| self.page == Page::Settings)
-            .map(|h| h.ceil().min(MAX_HEIGHT) + 2. * MARGIN);
+            .map(|h| h.ceil().min(MAX_HEIGHT) + MARGIN + edge(&self.anchor));
         let region = (self.height, panel);
         if Some(region) == self.region && self.settled {
             return;
@@ -624,13 +616,13 @@ impl Flyout {
         } else {
             self.settled = true;
         }
-        let frame = self.frame(window);
+        let frame = self.frame();
         let scale = window.scale_factor();
         let (opened, shown, view) = (self.opened, self.shown_panel.clone(), cx.entity_id());
         window.on_next_frame(move |_, cx| {
             let progress = audio_bartender_core::slide_progress(opened);
             audio_bartender_core::place_window(hwnd, &anchor, frame, progress);
-            let overlap = (OVERLAP * scale).round().max(1.) as i32;
+            let overlap = (OVERLAP * scale).round() as i32;
             let parts = frame.parts(&anchor, panel.map(|h| (h * scale).round() as i32), overlap);
             audio_bartender_core::set_window_region(hwnd, &parts);
             audio_bartender_core::set_cloaked(hwnd, false);
@@ -642,8 +634,8 @@ impl Flyout {
     }
 
     /// The window in physical pixels, with the flyout at its current height.
-    fn frame(&self, window: &Window) -> audio_bartender_core::Frame {
-        frame(window.scale_factor(), self.height)
+    fn frame(&self) -> audio_bartender_core::Frame {
+        frame(&self.anchor, self.height)
     }
 
     fn label(text: &'static str, theme: &Theme) -> Div {
@@ -681,6 +673,7 @@ impl Flyout {
                             .ghost()
                             .icon(if dark { IconName::Sun } else { IconName::Moon })
                             .tooltip("Toggle dark mode")
+                            .tooltip_placement(Placement::Bottom)
                             .on_click(move |_, _, _| core_theme.set(Setting::Dark(Some(!dark)))),
                     )
                     .child(
@@ -689,6 +682,7 @@ impl Flyout {
                             .ghost()
                             .icon(Icon::new(IconName::Settings).when(settings_open, |i| i.text_color(theme.primary)))
                             .tooltip("Settings")
+                            .tooltip_placement(Placement::Bottom)
                             .on_click(cx.listener(|this, _, _, cx| {
                                 let page = if this.page == Page::Settings { Page::Apps } else { Page::Settings };
                                 this.open_page(page, cx);
@@ -707,17 +701,24 @@ impl Flyout {
                             } else {
                                 "Pin: stay open"
                             })
+                            .tooltip_placement(Placement::Bottom)
                             .on_click(cx.listener(|this, _, _, cx| {
                                 this.pinned = !this.pinned;
                                 cx.notify();
                             })),
                     )
-                    .child(Button::new("quit").small().ghost().icon(IconName::Power).tooltip("Quit").on_click(
-                        move |_, _, cx| {
-                            core_quit.shutdown();
-                            cx.quit();
-                        },
-                    )),
+                    .child(
+                        Button::new("quit")
+                            .small()
+                            .ghost()
+                            .icon(IconName::Power)
+                            .tooltip("Quit")
+                            .tooltip_placement(Placement::Bottom)
+                            .on_click(move |_, _, cx| {
+                                core_quit.shutdown();
+                                cx.quit();
+                            }),
+                    ),
             )
     }
 
@@ -1278,6 +1279,7 @@ impl Flyout {
                     .ghost()
                     .icon(IconName::Close)
                     .tooltip("Close settings")
+                    .tooltip_placement(Placement::Bottom)
                     .on_click(cx.listener(|this, _, _, cx| this.open_page(Page::Apps, cx))),
             );
         let view = cx.entity_id();
@@ -1380,12 +1382,12 @@ impl Render for Flyout {
                     .child(div().px_2().child(master))
                     .child(measure(&self.measured.volume, view)),
             );
-        let flyout = div().flex_none().p(px(MARGIN)).child(card(flyout, dark));
+        let flyout = card_box(card(flyout, dark), &self.anchor);
         // Drawn while open, so it gets measured, and while the region still shows it.
-        let left = self.frame(window).panel_left(&self.anchor);
+        let left = self.frame().panel_left(&self.anchor);
         let panel = (self.page == Page::Settings || self.shown_panel.get().is_some()).then(|| {
-            let panel = card(self.settings_panel(&state, &theme, cx).w(px(PANEL_CARD)), dark);
-            let panel = div().flex_none().p(px(MARGIN)).child(panel);
+            let panel = card(self.settings_panel(&state, &theme, cx).w(px(PANEL)), dark);
+            let panel = card_box(panel, &self.anchor);
             if left { panel.mr(px(-OVERLAP)) } else { panel.ml(px(-OVERLAP)) }
         });
         let (before, after) = if left { (panel, None) } else { (None, panel) };

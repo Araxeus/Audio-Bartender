@@ -14,5 +14,3 @@ serde = "1"
 [features]
 default = ["custom-protocol"]
 custom-protocol = ["tauri/custom-protocol"]
-# Rounded, shadowed cards that float above the taskbar, like the Windows 11 flyouts.
-win11 = []

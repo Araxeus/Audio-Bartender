@@ -12,7 +12,7 @@ pub fn hex(color: u32) -> Hsla {
 pub const DARK_FOOTER: u32 = 0x0f0f14;
 
 /// Applies light or dark mode with the app palette, which matches the Tauri front end.
-/// The card color, which `theme.background` is too outside the Windows 11 build.
+/// The card color. The theme's background is clear, for the space around the cards.
 pub fn card(dark: bool) -> Hsla {
     hex(if dark { 0x1c1c25 } else { 0xffffff })
 }
@@ -39,7 +39,7 @@ pub fn apply(window: &mut Window, cx: &mut App, dark: Option<bool>, accent: Acce
         // A thin bar that stays visible, so a long page shows there's more below.
         t.scrollbar_mode = ScrollbarMode::Always;
         // Windows 11's own UI font, as in its flyouts.
-        if cfg!(feature = "win11") {
+        if audio_bartender_core::windows_11() {
             t.font_family = "Segoe UI Variable Text".into();
         }
         // Dimmer in dark mode, where a grey thumb otherwise stands out; matches the Tauri one.
@@ -61,10 +61,9 @@ pub fn apply(window: &mut Window, cx: &mut App, dark: Option<bool>, accent: Acce
         t.muted = hex(window_bg);
         t.title_bar = hex(window_bg);
         t.title_bar_border = hex(window_bg);
-        // The root fills the window with the background. In the Windows 11 build the
-        // space around the cards must stay clear for their shadows, so the cards use
-        // `card` instead.
-        t.background = if cfg!(feature = "win11") { transparent_black() } else { hex(card) };
+        // The root fills the window with the background. The space around the cards must
+        // stay clear for their shadows, so the cards use `card` instead.
+        t.background = transparent_black();
         t.secondary = hex(hover);
         t.secondary_hover = hex(hover);
         t.border = hex(border);

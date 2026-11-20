@@ -263,11 +263,11 @@ body[data-panel="right"] { justify-content: flex-start; }
 
 .flyout-column { display: flex; flex-direction: column; flex: none; width: 360px; border: 1px solid var(--border); background: var(--bg); }
 
-/* Settings panel. One pixel wider, overlapping the flyout so their borders meet as one line. */
+/* Settings panel */
 
-.settings-panel { flex: none; width: 641px; margin-right: -1px; border: 1px solid var(--border); background: var(--card); }
+.settings-panel { flex: none; border: 1px solid var(--border); background: var(--card); }
 .settings-panel[hidden] { display: none; }
-body[data-panel="right"] .settings-panel { order: 1; margin-right: 0; margin-left: -1px; }
+body[data-panel="right"] .settings-panel { order: 1; }
 .panel-title { padding-left: 4px; font-size: 13px; font-weight: 600; }
 .panel-body { display: flex; align-items: flex-start; padding-bottom: 8px; }
 .panel-column { flex: 1; min-width: 0; }
@@ -409,13 +409,34 @@ button.icon.tiny { width: 26px; height: 22px; }
 .fly-row:hover .hover-swap .detail { display: none; }
 .fly-row:hover .hover-swap .transport { display: flex; }
 
-/* Windows 11 build: rounded cards with shadows, floating 12px clear of the taskbar
-   and 8px apart. The margins match MARGIN and OVERLAP in main.rs. */
+/* Cards: rounded, with shadows, 8px apart. Each has a 12px margin for its shadow,
+   matching MARGIN and OVERLAP in main.rs. Toward the taskbar the margin is 12px where
+   the cards float (Windows 11) and none where they sit flush (Windows 10). */
 
-html:has(body.win11) { background: transparent; }
-body.win11 .flyout-column,
-body.win11 .settings-panel { margin: 12px; overflow: hidden; border-radius: 8px; box-shadow: 0 4px 10px -2px rgba(0, 0, 0, .18); }
-:root[data-theme="dark"] body.win11 .flyout-column,
-:root[data-theme="dark"] body.win11 .settings-panel { box-shadow: 0 4px 10px -2px rgba(0, 0, 0, .45); }
-body.win11 .settings-panel { width: 640px; margin-right: -4px; }
-body.win11[data-panel="right"] .settings-panel { margin-right: 12px; margin-left: -4px; }
+html { background: transparent; }
+.flyout-column,
+.settings-panel { margin: 12px; overflow: hidden; border-radius: 8px; box-shadow: 0 4px 10px -2px rgba(0, 0, 0, .18); }
+:root[data-theme="dark"] .flyout-column,
+:root[data-theme="dark"] .settings-panel { box-shadow: 0 4px 10px -2px rgba(0, 0, 0, .45); }
+.settings-panel { width: 640px; margin-right: -4px; }
+body[data-panel="right"] .settings-panel { margin-right: 12px; margin-left: -4px; }
+body:not(.floats):not([data-down="true"]) :is(.flyout-column, .settings-panel) { margin-bottom: 0; }
+body:not(.floats)[data-down="true"] :is(.flyout-column, .settings-panel) { margin-top: 0; }
+
+/* Tooltips like GPUI's: quick, and below the control so they stay inside its card. */
+
+.tip {
+  position: fixed;
+  z-index: 10;
+  max-width: 240px;
+  padding: 4px 8px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--card);
+  color: var(--text);
+  font-size: 12px;
+  white-space: nowrap;
+  pointer-events: none;
+  box-shadow: 0 2px 6px rgba(0, 0, 0, .18);
+}
+.tip[hidden] { display: none; }

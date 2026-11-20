@@ -79,7 +79,6 @@ Both front ends share one single-instance lock, so a second launch of either ope
 
 ```powershell
 pwsh build.ps1                    # release build of both, then the installer, all in dist/
-pwsh build.ps1 -Win11             # the same with the Windows 11 look, in dist/win11/
 pwsh dist/dev.ps1 --pinned        # run both front ends from dist/ side by side
 pwsh scripts/measure.ps1          # release build, copy to dist/, measure + screenshot both
 pwsh scripts/measure.ps1 -NoBuild

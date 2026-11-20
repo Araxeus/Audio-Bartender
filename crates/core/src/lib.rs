@@ -472,20 +472,30 @@ pub enum Setting {
     Accent(Accent),
 }
 
-/// Windows pages for arranging tray icons. Windows lets only the user move icons,
-/// so the app opens the right page instead.
+/// Arranging tray icons. Windows 10 lets only the user move icons, so the app opens
+/// the right page there. Windows 11 keeps each icon's place in the registry, so the
+/// app moves its own icon out of the overflow directly.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 #[cfg_attr(feature = "serde", derive(Deserialize), serde(rename_all = "camelCase"))]
 pub enum IconPage {
-    /// Notification Area Icons: set this app to always show on the taskbar.
+    /// Shows this app's icon on the taskbar rather than in the overflow.
     ShowOurs,
     /// System Icons: turn off the Windows volume icon.
     HideWindows,
 }
 
-/// Opens a Windows page for arranging tray icons.
+/// Opens a Windows page for arranging tray icons, or on Windows 11 shows this app's
+/// icon on the taskbar directly.
 pub fn open_icon_page(page: IconPage) {
+    if page == IconPage::ShowOurs && util::windows_11() && util::promote_tray_icon() {
+        return;
+    }
     util::open_icon_page(page);
+}
+
+/// True on Windows 11, where flyouts float above the taskbar.
+pub fn windows_11() -> bool {
+    util::windows_11()
 }
 
 #[derive(Clone, Debug, Default, PartialEq)]
@@ -599,6 +609,15 @@ impl Anchor {
     /// True when the taskbar is at the top, so the flyout hangs down from it.
     pub fn grows_down(&self) -> bool {
         self.icon.bottom <= self.work.top
+    }
+
+    /// True when the flyout floats clear of the taskbar, as on Windows 11. On Windows
+    /// 10 it sits flush against the taskbar, unless that is at the side.
+    pub fn floats(&self) -> bool {
+        let side = self.icon.top < self.work.bottom
+            && !self.grows_down()
+            && (self.icon.left >= self.work.right || self.icon.right <= self.work.left);
+        util::windows_11() || side
     }
 
     /// Top-left corner for `frame`, with its showing parts against the taskbar.

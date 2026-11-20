@@ -62,7 +62,7 @@ export function el(tag, className, ...children) {
 export function button(className, title, content, action) {
   const node = el("button", className, ...[content].flat());
   if (title) {
-    node.title = title;
+    node.dataset.tip = title;
     node.setAttribute("aria-label", title);
   }
   node.addEventListener("click", (event) => {
@@ -307,3 +307,58 @@ export function detailText(target) {
     (target.viaWindow ? "Window messages" : "Idle");
   return { text: target.track ? `${label} · ${target.track}` : label, playing };
 }
+
+/* Tooltips like GPUI's: they show after half a second, below the control and inside
+   its card, because the window region clips anything outside the cards. Native title
+   tooltips wait longer. */
+
+const TIP_DELAY = 500;
+const tip = el("div", "tip");
+tip.hidden = true;
+document.body.append(tip);
+let tipTimer = 0;
+let pointer = { x: 0, y: 0 };
+
+/** The control with a tooltip under the pointer, after any re-render. */
+function tipTarget() {
+  return document.elementFromPoint(pointer.x, pointer.y)?.closest("[data-tip]") ?? null;
+}
+
+function hideTip() {
+  clearTimeout(tipTimer);
+  tip.hidden = true;
+}
+
+function showTip(node) {
+  tip.textContent = node.dataset.tip;
+  tip.hidden = false;
+  const at = node.getBoundingClientRect();
+  const card = (node.closest(".flyout-column, .settings-panel") ?? document.body).getBoundingClientRect();
+  const { width, height } = tip.getBoundingClientRect();
+  const left = Math.min(Math.max(at.left + at.width / 2 - width / 2, card.left + 4), card.right - width - 4);
+  const below = at.bottom + 6;
+  const top = below + height <= card.bottom - 4 ? below : at.top - height - 6;
+  tip.style.left = `${left}px`;
+  tip.style.top = `${top}px`;
+}
+
+document.addEventListener("pointermove", (event) => {
+  pointer = { x: event.clientX, y: event.clientY };
+  const node = tipTarget();
+  if (!node) return hideTip();
+  if (!tip.hidden && tip.textContent === node.dataset.tip) return;
+  hideTip();
+  tipTimer = setTimeout(() => {
+    const still = tipTarget();
+    if (still) showTip(still);
+  }, TIP_DELAY);
+});
+document.addEventListener("pointerdown", hideTip);
+document.addEventListener("pointerleave", hideTip);
+// A re-render can swap the control or change its label, so keep the tip in step.
+setInterval(() => {
+  if (tip.hidden) return;
+  const node = tipTarget();
+  if (!node) hideTip();
+  else if (node.dataset.tip !== tip.textContent) showTip(node);
+}, 200);

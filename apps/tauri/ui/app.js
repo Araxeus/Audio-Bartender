@@ -5,7 +5,8 @@ const params = new URLSearchParams(location.search);
 
 let page = location.hash === "#settings" ? "settings" : "apps";
 let pinned = params.get("pinned") === "true";
-document.body.classList.toggle("win11", params.get("look") === "win11");
+document.body.classList.toggle("floats", params.get("floats") !== "false");
+document.body.dataset.down = params.get("down") === "true";
 let devicesOpen = false;
 let first = true;
 let lastSize = "";
@@ -481,9 +482,10 @@ function reportSize(withPanel) {
   const size = `${flyout}/${panel}`;
   if (size === lastSize) return;
   lastSize = size;
-  invoke("flyout_size", { flyout, panel }).then(([left, down]) => {
+  invoke("flyout_size", { flyout, panel }).then(([left, down, floats]) => {
     document.body.dataset.panel = left ? "left" : "right";
     document.body.dataset.down = down;
+    document.body.classList.toggle("floats", floats);
     const hidden = shownPanel && panel === null;
     shownPanel = panel !== null;
     if (hidden) rerender();
