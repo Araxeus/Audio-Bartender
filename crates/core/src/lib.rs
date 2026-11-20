@@ -68,11 +68,14 @@ impl ImageKind {
 
 }
 
-/// An encoded image: an app icon or album art. Serializes as a `data:` URL.
+/// An encoded image: an app icon or album art. Serializes as `{ url, art }` with a
+/// `data:` URL.
 #[derive(Clone, PartialEq)]
 pub struct AppIcon {
     pub data: Arc<[u8]>,
     pub kind: ImageKind,
+    /// Album art, which fills a square cropped, unlike an app icon.
+    pub art: bool,
 }
 
 impl std::fmt::Debug for AppIcon {
@@ -84,7 +87,11 @@ impl std::fmt::Debug for AppIcon {
 #[cfg(feature = "serde")]
 impl Serialize for AppIcon {
     fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
-        serializer.serialize_str(&format!("data:{};base64,{}", self.kind.mime(), icon::base64(&self.data)))
+        use serde::ser::SerializeStruct;
+        let mut s = serializer.serialize_struct("AppIcon", 2)?;
+        s.serialize_field("url", &format!("data:{};base64,{}", self.kind.mime(), icon::base64(&self.data)))?;
+        s.serialize_field("art", &self.art)?;
+        s.end()
     }
 }
 

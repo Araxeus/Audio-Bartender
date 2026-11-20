@@ -63,7 +63,7 @@ pub fn avatar(icon: Option<&AppIcon>, name: &str, running: bool, size: Pixels, t
     match icon {
         Some(icon) => {
             // Album art fills the square, cropped; exe icons keep a little margin.
-            let art = icon.kind != ImageKind::Png;
+            let art = icon.art;
             let inner = if art { size } else { size * 0.9 };
             frame
                 .child(

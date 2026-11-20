@@ -78,8 +78,8 @@ function colorFor(name) {
 export function avatar(image, name, running = true) {
   const box = el("span", "avatar" + (running ? "" : " offline"));
   if (image) {
-    const img = el("img", image.startsWith("data:image/png") ? "app-icon" : "art");
-    img.src = image;
+    const img = el("img", image.art ? "art" : "app-icon");
+    img.src = image.url;
     img.alt = "";
     box.append(img);
   } else {

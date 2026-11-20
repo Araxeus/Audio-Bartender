@@ -28,7 +28,7 @@ pub fn extract(exe_path: &str) -> Option<AppIcon> {
         }
         let rgba = render(icon);
         let _ = DestroyIcon(icon);
-        Some(AppIcon { data: Arc::from(encode_png(SIZE, SIZE, &rgba?)), kind: ImageKind::Png })
+        Some(AppIcon { data: Arc::from(encode_png(SIZE, SIZE, &rgba?)), kind: ImageKind::Png, art: false })
     }
 }
 

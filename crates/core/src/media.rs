@@ -461,7 +461,7 @@ fn read_art(props: &MediaProperties) -> Option<AppIcon> {
     let mut data = vec![0u8; size as usize];
     reader.ReadBytes(&mut data).ok()?;
     let kind = sniff(&data)?;
-    Some(AppIcon { data: Arc::from(data), kind })
+    Some(AppIcon { data: Arc::from(data), kind, art: true })
 }
 
 /// Apps often leave the content type blank, so read the magic bytes.

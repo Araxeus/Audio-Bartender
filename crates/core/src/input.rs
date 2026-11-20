@@ -625,7 +625,8 @@ unsafe fn show_menu(hwnd: HWND) {
             ID_MASTER => audio::toggle_master_mute(),
             ID_AUTOMATIC => shared().send(Cmd::Select(None)),
             ID_SOUND_SETTINGS => _ = shell_open("ms-settings:sound", None),
-            ID_VOLUME_MIXER => _ = shell_open("sndvol.exe", None),
+            // `-m` takes a point packed like an LPARAM and opens the mixer just above it.
+            ID_VOLUME_MIXER => _ = shell_open("sndvol.exe", Some(&format!("-m {}", (at.y << 16) | (at.x & 0xFFFF)))),
             ID_SOUNDS => _ = shell_open("rundll32.exe", Some("shell32.dll,Control_RunDLL mmsys.cpl,,2")),
             ID_TROUBLESHOOT => {
                 // Newer Windows builds retired msdt; the troubleshooter list replaces it.
