@@ -41,6 +41,10 @@ const WINDOW_PLAYERS: &[&str] = &[
 /// Window-only players and app volumes change without events, so they are polled.
 const POLL: Duration = Duration::from_secs(2);
 
+/// Empty album art fetches per track before giving up. Refreshes run at least every
+/// poll interval, so this covers about ten seconds.
+const ART_RETRIES: u8 = 5;
+
 /// Album art above this size is skipped to keep state snapshots small.
 const MAX_ART_BYTES: u64 = 512 * 1024;
 
@@ -79,8 +83,9 @@ struct Worker {
     devices: Vec<Device>,
     /// Exe icons by exe name. `None` marks an exe without a usable icon.
     icons: HashMap<String, Option<AppIcon>>,
-    /// Album art by target id, with the key it was fetched for.
-    art: HashMap<String, (String, Option<AppIcon>)>,
+    /// Album art by target id: the key it was fetched for, the art, and how many
+    /// fetches came back empty.
+    art: HashMap<String, (String, Option<AppIcon>, u8)>,
 }
 
 impl Worker {
@@ -257,10 +262,20 @@ impl Worker {
         if self.config.settings.album_art {
             for m in &media {
                 let (Some(key), Some(props)) = (&m.art_key, &m.props) else { continue };
-                if self.art.get(&m.target.id).is_some_and(|(cached, _)| cached == key) {
-                    continue;
-                }
-                self.art.insert(m.target.id.clone(), (key.clone(), read_art(props)));
+                // Apps often publish the thumbnail a moment after the title, so an
+                // empty fetch is retried on the next refreshes before giving up.
+                let misses = match self.art.get(&m.target.id) {
+                    Some((cached, art, misses)) if cached == key => {
+                        if art.is_some() || *misses >= ART_RETRIES {
+                            continue;
+                        }
+                        *misses
+                    }
+                    _ => 0,
+                };
+                let art = read_art(props);
+                let misses = if art.is_some() { 0 } else { misses + 1 };
+                self.art.insert(m.target.id.clone(), (key.clone(), art, misses));
             }
         }
 
@@ -331,7 +346,7 @@ impl Worker {
 
     fn art_for(&self, m: &MediaTarget) -> Option<AppIcon> {
         let key = m.art_key.as_ref()?;
-        let (cached, art) = self.art.get(&m.target.id)?;
+        let (cached, art, _) = self.art.get(&m.target.id)?;
         if cached == key { art.clone() } else { None }
     }
 
