@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 use std::sync::Arc;
 use std::sync::mpsc::{Receiver, RecvTimeoutError, Sender};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use windows::Foundation::TypedEventHandler;
 use windows::Media::Control::{
@@ -41,9 +41,10 @@ const WINDOW_PLAYERS: &[&str] = &[
 /// Window-only players and app volumes change without events, so they are polled.
 const POLL: Duration = Duration::from_secs(2);
 
-/// Empty album art fetches per track before giving up. Refreshes run at least every
-/// poll interval, so this covers about ten seconds.
-const ART_RETRIES: u8 = 5;
+/// How long after a track starts its art is fetched again on every refresh. Apps
+/// report the new title first and the matching thumbnail a moment later, so an
+/// early fetch can return nothing or the previous track's art.
+const ART_SETTLE: Duration = Duration::from_secs(8);
 
 /// Album art above this size is skipped to keep state snapshots small.
 const MAX_ART_BYTES: u64 = 512 * 1024;
@@ -83,9 +84,10 @@ struct Worker {
     devices: Vec<Device>,
     /// Exe icons by exe name. `None` marks an exe without a usable icon.
     icons: HashMap<String, Option<AppIcon>>,
-    /// Album art by target id: the key it was fetched for, the art, and how many
-    /// fetches came back empty.
-    art: HashMap<String, (String, Option<AppIcon>, u8)>,
+    /// Album art by target id: the key it was fetched for, the art, and when that
+    /// track was first seen.
+    art: HashMap<String, (String, Option<AppIcon>, Instant)>,
+    last_refresh: Instant,
 }
 
 impl Worker {
@@ -112,6 +114,7 @@ impl Worker {
             devices: Vec::new(),
             icons: HashMap::new(),
             art: HashMap::new(),
+            last_refresh: Instant::now(),
         }
     }
 
@@ -119,7 +122,9 @@ impl Worker {
         self.devices = self.watcher.as_ref().map(|w| audio::devices(w.enumerator())).unwrap_or_default();
         self.refresh(true);
         loop {
-            let first = match rx.recv_timeout(POLL) {
+            // Busy event streams must not starve the periodic refresh.
+            let wait = POLL.saturating_sub(self.last_refresh.elapsed());
+            let first = match rx.recv_timeout(wait) {
                 Ok(cmd) => cmd,
                 Err(RecvTimeoutError::Timeout) => {
                     // Another running front end may have changed the shared config.
@@ -209,6 +214,7 @@ impl Worker {
 
     /// Re-reads every media session and player, then publishes.
     fn refresh(&mut self, resubscribe: bool) {
+        self.last_refresh = Instant::now();
         let sessions = self.sessions();
         if resubscribe {
             self.resubscribe(&sessions);
@@ -262,20 +268,20 @@ impl Worker {
         if self.config.settings.album_art {
             for m in &media {
                 let (Some(key), Some(props)) = (&m.art_key, &m.props) else { continue };
-                // Apps often publish the thumbnail a moment after the title, so an
-                // empty fetch is retried on the next refreshes before giving up.
-                let misses = match self.art.get(&m.target.id) {
-                    Some((cached, art, misses)) if cached == key => {
-                        if art.is_some() || *misses >= ART_RETRIES {
+                let since = match self.art.get(&m.target.id) {
+                    Some((cached, _, since)) if cached == key => {
+                        if since.elapsed() > ART_SETTLE {
                             continue;
                         }
-                        *misses
+                        *since
                     }
-                    _ => 0,
+                    _ => Instant::now(),
                 };
-                let art = read_art(props);
-                let misses = if art.is_some() { 0 } else { misses + 1 };
-                self.art.insert(m.target.id.clone(), (key.clone(), art, misses));
+                let fetched = read_art(props);
+                // Keep earlier art if a later fetch comes back empty.
+                let previous = self.art.get(&m.target.id).filter(|(cached, ..)| cached == key).and_then(|(_, art, _)| art.clone());
+                let art = fetched.or(previous);
+                self.art.insert(m.target.id.clone(), (key.clone(), art, since));
             }
         }
 

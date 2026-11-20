@@ -20,5 +20,6 @@ fn main() {
         other => println!("{other:?}"),
     })
     .expect("another instance runs");
-    std::thread::sleep(std::time::Duration::from_secs(4));
+    let seconds = std::env::args().nth(1).and_then(|a| a.parse().ok()).unwrap_or(4);
+    std::thread::sleep(std::time::Duration::from_secs(seconds));
 }
