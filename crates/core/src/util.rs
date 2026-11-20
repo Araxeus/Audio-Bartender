@@ -25,27 +25,6 @@ pub fn log(line: impl AsRef<str>) {
     }
 }
 
-pub fn set_dark_title_bar(hwnd: isize, dark: bool) {
-    use windows::Win32::Graphics::Dwm::{DWMWA_USE_IMMERSIVE_DARK_MODE, DwmSetWindowAttribute};
-    use windows::Win32::Foundation::WPARAM;
-    use windows::Win32::UI::Input::KeyboardAndMouse::GetActiveWindow;
-    use windows::Win32::UI::WindowsAndMessaging::{DefWindowProcW, WM_NCACTIVATE};
-
-    let hwnd = HWND(hwnd as _);
-    let value = BOOL::from(dark);
-    unsafe {
-        let _ = DwmSetWindowAttribute(hwnd, DWMWA_USE_IMMERSIVE_DARK_MODE, &value as *const BOOL as _, 4);
-
-        // Windows 10 keeps the old caption color until the next activation change,
-        // so fake one, ending in the window's real state. DefWindowProcW skips the
-        // app's own handler, which would otherwise react to the fake change.
-        let active = GetActiveWindow() == hwnd;
-        for state in [!active, active] {
-            DefWindowProcW(hwnd, WM_NCACTIVATE, WPARAM(state as usize), LPARAM(0));
-        }
-    }
-}
-
 /// Joins COM on the calling thread if it hasn't yet. A thread that already chose an
 /// apartment keeps it, which is fine for the audio APIs.
 pub fn com_init() {
@@ -67,6 +46,31 @@ pub fn open_icon_page(page: crate::IconPage) {
     let target = wide(&target);
     unsafe {
         ShellExecuteW(None, windows::core::w!("open"), windows::core::w!("explorer.exe"), windows::core::PCWSTR(target.as_ptr()), None, SW_SHOWNORMAL);
+    }
+}
+
+/// Moves and resizes a window so its client area is `width` x `height` logical pixels,
+/// placed by `anchor`. Keeps the flyout against the taskbar as its content grows.
+pub fn place_window(hwnd: isize, anchor: &crate::Anchor, width: f32, height: f32) {
+    use windows::Win32::Foundation::{POINT, RECT};
+    use windows::Win32::Graphics::Gdi::ClientToScreen;
+    use windows::Win32::UI::WindowsAndMessaging::{
+        GetClientRect, GetWindowRect, SWP_NOACTIVATE, SWP_NOZORDER, SetWindowPos,
+    };
+    let hwnd = HWND(hwnd as _);
+    let (w, h) = ((width * anchor.scale).round() as i32, (height * anchor.scale).round() as i32);
+    let (x, y) = anchor.place(w, h);
+    unsafe {
+        // The window rectangle can include invisible resize borders around the client area.
+        let (mut window, mut client, mut origin) = (RECT::default(), RECT::default(), POINT::default());
+        if GetWindowRect(hwnd, &mut window).is_err() || GetClientRect(hwnd, &mut client).is_err() {
+            return;
+        }
+        let _ = ClientToScreen(hwnd, &mut origin);
+        let (dx, dy) = (origin.x - window.left, origin.y - window.top);
+        let extra_w = (window.right - window.left) - client.right;
+        let extra_h = (window.bottom - window.top) - client.bottom;
+        let _ = SetWindowPos(hwnd, None, x - dx, y - dy, w + extra_w, h + extra_h, SWP_NOZORDER | SWP_NOACTIVATE);
     }
 }
 

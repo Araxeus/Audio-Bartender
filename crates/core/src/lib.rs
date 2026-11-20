@@ -7,7 +7,8 @@
 //! - the tray icon, drawn as a live volume indicator, and its right-click menu.
 //!
 //! A front end calls [`Core::start`], renders [`State`] snapshots from [`Event::State`],
-//! and reacts to [`Event::Show`], [`Event::Flyout`] and [`Event::Quit`].
+//! shows its flyout on [`Event::Flyout`] and exits on [`Event::Quit`]. The flyout is
+//! the whole UI.
 
 mod audio;
 mod config;
@@ -161,10 +162,6 @@ pub struct Settings {
     pub autostart: bool,
     /// Forced dark (`true`) or light (`false`) theme. `None` follows Windows.
     pub dark: Option<bool>,
-    /// The window draws its own title bar instead of the native one.
-    pub custom_title_bar: bool,
-    /// The close button hides the window to the tray instead of quitting.
-    pub close_to_tray: bool,
     /// Show the current track's album art in place of the app icon.
     pub album_art: bool,
     pub tray_style: TrayStyle,
@@ -175,8 +172,6 @@ impl Default for Settings {
         Settings {
             autostart: false,
             dark: None,
-            custom_title_bar: true,
-            close_to_tray: true,
             album_art: false,
             tray_style: TrayStyle::Ring,
         }
@@ -189,8 +184,6 @@ impl Default for Settings {
 pub enum Setting {
     Autostart(bool),
     Dark(Option<bool>),
-    CustomTitleBar(bool),
-    CloseToTray(bool),
     AlbumArt(bool),
     TrayStyle(TrayStyle),
 }
@@ -275,15 +268,21 @@ impl Anchor {
     }
 }
 
+/// What the flyout shows.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+#[cfg_attr(feature = "serde", derive(Serialize), serde(rename_all = "camelCase"))]
+pub enum Page {
+    #[default]
+    Apps,
+    Settings,
+}
+
 #[derive(Clone, Debug)]
 pub enum Event {
     State(State),
-    /// The user asked to see the main window (a second launch or the tray menu).
-    Show,
-    /// The user picked Settings in the tray menu.
-    ShowSettings,
-    /// The tray icon was left-clicked. Show the flyout next to it.
-    Flyout(Anchor),
+    /// Show the flyout next to `anchor` on `page`. With `toggle` (a tray click), an
+    /// open flyout closes instead.
+    Flyout { anchor: Anchor, page: Page, toggle: bool },
     /// The user picked Quit in the tray menu. The tray icon is already gone.
     Quit,
 }
@@ -403,16 +402,17 @@ impl Core {
         audio::set_default_device(id);
     }
 
+    /// Where to open the flyout without a tray click: next to the tray icon, or the
+    /// bottom-right corner of the primary screen.
+    pub fn default_anchor(&self) -> Anchor {
+        input::default_anchor()
+    }
+
     /// Removes the tray icon. Call before exiting for reasons other than [`Event::Quit`].
     pub fn shutdown(&self) {
         util::log("shutdown");
         input::remove_tray();
     }
-}
-
-/// Switches a native title bar between dark and light.
-pub fn set_dark_title_bar(hwnd: isize, dark: bool) {
-    util::set_dark_title_bar(hwnd, dark);
 }
 
 /// Renders the tray icon as PNG, for previews and tests.
@@ -424,9 +424,21 @@ pub fn preview_tray_icon(level: f32, muted: bool, style: TrayStyle, light_taskba
     Some(icon::encode_png(size as u32, size as u32, &pixels))
 }
 
-/// True when the app was launched with `--settings` and should open on its settings page.
-pub fn start_in_settings() -> bool {
-    std::env::args().any(|a| a == "--settings")
+/// Moves and resizes a window (by its raw handle) so its client area is
+/// `width` x `height` logical pixels, placed next to the tray like the flyout.
+pub fn place_window(hwnd: isize, anchor: &Anchor, width: f32, height: f32) {
+    util::place_window(hwnd, anchor, width, height);
+}
+
+/// The page to open on launch: `--settings` opens the settings page.
+pub fn start_page() -> Page {
+    if std::env::args().any(|a| a == "--settings") { Page::Settings } else { Page::Apps }
+}
+
+/// True when the app was launched with `--pinned`: the flyout stays open when it
+/// loses focus, which helps comparing front ends side by side.
+pub fn start_pinned() -> bool {
+    std::env::args().any(|a| a == "--pinned")
 }
 
 /// True when the app was launched by autostart and should stay in the tray.

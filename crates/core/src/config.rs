@@ -39,8 +39,6 @@ impl Config {
                 "target" if !value.is_empty() => cfg.target = Some(value.to_owned()),
                 "target_name" if !value.is_empty() => cfg.target_name = Some(value.to_owned()),
                 "theme" => s.dark = matches!(value, "dark" | "light").then(|| value == "dark"),
-                "titlebar" => s.custom_title_bar = value != "native",
-                "close_to_tray" => s.close_to_tray = flag(value),
                 "album_art" => s.album_art = flag(value),
                 "tray_style" => s.tray_style = if value == "number" { TrayStyle::Number } else { TrayStyle::Ring },
                 _ => {}
@@ -59,18 +57,9 @@ impl Config {
             None => "",
         };
         let text = format!(
-            "target={}
-target_name={}
-theme={theme}
-titlebar={}
-close_to_tray={}
-album_art={}
-tray_style={}
-",
+            "target={}\ntarget_name={}\ntheme={theme}\nalbum_art={}\ntray_style={}\n",
             self.target.as_deref().unwrap_or(""),
             self.target_name.as_deref().unwrap_or(""),
-            if s.custom_title_bar { "custom" } else { "native" },
-            s.close_to_tray,
             s.album_art,
             if s.tray_style == TrayStyle::Number { "number" } else { "ring" },
         );

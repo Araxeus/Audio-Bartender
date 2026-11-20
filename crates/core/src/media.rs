@@ -179,8 +179,6 @@ impl Worker {
                 match setting {
                     Setting::Autostart(on) => config::set_autostart(on),
                     Setting::Dark(dark) => s.dark = dark,
-                    Setting::CustomTitleBar(on) => s.custom_title_bar = on,
-                    Setting::CloseToTray(on) => s.close_to_tray = on,
                     Setting::AlbumArt(on) => s.album_art = on,
                     Setting::TrayStyle(style) => s.tray_style = style,
                 }

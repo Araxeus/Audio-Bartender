@@ -5,37 +5,15 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Media Keys Selector</title>
   <link rel="stylesheet" href="style.css">
-  <script type="module" src="app.js"></script>
+  <script type="module" src="flyout.js"></script>
 </head>
-<body class="main-window">
-  <div class="titlebar" data-tauri-drag-region>
-    <svg class="logo-mark" viewBox="0 0 16 16" data-tauri-drag-region>
-      <defs><linearGradient id="lg" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#6366f1"/><stop offset="1" stop-color="#a855f7"/></linearGradient></defs>
-      <rect width="16" height="16" rx="3.5" fill="url(#lg)"/>
-      <path d="M3.6 4.2 9.2 8l-5.6 3.8zM10 4.2h1.5v7.6H10zM12.4 4.2h1.5v7.6h-1.5z" fill="#fff"/>
-    </svg>
-    <span class="title" data-tauri-drag-region>Media Keys Selector</span>
-    <button class="caption" id="minimize" title="Minimize" aria-label="Minimize">
-      <svg viewBox="0 0 10 10"><path d="M0 5h10" stroke="currentColor"/></svg>
-    </button>
-    <button class="caption close" id="close" title="Close" aria-label="Close">
-      <svg viewBox="0 0 10 10"><path d="M0 0l10 10M10 0 0 10" stroke="currentColor"/></svg>
-    </button>
-  </div>
-
-  <header>
-    <div>
-      <div class="status" id="status"><span class="dot"></span><span id="status-text">Starting…</span></div>
-      <div class="heading" id="heading"></div>
-    </div>
-    <div class="tools" id="tools"></div>
-  </header>
-
-  <main id="body"></main>
-
-  <footer>
-    <div class="master" id="master"></div>
-    <div class="footer-row" id="footer-row"></div>
-  </footer>
+<body class="flyout">
+  <header class="flyout-controls" id="controls"></header>
+  <div class="flyout-middle" id="middle"></div>
+  <!-- Volume sits at the bottom, next to the tray icon the user just clicked. -->
+  <section class="flyout-volume">
+    <div id="device"></div>
+    <div id="master"></div>
+  </section>
 </body>
 </html>

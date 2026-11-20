@@ -8,7 +8,9 @@ use std::sync::{Arc, Mutex, OnceLock};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use windows::Win32::Foundation::{ERROR_ALREADY_EXISTS, GetLastError, HWND, LPARAM, LRESULT, POINT, RECT, WPARAM};
-use windows::Win32::Graphics::Gdi::{GetMonitorInfoW, MONITOR_DEFAULTTONEAREST, MONITORINFO, MonitorFromRect};
+use windows::Win32::Graphics::Gdi::{
+    GetMonitorInfoW, MONITOR_DEFAULTTONEAREST, MONITOR_DEFAULTTOPRIMARY, MONITORINFO, MonitorFromPoint, MonitorFromRect,
+};
 use windows::Win32::System::LibraryLoader::{GetModuleHandleW, GetProcAddress, LoadLibraryW};
 use windows::Win32::System::Threading::CreateMutexW;
 use windows::Win32::UI::HiDpi::{GetDpiForMonitor, MDT_EFFECTIVE_DPI};
@@ -27,7 +29,7 @@ use windows::core::{BOOL, PCSTR, PCWSTR, PWSTR, w};
 use crate::tray_icon::{self, Look};
 use crate::tooltip;
 use crate::util::fill_wide;
-use crate::{Anchor, Cmd, Event, MediaKey, Rect, Setting, Shared, State, TrayStyle, audio, volume};
+use crate::{Anchor, Cmd, Event, MediaKey, Page, Rect, Setting, Shared, State, TrayStyle, audio, volume};
 
 const CLASS: PCWSTR = w!("MediaKeysSelector.Tray");
 const WM_TRAY: u32 = WM_APP + 1;
@@ -320,7 +322,7 @@ unsafe extern "system" fn wndproc(hwnd: HWND, msg: u32, wparam: WPARAM, lparam: 
             WM_LBUTTONUP => {
                 tooltip::hide();
                 if let Some(anchor) = anchor(hwnd) {
-                    shared().emit(Event::Flyout(anchor));
+                    shared().emit(Event::Flyout { anchor, page: Page::Apps, toggle: true });
                 }
             }
             WM_MBUTTONUP => {
@@ -355,7 +357,7 @@ unsafe extern "system" fn wndproc(hwnd: HWND, msg: u32, wparam: WPARAM, lparam: 
                 }
             }
         }
-        WM_SHOW => shared().emit(Event::Show),
+        WM_SHOW => show(Page::Apps),
         WM_REDRAW => unsafe { set_icon(hwnd, NIM_MODIFY) },
         WM_SETTINGCHANGE => unsafe { set_icon(hwnd, NIM_MODIFY) },
         _ if msg == TASKBAR_CREATED.load(Relaxed) => unsafe { set_icon(hwnd, NIM_ADD) },
@@ -391,6 +393,28 @@ fn remember_icon_rect(hwnd: HWND, force: bool) {
     }
 }
 
+/// Opens the flyout without a tray click.
+fn show(page: Page) {
+    shared().emit(Event::Flyout { anchor: default_anchor(), page, toggle: false });
+}
+
+/// Next to the tray icon (or the overflow button, if it sits there), else the
+/// bottom-right corner of the primary screen.
+pub fn default_anchor() -> Anchor {
+    let hwnd = HWND(TRAY.load(Relaxed) as _);
+    let id = NOTIFYICONIDENTIFIER { cbSize: size_of::<NOTIFYICONIDENTIFIER>() as u32, hWnd: hwnd, ..Default::default() };
+    let icon = unsafe { Shell_NotifyIconGetRect(&id) }.unwrap_or_else(|_| {
+        let work = unsafe {
+            let monitor = MonitorFromPoint(POINT::default(), MONITOR_DEFAULTTOPRIMARY);
+            let mut info = MONITORINFO { cbSize: size_of::<MONITORINFO>() as u32, ..Default::default() };
+            let _ = GetMonitorInfoW(monitor, &mut info);
+            info.rcWork
+        };
+        RECT { left: work.right - 1, top: work.bottom - 1, right: work.right, bottom: work.bottom }
+    });
+    anchor_for(icon)
+}
+
 /// A 1-pixel rectangle at the pointer.
 fn cursor_rect() -> RECT {
     let mut at = POINT::default();
@@ -403,15 +427,19 @@ fn cursor_rect() -> RECT {
 fn anchor(hwnd: HWND) -> Option<Anchor> {
     remember_icon_rect(hwnd, true);
     // In the overflow area, anchor on the pointer instead.
-    let icon = icon_rect(hwnd).unwrap_or_else(cursor_rect);
+    Some(anchor_for(icon_rect(hwnd).unwrap_or_else(cursor_rect)))
+}
+
+/// The anchor for an icon rectangle: its monitor's work area and scale.
+fn anchor_for(icon: RECT) -> Anchor {
     unsafe {
         let monitor = MonitorFromRect(&icon, MONITOR_DEFAULTTONEAREST);
         let mut info = MONITORINFO { cbSize: size_of::<MONITORINFO>() as u32, ..Default::default() };
-        GetMonitorInfoW(monitor, &mut info).ok().ok()?;
+        let _ = GetMonitorInfoW(monitor, &mut info);
         let (mut dpi, mut unused) = (96u32, 0u32);
         let _ = GetDpiForMonitor(monitor, MDT_EFFECTIVE_DPI, &mut dpi, &mut unused);
         let rect = |r: RECT| Rect { left: r.left, top: r.top, right: r.right, bottom: r.bottom };
-        Some(Anchor { icon: rect(icon), work: rect(info.rcWork), scale: dpi as f32 / 96.0 })
+        Anchor { icon: rect(icon), work: rect(info.rcWork), scale: dpi as f32 / 96.0 }
     }
 }
 
@@ -550,8 +578,8 @@ unsafe fn show_menu(hwnd: HWND) {
         let _ = DestroyMenu(menu);
 
         match picked.0 as usize {
-            ID_OPEN => shared().emit(Event::Show),
-            ID_SETTINGS => shared().emit(Event::ShowSettings),
+            ID_OPEN => show(Page::Apps),
+            ID_SETTINGS => show(Page::Settings),
             ID_MASTER => audio::toggle_master_mute(),
             ID_AUTOMATIC => shared().send(Cmd::Select(None)),
             ID_AUTOSTART => shared().send(Cmd::Set(Setting::Autostart(!state.settings.autostart))),
