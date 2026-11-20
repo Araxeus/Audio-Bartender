@@ -283,6 +283,19 @@ body.flyout {
 .device-name { flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 
 .flyout-middle { max-height: 500px; overflow-y: auto; padding-bottom: 8px; }
+/* A slim rounded scrollbar in place of the native one, which has arrows and a grey track on Windows. */
+.flyout-middle::-webkit-scrollbar { width: 10px; }
+.flyout-middle::-webkit-scrollbar-track { background: transparent; }
+.flyout-middle::-webkit-scrollbar-button { display: none; height: 0; }
+.flyout-middle::-webkit-scrollbar-thumb {
+  min-height: 32px;
+  border: 3px solid transparent;
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--muted) 45%, transparent);
+  background-clip: padding-box;
+}
+.flyout-middle::-webkit-scrollbar-thumb:hover { background-color: color-mix(in srgb, var(--muted) 70%, transparent); }
+
 .flyout-middle .section-label { padding: 10px 16px 2px; }
 
 .device {

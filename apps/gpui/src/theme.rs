@@ -1,5 +1,6 @@
 use audio_bartender_core::{Accent, AccentColors};
 use gpui_kit::component::ActiveTheme;
+use gpui_kit::component::scroll::ScrollbarMode;
 use gpui_kit::component::theme::{Theme, ThemeMode};
 use gpui_kit::*;
 
@@ -30,6 +31,8 @@ pub fn apply(window: &mut Window, cx: &mut App, dark: Option<bool>, accent: Acce
         t.ring = hex(accent);
         t.slider_bar = hex(accent);
         t.slider_thumb = hex(accent);
+        // A thin bar that stays visible, so a long page shows there's more below.
+        t.scrollbar_mode = ScrollbarMode::Always;
 
         // `muted` is the window, `background` the cards.
         let (window_bg, card, hover, border, text, muted) = if dark {

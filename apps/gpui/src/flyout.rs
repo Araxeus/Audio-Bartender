@@ -13,6 +13,7 @@ use audio_bartender_core::{
 use gpui_kit::assets::IconName;
 use gpui_kit::base::{h_flex, v_flex};
 use gpui_kit::component::button::{Button, ButtonVariants};
+use gpui_kit::component::scroll::ScrollableElement;
 use gpui_kit::component::switch::Switch;
 use gpui_kit::component::theme::Theme;
 use gpui_kit::component::tooltip::Tooltip;
@@ -1175,15 +1176,17 @@ impl Render for Flyout {
             .border_1()
             .border_color(theme.border)
             .child(controls.relative().child(measure(&self.measured.controls, view)))
-            .child(
-                // Only a capped window scrolls; otherwise rounding could leave a pixel to scroll.
-                div()
-                    .id("middle")
-                    .flex_1()
-                    .min_h_0()
-                    .map(|d| if self.height >= MAX_HEIGHT { d.overflow_y_scroll() } else { d.overflow_hidden() })
-                    .child(v_flex().relative().pb_2().children(middle).child(measure(&self.measured.middle, view))),
-            )
+            .child({
+                // Only a capped window scrolls, with a scrollbar so it's clear there's more;
+                // otherwise rounding could leave a pixel to scroll.
+                let content = v_flex().relative().pb_2().children(middle).child(measure(&self.measured.middle, view));
+                let area = div().flex_1().min_h_0().child(content);
+                if self.height >= MAX_HEIGHT {
+                    area.overflow_y_scrollbar().into_any_element()
+                } else {
+                    area.overflow_hidden().into_any_element()
+                }
+            })
             // Volume sits at the bottom, next to the tray icon the user just clicked.
             .child(
                 v_flex()
