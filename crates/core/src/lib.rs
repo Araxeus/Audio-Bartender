@@ -262,7 +262,7 @@ pub struct Rect {
 }
 
 /// How long a flyout takes to slide out from behind the taskbar.
-pub const SLIDE: std::time::Duration = std::time::Duration::from_millis(200);
+pub const SLIDE: std::time::Duration = std::time::Duration::from_millis(150);
 
 /// How far a flyout opened at `since` has slid out, from 0 (hidden behind the
 /// taskbar) to 1 (in place). Eases out, and is always 1 when Windows animations are off.
@@ -275,7 +275,7 @@ pub fn slide_progress(since: std::time::Instant) -> f32 {
 }
 
 /// How long a closing flyout takes to slide back behind the taskbar.
-pub const SLIDE_OUT: std::time::Duration = std::time::Duration::from_millis(120);
+pub const SLIDE_OUT: std::time::Duration = std::time::Duration::from_millis(90);
 
 /// How far a flyout closing since `since` is still out, from 1 down to 0 (hidden).
 /// Eases in, and is always 0 when Windows animations are off.
