@@ -397,9 +397,12 @@ function updateRow(update) {
  * Windows 11 moves our icon at once. Windows 10 shows where it is and opens the page
  * to change it, and the page that hides the Windows volume icon.
  */
-function iconRows(onTaskbar) {
+function iconRows({ iconOnTaskbar: onTaskbar, settings: { speakerPosition }, speakerPositionActive }) {
   const row = (title, control) => el("div", "fly-setting", el("span", "", title), control);
-  if (windows11) return [row("Show icon on the taskbar", toggle(onTaskbar === true, (show) => invoke("set_icon_on_taskbar", { show })))];
+  if (windows11) return [
+    row(speakerPosition ? "Show fallback icon on taskbar" : "Show icon on the taskbar", toggle(onTaskbar === true, (show) => invoke("set_icon_on_taskbar", { show }))),
+    row(speakerPosition && !speakerPositionActive ? "Speaker position (using fallback)" : "Use Windows speaker position", toggle(speakerPosition, (on) => setting("speakerPosition", on))),
+  ];
   const place = onTaskbar == null ? "" : onTaskbar ? "On the taskbar" : "In the overflow";
   return [
     row(
@@ -426,7 +429,7 @@ function settingsPanel(state) {
     row("Album art as app icon", toggle(s.albumArt, (on) => setting("albumArt", on))),
     row("Automatic updates", toggle(s.autoUpdate, (on) => setting("autoUpdate", on))),
     updateRow(state.update),
-    ...iconRows(state.iconOnTaskbar),
+    ...iconRows(state),
     el("div", "section-label", "Look"),
     el("div", "mode", el("span", "mode-title", "Accent color"), swatches(s.accent)),
     segmented(s, "dark"),

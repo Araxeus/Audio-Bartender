@@ -3,6 +3,8 @@
 //!   because Windows silently removes a hook whose thread is too slow to answer,
 //! - the tray thread owns the hidden window, the tray icon and its menu.
 
+mod speaker_slot;
+
 use std::sync::atomic::{AtomicBool, AtomicI32, AtomicIsize, AtomicU32, AtomicU64, Ordering::Relaxed};
 use std::sync::{Arc, Mutex, OnceLock};
 
@@ -20,9 +22,9 @@ use windows::Win32::UI::Input::KeyboardAndMouse::{
     VIRTUAL_KEY, VK_MEDIA_NEXT_TRACK, VK_MEDIA_PLAY_PAUSE, VK_MEDIA_PREV_TRACK, VK_MEDIA_STOP,
 };
 use windows::Win32::UI::Shell::{
-    NIF_GUID, NIF_ICON, NIF_MESSAGE, NIF_TIP, NIM_ADD, NIM_DELETE, NIM_MODIFY, NIM_SETVERSION, NIN_POPUPCLOSE,
-    NIN_POPUPOPEN, NOTIFY_ICON_MESSAGE, NOTIFYICON_VERSION_4, NOTIFYICONDATAW, NOTIFYICONIDENTIFIER,
-    Shell_NotifyIconGetRect, Shell_NotifyIconW,
+    NIF_GUID, NIF_ICON, NIF_MESSAGE, NIF_STATE, NIF_TIP, NIM_ADD, NIM_DELETE, NIM_MODIFY, NIM_SETVERSION,
+    NIN_POPUPCLOSE, NIN_POPUPOPEN, NIS_HIDDEN, NOTIFY_ICON_MESSAGE, NOTIFYICON_VERSION_4, NOTIFYICONDATAW,
+    NOTIFYICONIDENTIFIER, Shell_NotifyIconGetRect, Shell_NotifyIconW,
 };
 use windows::Win32::UI::WindowsAndMessaging::*;
 use windows::core::{BOOL, GUID, PCSTR, PCWSTR, PWSTR, w};
@@ -45,6 +47,8 @@ const WM_REDRAW: u32 = WM_APP + 3;
 const WM_WHEEL: u32 = WM_APP + 4;
 const WM_MENU_WHEEL: u32 = WM_APP + 5;
 const WM_PREVIEW: u32 = WM_APP + 6;
+const WM_SPEAKER_SLOT: u32 = WM_APP + 7;
+const WM_DISMISS: u32 = WM_APP + 8;
 
 /// Polls the pointer while our tooltip outlives the shell's hover.
 const TIMER_TOOLTIP: usize = 1;
@@ -79,6 +83,10 @@ const HOVER_TRUST_MS: u64 = 30_000;
 
 static SHARED: OnceLock<Arc<Shared>> = OnceLock::new();
 static TRAY: AtomicIsize = AtomicIsize::new(0);
+pub(crate) static FLYOUT_WINDOW: AtomicIsize = AtomicIsize::new(0);
+static DISMISS_CLICK: AtomicBool = AtomicBool::new(false);
+// Created, drawn and replaced only on the tray thread.
+static CURRENT_ICON: AtomicIsize = AtomicIsize::new(0);
 static TASKBAR_CREATED: AtomicU32 = AtomicU32::new(0);
 
 /// The open context menu, for the mouse hook. Zero when no menu is open.
@@ -284,6 +292,7 @@ fn run_hook() {
 /// Called by the worker after each state change: updates key capture, icon and tooltip.
 pub fn update_tray(state: &State) {
     ROUTING.store(state.routed().is_some(), Relaxed);
+    speaker_slot::enable(state.settings.speaker_position && crate::util::windows_11());
 
     let audio = &state.audio;
     {
@@ -415,6 +424,27 @@ unsafe extern "system" fn keyboard_hook(code: i32, wparam: WPARAM, lparam: LPARA
 /// Turns the wheel over the tray icon into master volume. The shell never forwards
 /// wheel events to tray icons, so this is the only way to get them.
 unsafe extern "system" fn mouse_hook(code: i32, wparam: WPARAM, lparam: LPARAM) -> LRESULT {
+    if code == HC_ACTION as i32 {
+        match wparam.0 as u32 {
+            WM_LBUTTONDOWN => {
+                let flyout = HWND(FLYOUT_WINDOW.load(Relaxed) as _);
+                let point = unsafe { (*(lparam.0 as *const MSLLHOOKSTRUCT)).pt };
+                let mut pid = 0;
+                if !flyout.is_invalid()
+                    && unsafe { IsWindowVisible(flyout).as_bool() }
+                    && unsafe { GetWindowThreadProcessId(flyout, Some(&mut pid)) } != 0
+                    && pid == std::process::id()
+                    && speaker_slot::on_neighbor(point)
+                {
+                    DISMISS_CLICK.store(true, Relaxed);
+                    post(WM_DISMISS, 0);
+                    return LRESULT(1);
+                }
+            }
+            WM_LBUTTONUP if DISMISS_CLICK.swap(false, Relaxed) => return LRESULT(1),
+            _ => {}
+        }
+    }
     if code == HC_ACTION as i32 && wparam.0 as u32 == WM_MOUSEWHEEL {
         let event = unsafe { &*(lparam.0 as *const MSLLHOOKSTRUCT) };
         let delta = (event.mouseData >> 16) as i16;
@@ -435,7 +465,11 @@ unsafe extern "system" fn mouse_hook(code: i32, wparam: WPARAM, lparam: LPARAM) 
         let [l, t, r, b] = ICON_RECT.each_ref().map(|v| v.load(Relaxed));
         let (x, y) = (event.pt.x, event.pt.y);
         let fresh = now_ms().saturating_sub(LAST_HOVER_MS.load(Relaxed)) < HOVER_TRUST_MS;
-        let on_icon = fresh && x >= l && x < r && y >= t && y < b;
+        let on_icon = if let Some(slot) = speaker_slot::visible_window() {
+            unsafe { WindowFromPoint(event.pt) == slot }
+        } else {
+            fresh && x >= l && x < r && y >= t && y < b
+        };
         if on_icon || card::contains(event.pt) {
             post(WM_WHEEL, delta as u16 as usize);
             return LRESULT(1);
@@ -518,16 +552,31 @@ unsafe extern "system" fn wndproc(hwnd: HWND, msg: u32, wparam: WPARAM, lparam: 
             }
         }
         WM_SHOW => show(Page::Apps),
+        WM_DISMISS => shared().emit(Event::DismissFlyout),
+        WM_SPEAKER_SLOT => {
+            if speaker_slot::place() {
+                LAST_HOVER_MS.store(0, Relaxed);
+                tooltip::hide();
+                unsafe { set_icon(hwnd, NIM_MODIFY) };
+                shared().send(Cmd::RefreshAudio { devices: false });
+            }
+        }
         WM_REDRAW => unsafe { set_icon(hwnd, NIM_MODIFY) },
         WM_SETTINGCHANGE => unsafe { set_icon(hwnd, NIM_MODIFY) },
-        _ if msg == TASKBAR_CREATED.load(Relaxed) => unsafe { set_icon(hwnd, NIM_ADD) },
+        _ if msg == TASKBAR_CREATED.load(Relaxed) => {
+            speaker_slot::reset();
+            LAST_HOVER_MS.store(0, Relaxed);
+            unsafe { set_icon(hwnd, NIM_ADD) };
+        }
         _ => return unsafe { DefWindowProcW(hwnd, msg, wparam, lparam) },
     }
     LRESULT(0)
 }
 
-/// The icon's rectangle, if the pointer is on it. For an icon hidden in the overflow
-/// area the shell reports the overflow button instead, which must not count.
+pub(crate) fn speaker_position_active() -> bool {
+    speaker_slot::visible_window().is_some()
+}
+
 /// Whether this app's tray icon shows on the taskbar rather than in the overflow.
 /// Windows 11 keeps that in the registry. On Windows 10 the icon is on the taskbar
 /// when its rectangle lies inside the taskbar's.
@@ -549,7 +598,7 @@ pub(crate) fn icon_on_taskbar() -> Option<bool> {
 }
 
 fn icon_rect(hwnd: HWND) -> Option<RECT> {
-    let rect = unsafe { Shell_NotifyIconGetRect(&identifier(hwnd)).ok()? };
+    let rect = speaker_slot::rect().or_else(|| unsafe { Shell_NotifyIconGetRect(&identifier(hwnd)).ok() })?;
     let mut at = POINT::default();
     unsafe { GetCursorPos(&mut at).ok()? };
     let inside = at.x >= rect.left && at.x < rect.right && at.y >= rect.top && at.y < rect.bottom;
@@ -580,6 +629,9 @@ fn show(page: Page) {
 /// Next to the tray icon (or the overflow button, if it sits there), else the
 /// bottom-right corner of the primary screen.
 pub fn default_anchor() -> Anchor {
+    if let Some(anchor) = speaker_slot::anchor() {
+        return anchor;
+    }
     let hwnd = HWND(TRAY.load(Relaxed) as _);
     let icon = unsafe { Shell_NotifyIconGetRect(&identifier(hwnd)) }.unwrap_or_else(|_| {
         let work = unsafe {
@@ -615,6 +667,9 @@ fn tray_area_rect() -> Option<RECT> {
 }
 
 fn anchor(hwnd: HWND) -> Option<Anchor> {
+    if let Some(anchor) = speaker_slot::anchor() {
+        return Some(anchor);
+    }
     remember_icon_rect(hwnd, true);
     // In the overflow area, anchor on the pointer instead.
     Some(anchor_for(icon_rect(hwnd).unwrap_or_else(cursor_rect)))
@@ -670,7 +725,6 @@ fn identifier(hwnd: HWND) -> NOTIFYICONIDENTIFIER {
 
 /// Draws the current volume and pushes it to the shell with `action`.
 unsafe fn set_icon(hwnd: HWND, action: NOTIFY_ICON_MESSAGE) {
-    static CURRENT: AtomicIsize = AtomicIsize::new(0);
     let (look, tip) = {
         let tray = TRAY_STATE.lock().unwrap();
         let look =
@@ -678,7 +732,8 @@ unsafe fn set_icon(hwnd: HWND, action: NOTIFY_ICON_MESSAGE) {
         (look, (tray.text(), tray.tip()))
     };
     let (text, tip) = tip;
-    let size = unsafe { GetSystemMetrics(SM_CXSMICON) };
+    let slot = speaker_slot::visible_window();
+    let size = slot.map_or_else(|| unsafe { GetSystemMetrics(SM_CXSMICON) }, speaker_slot::icon_size);
     let Some(icon) = tray_icon::render(&look, size) else { return };
 
     let mut data = NOTIFYICONDATAW {
@@ -692,6 +747,14 @@ unsafe fn set_icon(hwnd: HWND, action: NOTIFY_ICON_MESSAGE) {
         ..Default::default()
     };
     fill_wide(&mut data.szTip, &text);
+    data.uFlags |= NIF_STATE;
+    data.dwStateMask = NIS_HIDDEN;
+    if let Some(slot) = slot {
+        data.dwState = NIS_HIDDEN;
+        unsafe {
+            let _ = InvalidateRect(Some(slot), None, false);
+        }
+    }
     identify(&mut data);
     tooltip::update(&tip);
     unsafe {
@@ -717,7 +780,7 @@ unsafe fn set_icon(hwnd: HWND, action: NOTIFY_ICON_MESSAGE) {
             let _ = Shell_NotifyIconW(NIM_SETVERSION, &data);
         }
         // The shell keeps its own copy, so the previous icon can go.
-        let old = CURRENT.swap(icon.0 as isize, Relaxed);
+        let old = CURRENT_ICON.swap(icon.0 as isize, Relaxed);
         if old != 0 {
             let _ = DestroyIcon(HICON(old as _));
         }

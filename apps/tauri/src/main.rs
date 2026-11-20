@@ -445,6 +445,7 @@ fn main() {
                             let _ = handle.emit("state", state);
                         }
                         Event::Flyout { anchor, page, toggle } => show_flyout(&handle, anchor, page, toggle),
+                        Event::DismissFlyout => hide_flyout(&handle),
                         Event::Quit => handle.exit(0),
                     }
                 }

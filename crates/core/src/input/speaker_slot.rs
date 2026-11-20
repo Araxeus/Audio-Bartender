@@ -1,0 +1,468 @@
+//! Places an Audio Bartender window over the individual Quick Settings speaker.
+//! UI Automation reads Explorer on a windowless MTA thread. The tray thread
+//! paints and positions our popup and owns all of its input handling.
+
+use std::sync::atomic::{AtomicBool, AtomicIsize, AtomicU32, Ordering::Relaxed};
+use std::sync::mpsc::{self, Sender};
+use std::sync::{Mutex, OnceLock};
+use std::time::Duration;
+
+use windows::Win32::Foundation::{COLORREF, HWND, LPARAM, LRESULT, POINT, RECT, WPARAM};
+use windows::Win32::Graphics::Gdi::{
+    BeginPaint, CreateRoundRectRgn, CreateSolidBrush, DeleteObject, EndPaint, FillRect, GetMonitorInfoW,
+    MONITOR_DEFAULTTONULL, MONITORINFO, MonitorFromWindow, PAINTSTRUCT, SetWindowRgn,
+};
+use windows::Win32::System::Com::{CLSCTX_INPROC_SERVER, CoCreateInstance};
+use windows::Win32::System::LibraryLoader::GetModuleHandleW;
+use windows::Win32::System::SystemInformation::GetWindowsDirectoryW;
+use windows::Win32::System::Variant::VARIANT;
+use windows::Win32::UI::Accessibility::{
+    CUIAutomation, IUIAutomation, IUIAutomationCacheRequest, IUIAutomationElement, TreeScope_Descendants,
+    UIA_AutomationIdPropertyId, UIA_BoundingRectanglePropertyId, UIA_ButtonControlTypeId, UIA_ClassNamePropertyId,
+    UIA_ControlTypePropertyId, UIA_IsOffscreenPropertyId, UIA_NamePropertyId, UIA_ProcessIdPropertyId,
+};
+use windows::Win32::UI::Controls::{HOVER_DEFAULT, WM_MOUSEHOVER, WM_MOUSELEAVE};
+use windows::Win32::UI::HiDpi::{
+    DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2, GetDpiForWindow, SetThreadDpiAwarenessContext,
+};
+use windows::Win32::UI::Input::KeyboardAndMouse::{TME_HOVER, TME_LEAVE, TRACKMOUSEEVENT, TrackMouseEvent};
+use windows::Win32::UI::Shell::{
+    ABM_GETSTATE, ABS_AUTOHIDE, APPBARDATA, NIN_POPUPCLOSE, NIN_POPUPOPEN, SHAppBarMessage, SHLoadIndirectString,
+};
+use windows::Win32::UI::WindowsAndMessaging::*;
+use windows::core::{PCWSTR, w};
+
+use super::{CURRENT_ICON, WM_SPEAKER_SLOT, WM_TRAY, WM_WHEEL, post, post_with};
+use crate::util;
+
+const CLASS: PCWSTR = w!("AudioBartender.SpeakerSlot");
+static ENABLED: AtomicBool = AtomicBool::new(false);
+static WAKE: OnceLock<Sender<()>> = OnceLock::new();
+static WINDOW: AtomicIsize = AtomicIsize::new(0);
+static BACKGROUND: AtomicU32 = AtomicU32::new(0x303030);
+static FOUND: Mutex<Option<Placement>> = Mutex::new(None);
+
+#[derive(Clone, Copy)]
+struct Placement {
+    taskbar: isize,
+    bar: RECT,
+    button: RECT,
+    neighbors: [RECT; 2],
+}
+
+pub(super) fn enable(on: bool) {
+    if ENABLED.swap(on, Relaxed) == on {
+        return;
+    }
+    let wake = WAKE.get_or_init(|| {
+        let (tx, rx) = mpsc::channel();
+        std::thread::Builder::new()
+            .name("bartender-speaker-position".into())
+            .spawn(move || {
+                util::com_init();
+                unsafe {
+                    SetThreadDpiAwarenessContext(DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2);
+                }
+                let mut automation = None;
+                let label = volume_label();
+                loop {
+                    if ENABLED.load(Relaxed) {
+                        if automation.is_none() {
+                            automation = automation_client();
+                        }
+                        let found = automation.as_ref().and_then(|(ui, cache)| locate(ui, cache, &label));
+                        *FOUND.lock().unwrap() = found;
+                        post(WM_SPEAKER_SLOT, 0);
+                        if rx.recv_timeout(Duration::from_secs(1)) == Err(mpsc::RecvTimeoutError::Disconnected) {
+                            break;
+                        }
+                    } else {
+                        automation = None;
+                        if rx.recv().is_err() {
+                            break;
+                        }
+                    }
+                }
+            })
+            .expect("spawn speaker position worker");
+        tx
+    });
+    *FOUND.lock().unwrap() = None;
+    let _ = wake.send(());
+    post(WM_SPEAKER_SLOT, 0);
+}
+
+/// Read the same localized prefix Explorer uses in the speaker's accessible
+/// name. Earlier shell packages can still be recognized on English Windows.
+fn volume_label() -> String {
+    let mut dir = [0; 260];
+    let len = unsafe { GetWindowsDirectoryW(Some(&mut dir)) } as usize;
+    let mut label = [0; 128];
+    if len > 0 && len < dir.len() {
+        let source = util::wide(&format!(
+            "@{{{}\\SystemApps\\MicrosoftWindows.Client.Core_cw5n1h2txyewy\\resources.pri?ms-resource://MicrosoftWindows.Client.Core/SystemTray/Resources/AutomationName_VolumeStateButton}}",
+            util::from_wide(&dir)
+        ));
+        if unsafe { SHLoadIndirectString(PCWSTR(source.as_ptr()), &mut label, None) }.is_ok() && label[0] != 0 {
+            return util::from_wide(&label);
+        }
+    }
+    "Volume".into()
+}
+
+fn named_speaker(name: &str, label: &str) -> bool {
+    !label.is_empty()
+        && name
+            .strip_prefix(label)
+            .is_some_and(|rest| rest.is_empty() || rest.starts_with(char::is_whitespace) || rest.starts_with(':'))
+}
+
+// One provider request per refresh, even though we check several properties.
+fn automation_client() -> Option<(IUIAutomation, IUIAutomationCacheRequest)> {
+    unsafe {
+        let ui: IUIAutomation = CoCreateInstance(&CUIAutomation, None, CLSCTX_INPROC_SERVER).ok()?;
+        let cache = ui.CreateCacheRequest().ok()?;
+        for id in [
+            UIA_ProcessIdPropertyId,
+            UIA_ControlTypePropertyId,
+            UIA_AutomationIdPropertyId,
+            UIA_IsOffscreenPropertyId,
+            UIA_ClassNamePropertyId,
+            UIA_NamePropertyId,
+            UIA_BoundingRectanglePropertyId,
+        ] {
+            cache.AddProperty(id).ok()?;
+        }
+        Some((ui, cache))
+    }
+}
+
+fn button_rect(element: &IUIAutomationElement, pid: u32, label: &str) -> Option<RECT> {
+    unsafe {
+        let class = element.CachedClassName().ok()?.to_string();
+        if element.CachedProcessId().ok()? as u32 != pid
+            || element.CachedControlType().ok()? != UIA_ButtonControlTypeId
+            || element.CachedIsOffscreen().ok()?.as_bool()
+            || element.CachedAutomationId().ok()? != "SystemTrayIcon"
+            || !(class.starts_with("SystemTray.OmniButton") || class == "SystemTray.AccentButton")
+            || !named_speaker(&element.CachedName().ok()?.to_string(), label)
+        {
+            return None;
+        }
+        element.CachedBoundingRectangle().ok()
+    }
+}
+
+fn contains(outer: RECT, inner: RECT) -> bool {
+    inner.left >= outer.left
+        && inner.top >= outer.top
+        && inner.right <= outer.right
+        && inner.bottom <= outer.bottom
+        && inner.left < inner.right
+        && inner.top < inner.bottom
+}
+
+fn locate(ui: &IUIAutomation, cache: &IUIAutomationCacheRequest, label: &str) -> Option<Placement> {
+    unsafe {
+        let taskbar = FindWindowW(w!("Shell_TrayWnd"), None).ok()?;
+        let mut pid = 0;
+        let mut shell_pid = 0;
+        GetWindowThreadProcessId(taskbar, Some(&mut pid));
+        GetWindowThreadProcessId(GetShellWindow(), Some(&mut shell_pid));
+        if pid == 0 || pid != shell_pid || !IsWindowVisible(taskbar).as_bool() {
+            return None;
+        }
+        // A separate window cannot follow the shell's auto-hide animation atomically.
+        let mut appbar = APPBARDATA { cbSize: size_of::<APPBARDATA>() as u32, ..Default::default() };
+        if SHAppBarMessage(ABM_GETSTATE, &mut appbar) & ABS_AUTOHIDE as usize != 0 {
+            return None;
+        }
+        let mut bar = RECT::default();
+        GetWindowRect(taskbar, &mut bar).ok()?;
+        let root = ui.ElementFromHandle(taskbar).ok()?;
+        let condition =
+            ui.CreatePropertyCondition(UIA_AutomationIdPropertyId, &VARIANT::from("SystemTrayIcon")).ok()?;
+        let items = root.FindAllBuildCache(TreeScope_Descendants, &condition, cache).ok()?;
+        let mut matched = None;
+        let mut accents = Vec::new();
+        for index in 0..items.Length().ok()? {
+            let item = items.GetElement(index).ok()?;
+            if let Some(button) = button_rect(&item, pid, label).filter(|r| contains(bar, *r)) {
+                if matched.replace(button).is_some() {
+                    return None;
+                }
+            } else if item.CachedClassName().ok()? == "SystemTray.AccentButton"
+                && !item.CachedIsOffscreen().ok()?.as_bool()
+            {
+                accents.push(item.CachedBoundingRectangle().ok()?);
+            }
+        }
+        let button = matched?;
+        let gap = (button.right - button.left) / 2;
+        let mut neighbors = [RECT::default(); 2];
+        for r in accents {
+            if contains(bar, r) && r.top == button.top && r.bottom == button.bottom {
+                if (0..=gap).contains(&(button.left - r.right)) {
+                    neighbors[0] = r;
+                }
+                if (0..=gap).contains(&(r.left - button.right)) {
+                    neighbors[1] = r;
+                }
+            }
+        }
+        Some(Placement { taskbar: taskbar.0 as isize, bar, button, neighbors })
+    }
+}
+
+pub(super) fn visible_window() -> Option<HWND> {
+    let hwnd = HWND(WINDOW.load(Relaxed) as _);
+    (!hwnd.is_invalid() && unsafe { IsWindowVisible(hwnd).as_bool() }).then_some(hwnd)
+}
+
+pub(super) fn on_neighbor(point: POINT) -> bool {
+    if visible_window().is_none() {
+        return false;
+    }
+    let Ok(found) = FOUND.try_lock() else {
+        return false;
+    };
+    found.is_some_and(|p| {
+        p.neighbors.iter().any(|r| point.x >= r.left && point.x < r.right && point.y >= r.top && point.y < r.bottom)
+            && unsafe { GetAncestor(WindowFromPoint(point), GA_ROOT) == HWND(p.taskbar as _) }
+    })
+}
+
+pub(super) fn rect() -> Option<RECT> {
+    let mut r = RECT::default();
+    unsafe { GetWindowRect(visible_window()?, &mut r) }.ok()?;
+    Some(r)
+}
+
+// The front ends and headless callers can have different default DPI contexts.
+fn physical<T>(f: impl FnOnce() -> T) -> T {
+    let previous = unsafe { SetThreadDpiAwarenessContext(DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2) };
+    let result = f();
+    unsafe {
+        SetThreadDpiAwarenessContext(previous);
+    }
+    result
+}
+
+pub(super) fn anchor() -> Option<crate::Anchor> {
+    let hwnd = visible_window()?;
+    physical(|| {
+        let mut anchor = super::anchor_for(rect()?);
+        anchor.scale = unsafe { GetDpiForWindow(hwnd) } as f32 / 96.;
+        Some(anchor)
+    })
+}
+
+pub(super) fn reset() {
+    *FOUND.lock().unwrap() = None;
+    if let Some(hwnd) = visible_window() {
+        unsafe {
+            let _ = ShowWindow(hwnd, SW_HIDE);
+        }
+    }
+    if let Some(wake) = WAKE.get() {
+        let _ = wake.send(());
+    }
+}
+
+fn window() -> Option<HWND> {
+    let hwnd = HWND(WINDOW.load(Relaxed) as _);
+    if !hwnd.is_invalid() {
+        return Some(hwnd);
+    }
+    unsafe {
+        let instance = GetModuleHandleW(None).ok()?;
+        let class = WNDCLASSW {
+            lpfnWndProc: Some(wndproc),
+            hInstance: instance.into(),
+            lpszClassName: CLASS,
+            hCursor: LoadCursorW(None, IDC_ARROW).unwrap_or_default(),
+            ..Default::default()
+        };
+        RegisterClassW(&class);
+        let hwnd = CreateWindowExW(
+            WS_EX_TOOLWINDOW | WS_EX_NOACTIVATE,
+            CLASS,
+            w!("Audio Bartender volume"),
+            WS_POPUP,
+            0,
+            0,
+            0,
+            0,
+            None,
+            None,
+            Some(instance.into()),
+            None,
+        )
+        .ok()?;
+        WINDOW.store(hwnd.0 as isize, Relaxed);
+        Some(hwnd)
+    }
+}
+
+/// Cover the glyph with a small opaque tile, leaving both adjacent controls and
+/// the rest of the taskbar alone. Reject group-sized rectangles and stale geometry.
+fn tile(button: RECT, dpi: u32) -> Option<RECT> {
+    let dip = |v: i32| (v * dpi as i32 + 48) / 96;
+    let (w, h) = (button.right - button.left, button.bottom - button.top);
+    if !(dip(16)..=dip(48)).contains(&w) || !(dip(16)..=dip(100)).contains(&h) {
+        return None;
+    }
+    let size = dip(24).min(w).min(h);
+    let left = button.left + (w - size) / 2;
+    let top = button.top + (h - size) / 2;
+    Some(RECT { left, top, right: left + size, bottom: top + size })
+}
+
+fn show(found: Placement) -> Option<()> {
+    unsafe {
+        let taskbar = HWND(found.taskbar as _);
+        if FindWindowW(w!("Shell_TrayWnd"), None).ok()? != taskbar || !IsWindowVisible(taskbar).as_bool() {
+            return None;
+        }
+        let mut bar = RECT::default();
+        GetWindowRect(taskbar, &mut bar).ok()?;
+        if bar != found.bar {
+            return None;
+        }
+        let mut monitor = MONITORINFO { cbSize: size_of::<MONITORINFO>() as u32, ..Default::default() };
+        if !GetMonitorInfoW(MonitorFromWindow(taskbar, MONITOR_DEFAULTTONULL), &mut monitor).as_bool()
+            || !contains(monitor.rcMonitor, found.button)
+        {
+            return None;
+        }
+        let tile = tile(found.button, GetDpiForWindow(taskbar))?;
+        let hwnd = window()?;
+        let edge = POINT { x: (tile.left + tile.right) / 2, y: (tile.top - 1).max(found.button.top) };
+        let hit = WindowFromPoint(edge);
+        // A tooltip or Quick Settings can cover this sample without moving the speaker.
+        if GetAncestor(hit, GA_ROOT) == taskbar {
+            use windows::Win32::Graphics::Gdi::{GetDC, GetPixel, InvalidateRect, ReleaseDC};
+            let dc = GetDC(None);
+            let color = GetPixel(dc, edge.x, edge.y);
+            ReleaseDC(None, dc);
+            if color.0 != u32::MAX && BACKGROUND.swap(color.0, Relaxed) != color.0 {
+                let _ = InvalidateRect(Some(hwnd), None, false);
+            }
+        }
+        // Keep the popup immediately above the taskbar in Z order. Full-screen
+        // windows, menus and the mixer flyout can all cover it normally.
+        let previous = GetWindow(taskbar, GW_HWNDPREV).ok();
+        let mut flags = SWP_NOACTIVATE | SWP_SHOWWINDOW | SWP_NOOWNERZORDER;
+        if previous == Some(hwnd) {
+            flags |= SWP_NOZORDER;
+        }
+        let size = tile.right - tile.left;
+        let old = rect();
+        if old != Some(tile) || !flags.contains(SWP_NOZORDER) {
+            let after = previous.or_else(|| {
+                ((GetWindowLongPtrW(taskbar, GWL_EXSTYLE) as u32 & WS_EX_TOPMOST.0) != 0).then_some(HWND_TOPMOST)
+            });
+            SetWindowPos(hwnd, after, tile.left, tile.top, size, size, flags).ok()?;
+        }
+        if old.is_none_or(|r| r.right - r.left != size) {
+            let corner = (size / 3).max(2);
+            let region = CreateRoundRectRgn(0, 0, size + 1, size + 1, corner, corner);
+            if SetWindowRgn(hwnd, Some(region), true) == 0 {
+                let _ = DeleteObject(region.into());
+            }
+        }
+        // If Explorer stops answering UI Automation, retire the stale hit target.
+        SetTimer(Some(hwnd), 1, 4000, None);
+        Some(())
+    }
+}
+
+/// Returns true when the notification icon's hidden flag needs to change.
+pub(super) fn place() -> bool {
+    let before = visible_window();
+    let found = *FOUND.lock().unwrap();
+    if !(ENABLED.load(Relaxed) && found.and_then(|p| physical(|| show(p))).is_some())
+        && let Some(hwnd) = before
+    {
+        unsafe {
+            let _ = ShowWindow(hwnd, SW_HIDE);
+        }
+    }
+    before != visible_window()
+}
+
+pub(super) fn icon_size(hwnd: HWND) -> i32 {
+    (unsafe { GetDpiForWindow(hwnd) } * 16 / 96).max(1) as i32
+}
+
+unsafe extern "system" fn wndproc(hwnd: HWND, msg: u32, wp: WPARAM, lp: LPARAM) -> LRESULT {
+    let event = match msg {
+        WM_TIMER if wp.0 == 1 => {
+            unsafe {
+                let _ = KillTimer(Some(hwnd), 1);
+            }
+            *FOUND.lock().unwrap() = None;
+            post(WM_SPEAKER_SLOT, 0);
+            return LRESULT(0);
+        }
+        WM_PAINT => {
+            let mut ps = PAINTSTRUCT::default();
+            unsafe {
+                let dc = BeginPaint(hwnd, &mut ps);
+                let mut r = RECT::default();
+                let _ = GetClientRect(hwnd, &mut r);
+                let brush = CreateSolidBrush(COLORREF(BACKGROUND.load(Relaxed)));
+                FillRect(dc, &r, brush);
+                let _ = DeleteObject(brush.into());
+                let icon = HICON(CURRENT_ICON.load(Relaxed) as _);
+                if !icon.is_invalid() {
+                    let size = icon_size(hwnd).min(r.right);
+                    let p = (r.right - size) / 2;
+                    let _ = DrawIconEx(dc, p, p, icon, size, size, 0, None, DI_NORMAL);
+                }
+                let _ = EndPaint(hwnd, &ps);
+            }
+            return LRESULT(0);
+        }
+        WM_MOUSEACTIVATE => return LRESULT(MA_NOACTIVATE as isize),
+        WM_MOUSEMOVE => {
+            let mut track = TRACKMOUSEEVENT {
+                cbSize: size_of::<TRACKMOUSEEVENT>() as u32,
+                dwFlags: TME_HOVER | TME_LEAVE,
+                hwndTrack: hwnd,
+                dwHoverTime: HOVER_DEFAULT,
+            };
+            unsafe {
+                let _ = TrackMouseEvent(&mut track);
+            }
+            WM_MOUSEMOVE
+        }
+        WM_MOUSEHOVER => NIN_POPUPOPEN,
+        WM_MOUSELEAVE => NIN_POPUPCLOSE,
+        WM_LBUTTONUP | WM_MBUTTONUP => msg,
+        WM_RBUTTONUP => WM_CONTEXTMENU,
+        WM_MOUSEWHEEL => {
+            post(WM_WHEEL, (wp.0 >> 16) & 0xffff);
+            return LRESULT(0);
+        }
+        _ => return unsafe { DefWindowProcW(hwnd, msg, wp, lp) },
+    };
+    post_with(WM_TRAY, 0, event as isize);
+    LRESULT(0)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn exact_localized_role_and_individual_bounds() {
+        assert!(named_speaker("Volume Speakers: Muted", "Volume"));
+        assert!(named_speaker("Lautstärke Lautsprecher", "Lautstärke"));
+        assert!(!named_speaker("Network Volume", "Volume"));
+        assert!(!named_speaker("VolumeMixer", "Volume"));
+        let button = RECT { left: -225, top: 1128, right: -189, bottom: 1200 };
+        assert_eq!(tile(button, 144), Some(RECT { left: -225, top: 1146, right: -189, bottom: 1182 }));
+        assert_eq!(tile(RECT { right: -60, ..button }, 144), None);
+    }
+}

@@ -1,6 +1,6 @@
 # Audio Bartender
 
-A tray audio mixer for Windows 10/11. It replaces the Windows volume icon with a flyout for per-app volume, live level meters, output devices and media controls, and it picks which app receives the keyboard media keys (play/pause, next, previous, stop).
+A tray audio mixer for Windows 10/11 with per-app volume, live level meters, output devices and media controls. You can choose which app receives the keyboard media keys (play/pause, next, previous, stop) and place the mixer over the Windows 11 taskbar speaker.
 
 ## Install
 
@@ -58,6 +58,9 @@ The flyout is the whole UI. Left-click the tray icon to open or close it; it als
 
 Windows 11 has no setting to hide its volume icon. The [Windhawk](https://windhawk.net/) mod [Taskbar tray system icon tweaks](https://windhawk.net/mods/taskbar-tray-system-icon-tweaks) can, with its "Hide volume icon" option, so Audio Bartender's icon takes its place.
 
+- On Windows 11, turn on **Settings → Use Windows speaker position** to put Audio Bartender over the speaker beside Wi-Fi and battery. Left-click opens the mixer, right-click opens its menu, middle-click mutes, and the wheel adjusts volume. Turning the switch off restores the ordinary tray icon. Quitting reveals the Windows speaker.
+- This option uses Windows UI Automation to locate the speaker by its localized accessible name on the primary taskbar. Audio Bartender draws its own small window over the glyph and hides its ordinary icon while the window is in place. The Windows control still exists for keyboard navigation. An auto-hiding taskbar or an unrecognized layout uses the ordinary tray icon at its saved position. The setting is off by default and needs no additional installation.
+
 ## Settings
 
 Stored in `%APPDATA%\AudioBartender\config.ini` and shared by both front ends. The settings button opens a panel beside the flyout with every setting visible at once, so each change shows in the app list as it's made. Each mode setting is a segmented control with a line about the current choice.
@@ -65,7 +68,7 @@ Stored in `%APPDATA%\AudioBartender\config.ini` and shared by both front ends. T
 - Start with Windows (see above)
 - Album art as app icon (the track thumbnail the app reports to SMTC)
 - Automatic updates: on for installed copies, off for portable ones. Once a day, the app asks GitHub for the latest release, checks the download against its published SHA-256 digest, and installs it. An installed copy runs the new setup silently, which asks for UAC on an all-users install unless the app already runs elevated. A portable copy swaps in the new exe and restarts. "Check now" works with the setting off.
-- Tray icons: opens the Windows pages for showing ours and hiding Windows' volume icon
+- Tray icon placement on Windows 11, or links to the notification area and system icon settings on Windows 10
 - Theme: System, Light, Dark
 - Accent color: Blue, Cyan (default), Teal, Purple, Hot pink or Orange. The core owns the palette, so both front ends and the tooltip cards match
 - Tray icon: Ring or Number
@@ -98,6 +101,7 @@ Set `AUDIO_BARTENDER_LOG=1` to log routing, forwarded keys and tray wheel steps 
 - The shell never sends wheel events to tray icons. The mouse hook checks the pointer against the icon's last known rectangle instead.
 - For an icon in the overflow area the shell reports the overflow button's rectangle. The core ignores rectangles that don't contain the pointer.
 - Apps can't move tray icons on Windows 10. Explorer's `ITrayNotify` (the interface behind the Notification Area Icons page) lists every item, including the volume icon by GUID `7820AE73-23E3-4229-82C1-E41CB67D5B9C`, but `SetPreference` returns `ERROR_NOT_FOUND` for every item on 19045, from any thread or apartment. The other route edits Explorer's binary `IconStreams` value and needs an Explorer restart. So the settings open the two Windows pages instead.
+- On Windows 11 build 26300.9974, the legacy volume GUID returned no rectangle. The Quick Settings speaker exposed its physical bounds through UI Automation and had no window handle of its own. Windhawk’s mod collapses the speaker inside Explorer’s XAML layout. Audio Bartender uses the reported bounds for its own window, so a change to Explorer’s layout can fall back to the regular tray icon. [Windhawk mod source](https://github.com/ramensoftware/windhawk-mods/blob/main/mods/taskbar-tray-system-icon-tweaks.wh.cpp)
 - Changing the default output device uses `IPolicyConfig`, which is undocumented but stable since Windows 7.
 - The Tauri flyout keeps its webview for 60 s after closing, so reopening is instant, then frees it.
 - GPUI can only grow a window downward, so the GPUI flyout resizes itself through Win32 (`place_window` in core) to keep its bottom against the taskbar.

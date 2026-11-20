@@ -1251,7 +1251,7 @@ impl Flyout {
             let core = self.core.clone();
             let on = state.icon_on_taskbar.unwrap_or(false);
             row(
-                "Show icon on the taskbar",
+                if s.speaker_position { "Show fallback icon on taskbar" } else { "Show icon on the taskbar" },
                 Self::switch("icon-on-taskbar", on, theme, move |on| core.set_icon_on_taskbar(on)),
             )
         } else {
@@ -1273,14 +1273,23 @@ impl Flyout {
                     .into_any_element(),
             )
         };
-        let volume_row = (!audio_bartender_core::windows_11()).then(|| {
+        let volume_row = if audio_bartender_core::windows_11() {
+            row(
+                if s.speaker_position && !state.speaker_position_active {
+                    "Speaker position (using fallback)"
+                } else {
+                    "Use Windows speaker position"
+                },
+                self.setting_switch("speaker-position", s.speaker_position, Setting::SpeakerPosition, theme),
+            )
+        } else {
             row(
                 "Windows volume icon",
                 Self::small_button("hide-windows", "Hide", theme)
                     .on_click(|_, _, _| audio_bartender_core::open_icon_page(IconPage::HideWindows))
                     .into_any_element(),
             )
-        });
+        };
         let update = {
             let core = self.core.clone();
             let busy = state.update.busy();
@@ -1320,7 +1329,7 @@ impl Flyout {
             ))
             .child(update)
             .child(icon_row)
-            .children(volume_row)
+            .child(volume_row)
             .child(Self::panel_label("LOOK", theme))
             .child(self.swatches(s.accent, theme))
             .child(self.segmented(Mode::Theme, s, theme))

@@ -165,6 +165,11 @@ fn main() {
                         });
                     }
                     Event::Flyout { anchor, page, toggle } => show_flyout(cx, anchor, page, toggle, false),
+                    Event::DismissFlyout => {
+                        if let Some((_, view)) = open_flyout(cx) {
+                            view.update(cx, |v, cx| v.close(cx));
+                        }
+                    }
                     Event::Quit => cx.quit(),
                 });
             }

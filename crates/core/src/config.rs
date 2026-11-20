@@ -49,6 +49,7 @@ impl Config {
                 "target_name" if !value.is_empty() => cfg.target_name = Some(value.to_owned()),
                 "theme" => s.dark = matches!(value, "dark" | "light").then(|| value == "dark"),
                 "album_art" => s.album_art = flag(value),
+                "speaker_position" => s.speaker_position = flag(value),
                 "tray_style" => s.tray_style = if value == "number" { TrayStyle::Number } else { TrayStyle::Ring },
                 "level_meters" => s.level_meters = LevelMeters::from_name(value).unwrap_or_default(),
                 "media_controls" => s.media_controls = MediaControls::from_name(value).unwrap_or_default(),
@@ -87,10 +88,11 @@ impl Config {
             None => "",
         };
         let text = format!(
-            "target={}\ntarget_name={}\ntheme={theme}\nalbum_art={}\ntray_style={}\nvolume_bars={}\ntooltip={}\nmedia_buttons={}\nmedia_controls={}\nlevel_meters={}\nauto_update={}\nlast_update_check={}\naccent={}\n",
+            "target={}\ntarget_name={}\ntheme={theme}\nalbum_art={}\nspeaker_position={}\ntray_style={}\nvolume_bars={}\ntooltip={}\nmedia_buttons={}\nmedia_controls={}\nlevel_meters={}\nauto_update={}\nlast_update_check={}\naccent={}\n",
             self.target.as_deref().unwrap_or(""),
             self.target_name.as_deref().unwrap_or(""),
             s.album_art,
+            s.speaker_position,
             if s.tray_style == TrayStyle::Number { "number" } else { "ring" },
             match s.volume_bars {
                 VolumeBars::None => "none",

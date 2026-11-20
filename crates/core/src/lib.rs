@@ -479,6 +479,8 @@ pub struct Settings {
     /// Show the current track's album art in place of the app icon.
     pub album_art: bool,
     pub tray_style: TrayStyle,
+    /// Draw our icon over the Windows 11 Quick Settings speaker.
+    pub speaker_position: bool,
     pub volume_bars: VolumeBars,
     pub tooltip: TooltipStyle,
     pub media_buttons: MediaButtons,
@@ -495,6 +497,7 @@ impl Default for Settings {
             dark: None,
             album_art: false,
             tray_style: TrayStyle::Ring,
+            speaker_position: false,
             volume_bars: VolumeBars::Compact,
             tooltip: TooltipStyle::NowPlaying,
             media_buttons: MediaButtons::Hover,
@@ -514,6 +517,7 @@ pub enum Setting {
     Dark(Option<bool>),
     AlbumArt(bool),
     TrayStyle(TrayStyle),
+    SpeakerPosition(bool),
     VolumeBars(VolumeBars),
     Tooltip(TooltipStyle),
     MediaButtons(MediaButtons),
@@ -557,6 +561,8 @@ pub struct State {
     /// This app's tray icon shows on the taskbar rather than in the overflow, when
     /// Windows says.
     pub icon_on_taskbar: Option<bool>,
+    /// The primary taskbar speaker is currently covered by our interactive icon.
+    pub speaker_position_active: bool,
 }
 
 impl State {
@@ -745,6 +751,7 @@ pub enum Page {
 
 #[derive(Clone, Debug)]
 pub enum Event {
+    DismissFlyout,
     State(State),
     /// Show the flyout next to `anchor` on `page`. With `toggle` (a tray click), an
     /// open flyout closes instead.
@@ -935,6 +942,7 @@ pub fn preview_tray_icon(level: f32, muted: bool, style: TrayStyle, light_taskba
 /// Moves a flyout window (by its raw handle) to where `anchor` places `frame`,
 /// `progress` of the way through its slide (see [`slide_progress`]).
 pub fn place_window(hwnd: isize, anchor: &Anchor, frame: Frame, progress: f32) {
+    input::FLYOUT_WINDOW.store(hwnd, std::sync::atomic::Ordering::Relaxed);
     util::place_window(hwnd, anchor, frame, progress);
 }
 

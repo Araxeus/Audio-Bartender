@@ -206,6 +206,7 @@ impl Worker {
                     Setting::AutoUpdate(on) => s.auto_update = on,
                     Setting::Dark(dark) => s.dark = dark,
                     Setting::AlbumArt(on) => s.album_art = on,
+                    Setting::SpeakerPosition(on) => s.speaker_position = on,
                     Setting::TrayStyle(style) => s.tray_style = style,
                     Setting::VolumeBars(bars) => s.volume_bars = bars,
                     Setting::Tooltip(style) => s.tooltip = style,
@@ -367,6 +368,7 @@ impl Worker {
             settings,
             update: crate::update::status(),
             icon_on_taskbar: crate::input::icon_on_taskbar(),
+            speaker_position_active: crate::input::speaker_position_active(),
         };
         {
             let mut current = self.shared.state.lock().unwrap();
