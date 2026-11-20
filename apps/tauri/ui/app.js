@@ -28,6 +28,13 @@ function row(checked, clickable, ...children) {
   return node;
 }
 
+/** Makes a card send media keys to `id` when clicked, except on its volume controls. */
+function selectable(node, id) {
+  node.addEventListener("click", () => {
+    if (!volumes.grabbed) invoke("select", { id });
+  });
+}
+
 /** The row's volume control for the chosen style, beside the name. */
 function volumeControl(bars, id, level, muted) {
   if (bars === "onClick") return volumes.pill(id, level, muted);
@@ -37,11 +44,10 @@ function volumeControl(bars, id, level, muted) {
 
 /** Makes `node` open its slider on click, and appends the slider while open. */
 function expandable(node, id, level, muted) {
-  node.addEventListener("click", () => volumes.toggle(id));
-  if (volumes.expanded !== id) return;
-  const slider = volumes.sliderRow(id, level, muted);
-  slider.addEventListener("click", (event) => event.stopPropagation());
-  node.append(slider);
+  node.addEventListener("click", () => {
+    if (!volumes.grabbed) volumes.toggle(id);
+  });
+  if (volumes.expanded === id) node.append(volumes.sliderRow(id, level, muted));
 }
 
 function controls() {
@@ -117,21 +123,23 @@ function detail(t) {
 function targets(state) {
   const bars = state.settings.volumeBars;
   const automatic = state.selected === null;
-  const rows = [
-    row(
-      automatic,
-      false,
-      logo("avatar small"),
-      el("div", "text", el("div", "name small", "Automatic"), el("div", "detail", "Windows decides")),
-      radio(automatic, null),
-    ),
-  ];
+  const auto = row(
+    automatic,
+    true,
+    logo("avatar small"),
+    el("div", "text", el("div", "name small", "Automatic"), el("div", "detail", "Windows decides")),
+    radio(automatic, null),
+  );
+  selectable(auto, null);
+  const rows = [auto];
   for (const t of state.targets) {
     const checked = state.selected === t.id;
     const hasVolume = t.volume != null;
+    // With On click, a click on the card opens its slider; otherwise it picks the card.
+    const toggles = hasVolume && bars === "onClick";
     const node = row(
       checked,
-      hasVolume && bars === "onClick",
+      true,
       avatar(t.icon, t.name, t.running),
       el("div", "text" + (t.running ? "" : " offline"), el("div", "name small", t.name), detail(t)),
       hasVolume ? volumeControl(bars, t.id, t.volume, t.muted) : null,
@@ -143,9 +151,9 @@ function targets(state) {
       const slider = volumes.sliderRow(t.id, t.volume, t.muted);
       slider.classList.add("inline");
       node.append(slider);
-    } else if (hasVolume && bars === "onClick") {
-      expandable(node, t.id, t.volume, t.muted);
     }
+    if (toggles) expandable(node, t.id, t.volume, t.muted);
+    else selectable(node, t.id);
     rows.push(node);
   }
   return rows;
@@ -208,9 +216,9 @@ function settings(state) {
     row(
       "Volume bars",
       choices([
+        ["Compact", s.volumeBars === "compact", () => setting("volumeBars", "compact")],
         ["Always", s.volumeBars === "always", () => setting("volumeBars", "always")],
         ["On click", s.volumeBars === "onClick", () => setting("volumeBars", "onClick")],
-        ["Compact", s.volumeBars === "compact", () => setting("volumeBars", "compact")],
       ]),
     ),
     row(

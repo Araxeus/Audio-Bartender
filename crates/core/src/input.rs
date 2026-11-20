@@ -439,7 +439,7 @@ fn anchor_for(icon: RECT) -> Anchor {
         let (mut dpi, mut unused) = (96u32, 0u32);
         let _ = GetDpiForMonitor(monitor, MDT_EFFECTIVE_DPI, &mut dpi, &mut unused);
         let rect = |r: RECT| Rect { left: r.left, top: r.top, right: r.right, bottom: r.bottom };
-        Anchor { icon: rect(icon), work: rect(info.rcWork), scale: dpi as f32 / 96.0 }
+        Anchor { icon: rect(icon), work: rect(info.rcWork), screen: rect(info.rcMonitor), scale: dpi as f32 / 96.0 }
     }
 }
 

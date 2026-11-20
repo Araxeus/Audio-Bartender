@@ -159,13 +159,13 @@ pub enum TrayStyle {
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize), serde(rename_all = "camelCase"))]
 pub enum VolumeBars {
-    /// A slider under every app, always visible.
+    /// A small bar that fills with the volume. Drag or scroll it; click to mute.
     #[default]
+    Compact,
+    /// A slider under every app, always visible.
     Always,
     /// A percentage; clicking the row opens its slider.
     OnClick,
-    /// A small bar that fills with the volume. Drag or scroll it; click to mute.
-    Compact,
 }
 
 /// Preferences shared by both front ends, stored in `config.ini`.
@@ -188,7 +188,7 @@ impl Default for Settings {
             dark: None,
             album_art: false,
             tray_style: TrayStyle::Ring,
-            volume_bars: VolumeBars::Always,
+            volume_bars: VolumeBars::Compact,
         }
     }
 }
@@ -246,6 +246,8 @@ pub struct Anchor {
     pub icon: Rect,
     /// The work area (screen minus taskbar) of the icon's monitor.
     pub work: Rect,
+    /// The whole monitor.
+    pub screen: Rect,
     /// DPI scale of that monitor.
     pub scale: f32,
 }
@@ -257,6 +259,19 @@ pub struct Rect {
     pub top: i32,
     pub right: i32,
     pub bottom: i32,
+}
+
+/// How long a flyout takes to slide out from behind the taskbar.
+pub const SLIDE: std::time::Duration = std::time::Duration::from_millis(200);
+
+/// How far a flyout opened at `since` has slid out, from 0 (hidden behind the
+/// taskbar) to 1 (in place). Eases out, and is always 1 when Windows animations are off.
+pub fn slide_progress(since: std::time::Instant) -> f32 {
+    if !util::animations_enabled() {
+        return 1.0;
+    }
+    let t = (since.elapsed().as_secs_f32() / SLIDE.as_secs_f32()).min(1.0);
+    1.0 - (1.0 - t).powi(3)
 }
 
 impl Anchor {
@@ -280,6 +295,24 @@ impl Anchor {
             (w.left, clamp_y(center_y))
         } else {
             (w.right - width - gap, w.bottom - height)
+        }
+    }
+
+    /// Like [`Anchor::place`], but `1 - progress` of the way towards the screen edge
+    /// behind the taskbar, where the flyout starts fully off screen.
+    pub fn place_sliding(&self, width: i32, height: i32, progress: f32) -> (i32, i32) {
+        let (x, y) = self.place(width, height);
+        let (w, i, s) = (self.work, self.icon, self.screen);
+        let rest = 1.0 - progress.clamp(0.0, 1.0);
+        let off = |distance: i32| (distance as f32 * rest).round() as i32;
+        if i.bottom <= w.top {
+            (x, y - off(y + height - s.top))
+        } else if i.top < w.bottom && i.left >= w.right {
+            (x + off(s.right - x), y)
+        } else if i.top < w.bottom && i.right <= w.left {
+            (x - off(x + width - s.left), y)
+        } else {
+            (x, y + off(s.bottom - y))
         }
     }
 }
@@ -441,9 +474,22 @@ pub fn preview_tray_icon(level: f32, muted: bool, style: TrayStyle, light_taskba
 }
 
 /// Moves a window (by its raw handle), keeping its size, to where `anchor` places a
-/// flyout. Call after resizing so the bottom stays against the taskbar.
-pub fn place_window(hwnd: isize, anchor: &Anchor) {
-    util::place_window(hwnd, anchor);
+/// flyout `progress` of the way through its slide (see [`slide_progress`]). Call after
+/// resizing so the bottom stays against the taskbar.
+pub fn place_window(hwnd: isize, anchor: &Anchor, progress: f32) {
+    util::place_window(hwnd, anchor, progress);
+}
+
+/// Hides (cloaks) or shows a window without changing its visibility state, for
+/// moving a just-created window into place unseen.
+pub fn set_cloaked(hwnd: isize, cloaked: bool) {
+    util::set_cloaked(hwnd, cloaked);
+}
+
+/// Like [`place_window`], for a borderless window of the given physical size,
+/// which may not have applied yet.
+pub fn place_window_sized(hwnd: isize, anchor: &Anchor, width: i32, height: i32, progress: f32) {
+    util::place_window_sized(hwnd, anchor, width, height, progress);
 }
 
 /// The page to open on launch: `--settings` opens the settings page.

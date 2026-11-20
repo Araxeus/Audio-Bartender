@@ -3,7 +3,7 @@
 
 use std::cell::Cell;
 use std::rc::Rc;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use gpui_kit::assets::IconName;
 use gpui_kit::base::{h_flex, v_flex};
@@ -62,15 +62,21 @@ impl Measured {
     }
 }
 
+fn hwnd(window: &Window) -> Option<isize> {
+    let handle = HasWindowHandle::window_handle(window).ok()?;
+    let RawWindowHandle::Win32(win32) = handle.as_raw() else { return None };
+    Some(win32.hwnd.get())
+}
+
 /// Fills its parent and records the parent's height, redrawing `view` when it changes.
 fn measure(cell: &Rc<Cell<f32>>, view: EntityId) -> impl IntoElement + use<> {
     let cell = cell.clone();
     canvas(
-        move |bounds, _, cx| {
+        move |bounds, window, _| {
             let height = f32::from(bounds.size.height);
             if (cell.get() - height).abs() > 0.5 {
                 cell.set(height);
-                cx.notify(view);
+                window.on_next_frame(move |_, cx| cx.notify(view));
             }
         },
         |_, _, _, _| {},
@@ -93,6 +99,10 @@ pub struct Flyout {
     dark: Option<bool>,
     height: f32,
     measured: Measured,
+    /// When the window opened, for sliding it out from behind the taskbar.
+    opened: Instant,
+    /// The slide has finished and the window sits in its final place.
+    settled: bool,
     _subscriptions: Vec<Subscription>,
 }
 
@@ -108,6 +118,11 @@ impl Flyout {
     ) -> Self {
         let dark = state.read(cx).settings.dark;
         theme::apply(window, cx, dark);
+        // GPUI opens windows only where their center is on screen, so the window starts
+        // hidden and appears once the first frame moves it behind the taskbar.
+        if let Some(hwnd) = hwnd(window) {
+            mediakeys_core::set_cloaked(hwnd, true);
+        }
         // Zero makes the first render size and place the window like every later one.
         let height = 0.;
         let _subscriptions = vec![
@@ -140,6 +155,8 @@ impl Flyout {
             dark,
             height,
             measured: Measured::default(),
+            opened: Instant::now(),
+            settled: false,
             _subscriptions,
         }
     }
@@ -150,22 +167,33 @@ impl Flyout {
         cx.notify();
     }
 
-    /// Resizes the window to its content, keeping the bottom against the taskbar.
+    /// Resizes the window to its content and slides it out from behind the taskbar.
     /// GPUI resizes downward from the top, so the window moves once the new size applies.
     fn fit(&mut self, state: &State, window: &mut Window) {
         let height = match self.measured.total() {
             Some(total) => total.ceil().min(MAX_HEIGHT),
             None => height(state, self.page),
         };
-        if height == self.height {
+        let resized = height != self.height;
+        if !resized && self.settled {
             return;
         }
-        self.height = height;
-        window.resize(size(px(WIDTH), px(height)));
-        let Ok(handle) = HasWindowHandle::window_handle(window) else { return };
-        let RawWindowHandle::Win32(win32) = handle.as_raw() else { return };
-        let (hwnd, anchor) = (win32.hwnd.get(), self.anchor);
-        window.on_next_frame(move |_, _| mediakeys_core::place_window(hwnd, &anchor));
+        if resized {
+            self.height = height;
+            window.resize(size(px(WIDTH), px(height)));
+        }
+        let progress = mediakeys_core::slide_progress(self.opened);
+        if progress < 1.0 {
+            window.request_animation_frame();
+        } else {
+            self.settled = true;
+        }
+        let Some(hwnd) = hwnd(window) else { return };
+        let (anchor, opened) = (self.anchor, self.opened);
+        window.on_next_frame(move |_, _| {
+            mediakeys_core::place_window(hwnd, &anchor, mediakeys_core::slide_progress(opened));
+            mediakeys_core::set_cloaked(hwnd, false);
+        });
     }
 
     fn label(text: &'static str, theme: &Theme) -> Div {
@@ -352,14 +380,30 @@ impl Flyout {
             .when(clickable, |d| d.cursor_pointer().when(!checked, |d| d.hover(move |s| s.bg(hover))))
     }
 
-    fn targets(&mut self, state: &State, window: &mut Window, cx: &mut Context<Self>) -> Vec<AnyElement> {
+    /// Click handler for a card that sends media keys to `target`, unless the
+    /// press started on one of its volume controls.
+    fn select_on_click(&self, target: Option<String>) -> impl Fn(&ClickEvent, &mut Window, &mut App) + 'static + use<> {
+        let core = self.core.clone();
+        let controls = self.volumes.hit_test();
+        move |event, _, _| {
+            if let ClickEvent::Mouse(click) = event
+                && controls(click.down.position)
+            {
+                return;
+            }
+            core.select(target.clone());
+        }
+    }
+
+    fn targets(&mut self, state: &State, cx: &mut Context<Self>) -> Vec<AnyElement> {
         let theme = cx.theme().clone();
         let bars = state.settings.volume_bars;
         let mut rows = Vec::new();
 
         let automatic = state.selected.is_none();
         rows.push(
-            Self::row(&theme, "automatic".into(), automatic, false)
+            Self::row(&theme, "automatic".into(), automatic, true)
+                .on_click(self.select_on_click(None))
                 .child(
                     h_flex()
                         .gap_3()
@@ -383,16 +427,23 @@ impl Flyout {
             let slider = target
                 .volume
                 .filter(|_| bars == VolumeBars::Always || (bars == VolumeBars::OnClick && expanded))
-                .map(|level| self.volumes.slider_row(&target.id, level, target.muted, window, cx));
-            let clickable = bars == VolumeBars::OnClick && target.volume.is_some();
+                .map(|level| self.volumes.slider_row(&target.id, level, target.muted, &theme));
+            // With On click, a click on the card opens its slider; otherwise it picks the card.
+            let toggles = bars == VolumeBars::OnClick && target.volume.is_some();
             let volume = target.volume.and_then(|level| match bars {
                 VolumeBars::Always => None,
                 VolumeBars::OnClick => Some(self.volumes.pill(&target.id, level, target.muted, &theme).into_any_element()),
                 VolumeBars::Compact => Some(self.volumes.bar(&target.id, level, target.muted, &theme).into_any_element()),
             });
             rows.push(
-                Self::row(&theme, target.id.clone().into(), checked, clickable)
-                    .when(clickable, |d| d.on_click(self.volumes.on_toggle(&target.id)))
+                Self::row(&theme, target.id.clone().into(), checked, true)
+                    .map(|d| {
+                        if toggles {
+                            d.on_click(self.volumes.on_toggle(&target.id))
+                        } else {
+                            d.on_click(self.select_on_click(Some(target.id.clone())))
+                        }
+                    })
                     .child(
                         h_flex()
                             .gap_3()
@@ -421,7 +472,7 @@ impl Flyout {
         rows
     }
 
-    fn mixer(&mut self, state: &State, window: &mut Window, cx: &mut Context<Self>) -> Vec<AnyElement> {
+    fn mixer(&mut self, state: &State, cx: &mut Context<Self>) -> Vec<AnyElement> {
         let theme = cx.theme().clone();
         let bars = state.settings.volume_bars;
         let mut rows = Vec::new();
@@ -435,7 +486,7 @@ impl Flyout {
             let row = Self::row(&theme, app.id.clone().into(), false, bars == VolumeBars::OnClick);
             let row = match bars {
                 VolumeBars::Always => {
-                    let slider = self.volumes.slider_row(&app.id, app.volume, app.muted, window, cx);
+                    let slider = self.volumes.slider_row(&app.id, app.volume, app.muted, &theme);
                     row.child(main.py_0p5().child(name.w(px(96.)).flex_none()).child(div().flex_1().child(slider)))
                 }
                 VolumeBars::Compact => row.child(
@@ -444,7 +495,7 @@ impl Flyout {
                         .child(self.volumes.bar(&app.id, app.volume, app.muted, &theme)),
                 ),
                 VolumeBars::OnClick => {
-                    let slider = expanded.then(|| self.volumes.slider_row(&app.id, app.volume, app.muted, window, cx));
+                    let slider = expanded.then(|| self.volumes.slider_row(&app.id, app.volume, app.muted, &theme));
                     row.on_click(self.volumes.on_toggle(&app.id))
                         .child(
                             main.py_1p5()
@@ -518,18 +569,18 @@ impl Flyout {
                 "Volume bars",
                 h_flex()
                     .gap_1()
+                    .child(choice(
+                        "bars-compact",
+                        "Compact",
+                        s.volume_bars == VolumeBars::Compact,
+                        Setting::VolumeBars(VolumeBars::Compact),
+                    ))
                     .child(choice("bars-always", "Always", s.volume_bars == VolumeBars::Always, Setting::VolumeBars(VolumeBars::Always)))
                     .child(choice(
                         "bars-click",
                         "On click",
                         s.volume_bars == VolumeBars::OnClick,
                         Setting::VolumeBars(VolumeBars::OnClick),
-                    ))
-                    .child(choice(
-                        "bars-compact",
-                        "Compact",
-                        s.volume_bars == VolumeBars::Compact,
-                        Setting::VolumeBars(VolumeBars::Compact),
                     ))
                     .into_any_element(),
             ),
@@ -550,10 +601,11 @@ impl Render for Flyout {
         let state = self.state.read(cx).clone();
         let theme = cx.theme().clone();
         let view = cx.entity_id();
+        self.volumes.begin_frame();
         self.fit(&state, window);
 
         let controls = self.controls(&theme, cx);
-        let master = self.volumes.slider_row(ui::MASTER, state.audio.volume, state.audio.muted, window, cx);
+        let master = self.volumes.slider_row(ui::MASTER, state.audio.volume, state.audio.muted, &theme);
         let device_header = self.device_header(&state, &theme, cx);
         let middle = if self.devices_open {
             vec![self.devices(&state, &theme, cx).into_any_element()]
@@ -561,10 +613,10 @@ impl Render for Flyout {
             self.settings(&state, &theme)
         } else {
             let mut items = vec![Self::label("MEDIA KEYS GO TO", &theme).into_any_element()];
-            items.extend(self.targets(&state, window, cx));
+            items.extend(self.targets(&state, cx));
             if !state.mixer.is_empty() {
                 items.push(Self::label("OTHER APPS", &theme).into_any_element());
-                items.extend(self.mixer(&state, window, cx));
+                items.extend(self.mixer(&state, cx));
             }
             items
         };
@@ -577,7 +629,13 @@ impl Render for Flyout {
             .border_color(theme.border)
             .child(controls.relative().child(measure(&self.measured.controls, view)))
             .child(
-                div().id("middle").flex_1().min_h_0().overflow_y_scroll().child(
+                // Only a capped window scrolls; otherwise rounding could leave a pixel to scroll.
+                div()
+                    .id("middle")
+                    .flex_1()
+                    .min_h_0()
+                    .map(|d| if self.height >= MAX_HEIGHT { d.overflow_y_scroll() } else { d.overflow_hidden() })
+                    .child(
                     v_flex().relative().pb_2().children(middle).child(measure(&self.measured.middle, view)),
                 ),
             )

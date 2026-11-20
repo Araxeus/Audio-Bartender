@@ -121,6 +121,15 @@ export class Volumes {
     this.rerender = rerender;
     this.expanded = null;
     this.dragging = false;
+    // Whether the current press started on a volume control, so the card under it
+    // ignores the click. Every press resets it before reaching a control.
+    this.grabbed = false;
+    document.addEventListener("pointerdown", () => (this.grabbed = false), true);
+  }
+
+  /** Marks presses on `node` as volume control presses. */
+  grab(node) {
+    node.addEventListener("pointerdown", () => (this.grabbed = true));
   }
 
   setVolume(id, level) {
@@ -174,6 +183,7 @@ export class Volumes {
     node.style.setProperty("--fill", `${Math.round(level * 100)}%`);
     node.title = "Drag or scroll to change, click to mute";
     this.wheel(node, id);
+    this.grab(node);
 
     let start = null;
     const levelAt = (event) => {
@@ -248,6 +258,7 @@ export class Volumes {
 
     row.append(mute, range, value);
     this.wheel(row, id);
+    this.grab(row);
     return row;
   }
 }

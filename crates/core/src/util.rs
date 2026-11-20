@@ -50,13 +50,12 @@ pub fn open_icon_page(page: crate::IconPage) {
 }
 
 /// Moves a window, keeping its size, so its visible frame sits where `anchor` places
-/// a flyout of that size. Keeps a resized flyout against the taskbar.
-pub fn place_window(hwnd: isize, anchor: &crate::Anchor) {
+/// a flyout of that size, `progress` of the way through its slide. While sliding,
+/// the window stays just below the taskbar so it appears to come out from behind it.
+pub fn place_window(hwnd: isize, anchor: &crate::Anchor, progress: f32) {
     use windows::Win32::Foundation::RECT;
     use windows::Win32::Graphics::Dwm::{DWMWA_EXTENDED_FRAME_BOUNDS, DwmGetWindowAttribute};
-    use windows::Win32::UI::WindowsAndMessaging::{
-        GetWindowRect, SWP_NOACTIVATE, SWP_NOSIZE, SWP_NOZORDER, SetWindowPos,
-    };
+    use windows::Win32::UI::WindowsAndMessaging::GetWindowRect;
     let hwnd = HWND(hwnd as _);
     unsafe {
         // The window rectangle can include invisible borders; DWM knows the visible one.
@@ -68,10 +67,59 @@ pub fn place_window(hwnd: isize, anchor: &crate::Anchor) {
         if DwmGetWindowAttribute(hwnd, DWMWA_EXTENDED_FRAME_BOUNDS, &mut visible as *mut RECT as _, size).is_err() {
             visible = window;
         }
-        let (x, y) = anchor.place(visible.right - visible.left, visible.bottom - visible.top);
+        let (width, height) = (visible.right - visible.left, visible.bottom - visible.top);
         let (dx, dy) = (visible.left - window.left, visible.top - window.top);
-        let _ = SetWindowPos(hwnd, None, x - dx, y - dy, 0, 0, SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE);
+        position(hwnd, anchor, (width, height), (dx, dy), progress);
     }
+}
+
+/// Moves a borderless window of the given physical size, which may still be pending.
+pub fn place_window_sized(hwnd: isize, anchor: &crate::Anchor, width: i32, height: i32, progress: f32) {
+    position(HWND(hwnd as _), anchor, (width, height), (0, 0), progress);
+}
+
+/// Puts a window whose visible frame is `size`, offset by `border` inside it, where
+/// `anchor` places it `progress` of the way through its slide.
+fn position(hwnd: HWND, anchor: &crate::Anchor, size: (i32, i32), border: (i32, i32), progress: f32) {
+    use windows::Win32::UI::WindowsAndMessaging::{
+        FindWindowW, SET_WINDOW_POS_FLAGS, SWP_NOACTIVATE, SWP_NOSIZE, SWP_NOZORDER, SetWindowPos,
+    };
+    let (x, y) = anchor.place_sliding(size.0, size.1, progress);
+    let (dx, dy) = border;
+    unsafe {
+        let taskbar = if progress < 1.0 { FindWindowW(windows::core::w!("Shell_TrayWnd"), None).ok() } else { None };
+        let mut flags: SET_WINDOW_POS_FLAGS = SWP_NOSIZE | SWP_NOACTIVATE;
+        if taskbar.is_none() {
+            flags |= SWP_NOZORDER;
+        }
+        let _ = SetWindowPos(hwnd, taskbar, x - dx, y - dy, 0, 0, flags);
+    }
+}
+
+/// Hides or shows a window without changing its visibility state.
+pub fn set_cloaked(hwnd: isize, cloaked: bool) {
+    use windows::Win32::Graphics::Dwm::{DWMWA_CLOAK, DwmSetWindowAttribute};
+    let value = windows::core::BOOL::from(cloaked);
+    unsafe {
+        let _ = DwmSetWindowAttribute(HWND(hwnd as _), DWMWA_CLOAK, &value as *const _ as _, size_of_val(&value) as u32);
+    }
+}
+
+/// Whether "Show animations in Windows" is on.
+pub fn animations_enabled() -> bool {
+    use windows::Win32::UI::WindowsAndMessaging::{
+        SPI_GETCLIENTAREAANIMATION, SYSTEM_PARAMETERS_INFO_UPDATE_FLAGS, SystemParametersInfoW,
+    };
+    let mut on = windows::core::BOOL(1);
+    unsafe {
+        let _ = SystemParametersInfoW(
+            SPI_GETCLIENTAREAANIMATION,
+            0,
+            Some(&mut on as *mut _ as _),
+            SYSTEM_PARAMETERS_INFO_UPDATE_FLAGS(0),
+        );
+    }
+    on.as_bool()
 }
 
 pub fn wide(s: &str) -> Vec<u16> {

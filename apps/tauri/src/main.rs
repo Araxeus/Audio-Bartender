@@ -24,6 +24,8 @@ struct Flyout {
     anchor: Option<Anchor>,
     height: Option<f64>,
     closed_at: Option<Instant>,
+    /// When the flyout was last shown, for sliding it out from behind the taskbar.
+    shown_at: Option<Instant>,
     /// Stays open when it loses focus.
     pinned: bool,
 }
@@ -109,8 +111,26 @@ fn flyout_size(app: AppHandle, height: f64) {
 /// The page calls this after its first render, so the window never flashes blank.
 #[tauri::command]
 fn ready(window: WebviewWindow) {
+    reveal(window.app_handle(), &window);
+}
+
+/// Shows the flyout, sliding it out from behind the taskbar.
+fn reveal(app: &AppHandle, window: &WebviewWindow) {
+    app.state::<Mutex<Flyout>>().lock().unwrap().shown_at = Some(Instant::now());
+    place_flyout(app);
     let _ = window.show();
     let _ = window.set_focus();
+    let app = app.clone();
+    std::thread::spawn(move || {
+        loop {
+            std::thread::sleep(Duration::from_millis(8));
+            let shown_at = app.state::<Mutex<Flyout>>().lock().unwrap().shown_at;
+            place_flyout(&app);
+            if shown_at.is_none_or(|at| mediakeys_core::slide_progress(at) >= 1.0) {
+                break;
+            }
+        }
+    });
 }
 
 fn theme(dark: Option<bool>) -> Option<Theme> {
@@ -127,16 +147,23 @@ fn page_name(page: Page) -> &'static str {
 /// Sizes the flyout to its content and puts it next to the tray icon.
 fn place_flyout(app: &AppHandle) {
     let Some(window) = app.get_webview_window(FLYOUT) else { return };
-    let (anchor, height) = {
+    let (anchor, height, shown_at) = {
         let flyout = app.state::<Mutex<Flyout>>();
         let flyout = flyout.lock().unwrap();
-        (flyout.anchor, flyout.height.unwrap_or(480.0))
+        (flyout.anchor, flyout.height.unwrap_or(480.0), flyout.shown_at)
     };
     let Some(anchor) = anchor else { return };
     let scale = anchor.scale as f64;
     let _ = window.set_size(LogicalSize::new(FLYOUT_WIDTH, height));
-    let (x, y) = anchor.place((FLYOUT_WIDTH * scale) as i32, (height * scale) as i32);
-    let _ = window.set_position(PhysicalPosition::new(x, y));
+    let progress = shown_at.map_or(1.0, mediakeys_core::slide_progress);
+    let (width, height) = ((FLYOUT_WIDTH * scale) as i32, (height * scale) as i32);
+    match window.hwnd() {
+        Ok(hwnd) => mediakeys_core::place_window_sized(hwnd.0 as isize, &anchor, width, height, progress),
+        Err(_) => {
+            let (x, y) = anchor.place(width, height);
+            let _ = window.set_position(PhysicalPosition::new(x, y));
+        }
+    }
 }
 
 fn hide_flyout(app: &AppHandle) {
@@ -179,9 +206,12 @@ fn show_flyout(app: &AppHandle, anchor: Anchor, page: Page, toggle: bool) {
     }
     if let Some(window) = existing {
         let _ = window.emit_to(FLYOUT, "page", page_name(page));
-        place_flyout(app);
-        let _ = window.show();
-        let _ = window.set_focus();
+        if visible {
+            place_flyout(app);
+            let _ = window.set_focus();
+        } else {
+            reveal(app, &window);
+        }
         return;
     }
     // Must run off the main thread, because WebView2 creation deadlocks inside event-loop callbacks.

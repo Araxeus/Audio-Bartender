@@ -46,7 +46,8 @@ foreach ($app in 'gpui', 'tauri') {
     $hwnd = [IntPtr]::Zero
     $deadline = (Get-Date).AddSeconds(15)
     while ($hwnd -eq [IntPtr]::Zero -and (Get-Date) -lt $deadline) { Start-Sleep -Milliseconds 50; $hwnd = [S]::FindMain([uint32]$p.Id) }
-    # SWP_NOSIZE | SWP_NOZORDER
+    # Let the flyout finish sliding in before moving it.
+    Start-Sleep -Milliseconds 500
     # Keep each flyout's height and bottom edge; only move it sideways. SWP_NOSIZE | SWP_NOZORDER
     $r = New-Object S+RECT; [void][S]::GetWindowRect($hwnd, [ref]$r)
     [void][S]::SetWindowPos($hwnd, [IntPtr]::Zero, $x, $r.T, 0, 0, 0x5)

@@ -79,7 +79,9 @@ fn show_flyout(cx: &mut App, anchor: Anchor, page: Page, toggle: bool, pinned: b
     let (core, state) = (globals.core.clone(), globals.state.clone());
     let height = flyout::height(state.read(cx), page);
     let scale = anchor.scale;
-    let (x, y) = anchor.place((flyout::WIDTH * scale) as i32, (height * scale) as i32);
+    // Starts behind the taskbar, unless Windows animations are off.
+    let start = mediakeys_core::slide_progress(std::time::Instant::now());
+    let (x, y) = anchor.place_sliding((flyout::WIDTH * scale) as i32, (height * scale) as i32, start);
     let options = WindowOptions {
         window_bounds: Some(WindowBounds::Windowed(Bounds {
             origin: point(px(x as f32 / scale), px(y as f32 / scale)),

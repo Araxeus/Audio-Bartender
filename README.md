@@ -24,7 +24,7 @@ Picks which app receives the keyboard media keys (play/pause, next, previous, st
 The flyout is the whole UI. Left-click the tray icon to open or close it; it also opens on launch, from the tray menu, and from a second launch. It closes when you click elsewhere unless it's pinned.
 
 - Top row: media controls, then theme, settings, pin (stay open) and quit.
-- Middle: the media key target list with each app's volume, then other apps playing audio, as in the Volume Mixer. The radio button picks where media keys go. The wheel changes volume (2% per notch) only over a volume control and scrolls the list everywhere else. The settings page replaces this list.
+- Middle: the media key target list with each app's volume, then other apps playing audio, as in the Volume Mixer. Clicking a card (or its radio button) picks where media keys go; with On click volume bars, only the radio button does. The wheel changes volume (2% per notch) only over a volume control and scrolls the list everywhere else. The settings page replaces this list.
 - Bottom, next to the tray: the output device (click to choose another) and the master volume.
 
 ## Tray icon
@@ -42,7 +42,7 @@ Stored in `%APPDATA%\MediaKeysSelector\config.ini` and shared by both front ends
 - Album art as app icon (the track thumbnail the app reports to SMTC)
 - Theme: System, Light, Dark
 - Tray icon: Ring or Number
-- Volume bars: Always (a slider under every app), On click (a percentage; click the row for its slider) or Compact (a small bar to drag or scroll; click to mute)
+- Volume bars: Compact (a small bar to drag or scroll; click to mute), Always (a slider under every app) or On click (a percentage; click the card for its slider)
 
 Launch flags: `--hidden` starts in the tray only, `--settings` opens on the settings page, `--pinned` starts pinned (handy for comparing both front ends side by side).
 

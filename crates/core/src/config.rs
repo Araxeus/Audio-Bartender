@@ -43,9 +43,9 @@ impl Config {
                 "tray_style" => s.tray_style = if value == "number" { TrayStyle::Number } else { TrayStyle::Ring },
                 "volume_bars" => {
                     s.volume_bars = match value {
+                        "always" => VolumeBars::Always,
                         "click" => VolumeBars::OnClick,
-                        "compact" => VolumeBars::Compact,
-                        _ => VolumeBars::Always,
+                        _ => VolumeBars::Compact,
                     }
                 }
                 _ => {}
@@ -70,9 +70,9 @@ impl Config {
             s.album_art,
             if s.tray_style == TrayStyle::Number { "number" } else { "ring" },
             match s.volume_bars {
+                VolumeBars::Compact => "compact",
                 VolumeBars::Always => "always",
                 VolumeBars::OnClick => "click",
-                VolumeBars::Compact => "compact",
             },
         );
         let _ = std::fs::write(path, text);
