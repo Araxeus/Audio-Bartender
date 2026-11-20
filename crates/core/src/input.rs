@@ -44,6 +44,7 @@ const WM_SHOW: u32 = WM_APP + 2;
 const WM_REDRAW: u32 = WM_APP + 3;
 const WM_WHEEL: u32 = WM_APP + 4;
 const WM_MENU_WHEEL: u32 = WM_APP + 5;
+const WM_PREVIEW: u32 = WM_APP + 6;
 
 /// Polls the pointer while our tooltip outlives the shell's hover.
 const TIMER_TOOLTIP: usize = 1;
@@ -154,10 +155,23 @@ impl TrayState {
 
 /// When the pointer left both the icon and the card, or zero while it is on one.
 static AWAY_MS: AtomicU64 = AtomicU64::new(0);
+/// A previewed tooltip stays until this time (ms since the epoch).
+static PREVIEW_UNTIL_MS: AtomicU64 = AtomicU64::new(0);
+/// How long a tooltip preview shows.
+const PREVIEW_MS: u64 = 4000;
+
+/// Shows the tooltip by the tray icon for a few seconds, so a changed tooltip
+/// setting can be seen without hovering the icon.
+pub(crate) fn preview_tooltip() {
+    post(WM_PREVIEW, 0);
+}
 
 /// True while the tooltip should stay: the pointer is on the icon, on a card with
 /// buttons, or has been off both for less than the grace period.
 fn keep_tooltip() -> bool {
+    if now_ms() < PREVIEW_UNTIL_MS.load(Relaxed) {
+        return true;
+    }
     if tooltip::pointer_on_icon() {
         AWAY_MS.store(0, Relaxed);
         return true;
@@ -491,6 +505,18 @@ unsafe extern "system" fn wndproc(hwnd: HWND, msg: u32, wparam: WPARAM, lparam: 
                 let _ = KillTimer(Some(hwnd), TIMER_TOOLTIP);
             }
         }
+        WM_PREVIEW => {
+            let tip = TRAY_STATE.lock().unwrap().tip();
+            // The pointer is on the settings, so an icon in the overflow falls back
+            // to the notification area rather than the pointer.
+            let icon = icon_rect(hwnd).or_else(tray_area_rect).unwrap_or_else(cursor_rect);
+            tooltip::show(&tip, icon);
+            PREVIEW_UNTIL_MS.store(now_ms() + PREVIEW_MS, Relaxed);
+            AWAY_MS.store(0, Relaxed);
+            unsafe {
+                SetTimer(Some(hwnd), TIMER_TOOLTIP, 100, None);
+            }
+        }
         WM_SHOW => show(Page::Apps),
         WM_REDRAW => unsafe { set_icon(hwnd, NIM_MODIFY) },
         WM_SETTINGCHANGE => unsafe { set_icon(hwnd, NIM_MODIFY) },
@@ -554,6 +580,18 @@ fn cursor_rect() -> RECT {
         let _ = GetCursorPos(&mut at);
     }
     RECT { left: at.x, top: at.y, right: at.x + 1, bottom: at.y + 1 }
+}
+
+/// The taskbar's notification area, where an icon in the overflow would sit.
+fn tray_area_rect() -> Option<RECT> {
+    use windows::Win32::UI::WindowsAndMessaging::{FindWindowExW, GetWindowRect};
+    unsafe {
+        let taskbar = FindWindowW(w!("Shell_TrayWnd"), None).ok()?;
+        let area = FindWindowExW(Some(taskbar), None, w!("TrayNotifyWnd"), None).ok()?;
+        let mut rect = RECT::default();
+        GetWindowRect(area, &mut rect).ok()?;
+        Some(rect)
+    }
 }
 
 fn anchor(hwnd: HWND) -> Option<Anchor> {

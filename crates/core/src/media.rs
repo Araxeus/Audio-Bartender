@@ -199,6 +199,7 @@ impl Worker {
                 }
             }
             Cmd::Set(setting) => {
+                let preview = matches!(setting, Setting::Tooltip(_) | Setting::MediaButtons(_));
                 let s = &mut self.config.settings;
                 match setting {
                     Setting::Autostart(on) => crate::autostart::set(on),
@@ -215,6 +216,10 @@ impl Worker {
                 }
                 self.config.save();
                 self.refresh(false);
+                // After the refresh, so the tray already has the new style.
+                if preview {
+                    crate::input::preview_tooltip();
+                }
             }
         }
     }
