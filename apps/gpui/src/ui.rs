@@ -333,7 +333,7 @@ impl Volumes {
                                     .size_full()
                                     .rounded_full()
                                     .border(px(3.))
-                                    .border_color(theme.background)
+                                    .border_color(crate::theme::card(theme.is_dark()))
                                     .bg(theme.primary),
                             ),
                     ),

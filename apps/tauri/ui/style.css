@@ -408,3 +408,14 @@ button.icon.tiny { width: 26px; height: 22px; }
 .hover-swap .transport { display: none; gap: 4px; }
 .fly-row:hover .hover-swap .detail { display: none; }
 .fly-row:hover .hover-swap .transport { display: flex; }
+
+/* Windows 11 build: rounded cards with shadows, floating 12px clear of the taskbar
+   and 8px apart. The margins match MARGIN and OVERLAP in main.rs. */
+
+html:has(body.win11) { background: transparent; }
+body.win11 .flyout-column,
+body.win11 .settings-panel { margin: 12px; overflow: hidden; border-radius: 8px; box-shadow: 0 4px 10px -2px rgba(0, 0, 0, .18); }
+:root[data-theme="dark"] body.win11 .flyout-column,
+:root[data-theme="dark"] body.win11 .settings-panel { box-shadow: 0 4px 10px -2px rgba(0, 0, 0, .45); }
+body.win11 .settings-panel { width: 640px; margin-right: -4px; }
+body.win11[data-panel="right"] .settings-panel { margin-right: 12px; margin-left: -4px; }

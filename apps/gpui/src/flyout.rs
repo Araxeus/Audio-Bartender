@@ -28,9 +28,67 @@ pub const WIDTH: f32 = 360.;
 /// The settings panel beside the flyout, two columns wide.
 pub const PANEL: f32 = 640.;
 const MAX_HEIGHT: f32 = 640.;
+
+/// The Windows 11 build draws each part as a rounded card with a shadow, `MARGIN`
+/// clear of the taskbar and of its box, so the shadow fits in the window region.
+#[cfg(feature = "win11")]
+mod look {
+    pub const MARGIN: f32 = 12.;
+    pub const RADIUS: f32 = 8.;
+    /// How far the panel's box overlaps the flyout's, leaving 8 px between the cards.
+    pub const OVERLAP: f32 = 2. * MARGIN - 8.;
+    pub const PANEL_CARD: f32 = super::PANEL;
+}
+
+/// The flyout and panel share a border, so the panel overlaps the flyout by a pixel.
+#[cfg(not(feature = "win11"))]
+mod look {
+    pub const MARGIN: f32 = 0.;
+    pub const RADIUS: f32 = 0.;
+    pub const OVERLAP: f32 = 1.;
+    pub const PANEL_CARD: f32 = super::PANEL + 1.;
+}
+
+use look::{MARGIN, OVERLAP, PANEL_CARD, RADIUS};
+
+/// The width the panel adds to the window.
+const PANEL_PART: f32 = PANEL_CARD + 2. * MARGIN - OVERLAP;
 /// The window's fixed size. Its region shows only the flyout and the open panel.
-pub const FRAME_WIDTH: f32 = WIDTH + PANEL;
-pub const FRAME_HEIGHT: f32 = MAX_HEIGHT;
+pub const FRAME_WIDTH: f32 = WIDTH + 2. * MARGIN + PANEL_PART;
+pub const FRAME_HEIGHT: f32 = MAX_HEIGHT + 2. * MARGIN;
+
+/// The window in physical pixels, with the flyout `height` tall.
+pub fn frame(scale: f32, height: f32) -> audio_bartender_core::Frame {
+    let physical = |v: f32| (v * scale).round() as i32;
+    audio_bartender_core::Frame {
+        width: physical(FRAME_WIDTH),
+        height: physical(FRAME_HEIGHT),
+        panel: physical(PANEL_PART),
+        visible: physical(height + 2. * MARGIN),
+    }
+}
+
+/// The soft shadow under a Windows 11 card, kept inside its margin.
+fn card_shadow(dark: bool) -> Vec<BoxShadow> {
+    vec![BoxShadow {
+        color: black().opacity(if dark { 0.45 } else { 0.18 }),
+        offset: point(px(0.), px(4.)),
+        blur_radius: px(10.),
+        spread_radius: px(-2.),
+        inset: false,
+    }]
+}
+
+/// A part of the flyout as a card: rounded with a shadow in the Windows 11 build.
+fn card(element: Div, dark: bool) -> Div {
+    let element = element.rounded(px(RADIUS));
+    if cfg!(feature = "win11") { element.shadow(card_shadow(dark)) } else { element }
+}
+
+/// The corner radius for a card's first and last children, inside its border.
+fn inner_radius() -> Pixels {
+    px((RADIUS - 1.).max(0.))
+}
 /// The segmented control's track in light mode, as in the Tauri front end.
 const TRACK_LIGHT: u32 = 0xdcdce4;
 
@@ -550,7 +608,11 @@ impl Flyout {
         }
         self.height = self.measured.flyout().map_or_else(|| height(state), |h| h.ceil().min(MAX_HEIGHT));
         // The panel joins the region once it's measured, so it never shows half laid out.
-        let panel = self.measured.panel().filter(|_| self.page == Page::Settings).map(|h| h.ceil().min(FRAME_HEIGHT));
+        let panel = self
+            .measured
+            .panel()
+            .filter(|_| self.page == Page::Settings)
+            .map(|h| h.ceil().min(MAX_HEIGHT) + 2. * MARGIN);
         let region = (self.height, panel);
         if Some(region) == self.region && self.settled {
             return;
@@ -568,8 +630,8 @@ impl Flyout {
         window.on_next_frame(move |_, cx| {
             let progress = audio_bartender_core::slide_progress(opened);
             audio_bartender_core::place_window(hwnd, &anchor, frame, progress);
-            let border = scale.round().max(1.) as i32;
-            let parts = frame.parts(&anchor, panel.map(|h| (h * scale).round() as i32), border);
+            let overlap = (OVERLAP * scale).round().max(1.) as i32;
+            let parts = frame.parts(&anchor, panel.map(|h| (h * scale).round() as i32), overlap);
             audio_bartender_core::set_window_region(hwnd, &parts);
             audio_bartender_core::set_cloaked(hwnd, false);
             // A closed panel stays drawn until the region no longer shows it.
@@ -581,14 +643,7 @@ impl Flyout {
 
     /// The window in physical pixels, with the flyout at its current height.
     fn frame(&self, window: &Window) -> audio_bartender_core::Frame {
-        let scale = window.scale_factor();
-        let physical = |v: f32| (v * scale).round() as i32;
-        audio_bartender_core::Frame {
-            width: physical(FRAME_WIDTH),
-            height: physical(FRAME_HEIGHT),
-            panel: physical(PANEL),
-            visible: physical(self.height),
-        }
+        frame(window.scale_factor(), self.height)
     }
 
     fn label(text: &'static str, theme: &Theme) -> Div {
@@ -603,6 +658,7 @@ impl Flyout {
             .justify_between()
             .px_3()
             .py_2()
+            .rounded_t(inner_radius())
             .border_b_1()
             .border_color(theme.border)
             .when(dark, |d| d.bg(hex(DARK_FOOTER)))
@@ -1063,7 +1119,7 @@ impl Flyout {
             .rounded(px(6.))
             .border_1()
             .border_color(theme.border)
-            .bg(theme.background)
+            .bg(theme::card(theme.is_dark()))
             .text_size(px(12.))
             .line_height(px(17.))
             .cursor_pointer()
@@ -1091,7 +1147,7 @@ impl Flyout {
         let about = options.iter().find(|o| o.3).map_or("", |o| o.2);
         let (fg, muted) = (theme.foreground, theme.muted_foreground);
         let dark = theme.is_dark();
-        let (track, chip) = if dark { (theme.muted, theme.secondary) } else { (hex(TRACK_LIGHT), theme.background) };
+        let (track, chip) = if dark { (theme.muted, theme.secondary) } else { (hex(TRACK_LIGHT), theme::card(false)) };
         let shadow = vec![BoxShadow {
             color: black().opacity(if dark { 0.25 } else { 0.12 }),
             offset: point(px(0.), px(1.)),
@@ -1228,10 +1284,10 @@ impl Flyout {
         v_flex()
             .flex_none()
             .relative()
-            .bg(theme.background)
+            .bg(theme::card(theme.is_dark()))
             .border_1()
             .border_color(theme.border)
-            .child(header)
+            .child(header.rounded_t(inner_radius()))
             .child(
                 h_flex()
                     .items_start()
@@ -1286,6 +1342,7 @@ impl Render for Flyout {
             items
         };
 
+        let dark = theme.is_dark();
         let flyout = v_flex()
             .flex_none()
             .w(px(WIDTH))
@@ -1313,7 +1370,8 @@ impl Render for Flyout {
                     .px_2()
                     .pt_2()
                     .pb_3()
-                    .bg(theme.background)
+                    .rounded_b(inner_radius())
+                    .bg(theme::card(theme.is_dark()))
                     .border_t_1()
                     .border_color(theme.border)
                     .relative()
@@ -1322,12 +1380,13 @@ impl Render for Flyout {
                     .child(div().px_2().child(master))
                     .child(measure(&self.measured.volume, view)),
             );
+        let flyout = div().flex_none().p(px(MARGIN)).child(card(flyout, dark));
         // Drawn while open, so it gets measured, and while the region still shows it.
         let left = self.frame(window).panel_left(&self.anchor);
         let panel = (self.page == Page::Settings || self.shown_panel.get().is_some()).then(|| {
-            // One pixel wider, overlapping the flyout so their borders meet as one line.
-            let panel = self.settings_panel(&state, &theme, cx).w(px(PANEL + 1.));
-            if left { panel.mr(px(-1.)) } else { panel.ml(px(-1.)) }
+            let panel = card(self.settings_panel(&state, &theme, cx).w(px(PANEL_CARD)), dark);
+            let panel = div().flex_none().p(px(MARGIN)).child(panel);
+            if left { panel.mr(px(-OVERLAP)) } else { panel.ml(px(-OVERLAP)) }
         });
         let (before, after) = if left { (panel, None) } else { (None, panel) };
         // The flyout and panel sit against the taskbar edge. The rest is outside the region.

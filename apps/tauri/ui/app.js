@@ -5,6 +5,7 @@ const params = new URLSearchParams(location.search);
 
 let page = location.hash === "#settings" ? "settings" : "apps";
 let pinned = params.get("pinned") === "true";
+document.body.classList.toggle("win11", params.get("look") === "win11");
 let devicesOpen = false;
 let first = true;
 let lastSize = "";

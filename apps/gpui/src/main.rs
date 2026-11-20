@@ -100,14 +100,7 @@ fn show_flyout(cx: &mut App, anchor: Anchor, page: Page, toggle: bool, pinned: b
     let scale = anchor.scale;
     // Starts behind the taskbar, unless Windows animations are off.
     let start = audio_bartender_core::slide_progress(std::time::Instant::now());
-    let physical = |v: f32| (v * scale).round() as i32;
-    let frame = audio_bartender_core::Frame {
-        width: physical(flyout::FRAME_WIDTH),
-        height: physical(flyout::FRAME_HEIGHT),
-        panel: physical(flyout::PANEL),
-        visible: physical(height),
-    };
-    let (x, y) = anchor.place_sliding(frame, start);
+    let (x, y) = anchor.place_sliding(flyout::frame(scale, height), start);
     let options = WindowOptions {
         window_bounds: Some(WindowBounds::Windowed(Bounds {
             origin: point(px(x as f32 / scale), px(y as f32 / scale)),
@@ -121,6 +114,12 @@ fn show_flyout(cx: &mut App, anchor: Anchor, page: Page, toggle: bool, pinned: b
         is_resizable: false,
         is_minimizable: false,
         app_id: Some("AudioBartender".into()),
+        // The Windows 11 cards have rounded corners and shadows over what's behind.
+        window_background: if cfg!(feature = "win11") {
+            WindowBackgroundAppearance::Transparent
+        } else {
+            WindowBackgroundAppearance::Opaque
+        },
         ..Default::default()
     };
     let opened = gpui_kit::open_window(options, cx, |window, cx| {

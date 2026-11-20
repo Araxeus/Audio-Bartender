@@ -14,9 +14,24 @@ const FLYOUT: &str = "flyout";
 const FLYOUT_WIDTH: f64 = 360.0;
 /// The settings panel beside the flyout, two columns wide.
 const PANEL_WIDTH: f64 = 640.0;
+
+/// The Windows 11 build draws each part as a rounded card with a shadow, `MARGIN`
+/// clear of the taskbar and of its box, so the shadow fits in the window region.
+/// The panel's box overlaps the flyout's by `OVERLAP`, leaving 8 px between the cards.
+#[cfg(feature = "win11")]
+const LOOK: (f64, f64, f64) = (12.0, 2.0 * 12.0 - 8.0, PANEL_WIDTH);
+/// The flyout and panel share a border, so the panel overlaps the flyout by a pixel.
+#[cfg(not(feature = "win11"))]
+const LOOK: (f64, f64, f64) = (0.0, 1.0, PANEL_WIDTH + 1.0);
+const MARGIN: f64 = LOOK.0;
+const OVERLAP: f64 = LOOK.1;
+const PANEL_CARD: f64 = LOOK.2;
+
+/// The width the panel adds to the window.
+const PANEL_PART: f64 = PANEL_CARD + 2.0 * MARGIN - OVERLAP;
 /// The window's fixed size. Its region shows only the flyout and the open panel.
-const FRAME_WIDTH: f64 = FLYOUT_WIDTH + PANEL_WIDTH;
-const FRAME_HEIGHT: f64 = 640.0;
+const FRAME_WIDTH: f64 = FLYOUT_WIDTH + 2.0 * MARGIN + PANEL_PART;
+const FRAME_HEIGHT: f64 = 640.0 + 2.0 * MARGIN;
 
 /// A tray click that lands right after the flyout closed is the click that closed it.
 const REOPEN_GUARD: Duration = Duration::from_millis(300);
@@ -157,8 +172,9 @@ fn apply_region(app: &AppHandle) {
     let Ok(hwnd) = window.hwnd() else { return };
     let panel = app.state::<Mutex<Flyout>>().lock().unwrap().panel;
     let scale = anchor.scale as f64;
-    let border = scale.round().max(1.0) as i32;
-    let parts = frame.parts(&anchor, panel.map(|h| (h * scale).round() as i32), border);
+    let overlap = (OVERLAP * scale).round().max(1.0) as i32;
+    let panel = panel.map(|h| ((h + 2.0 * MARGIN) * scale).round() as i32);
+    let parts = frame.parts(&anchor, panel, overlap);
     audio_bartender_core::set_window_region(hwnd.0 as isize, &parts);
 }
 
@@ -171,8 +187,8 @@ fn frame(app: &AppHandle) -> Option<(Anchor, audio_bartender_core::Frame)> {
     let frame = audio_bartender_core::Frame {
         width: physical(FRAME_WIDTH),
         height: physical(FRAME_HEIGHT),
-        panel: physical(PANEL_WIDTH),
-        visible: physical(flyout.height.unwrap_or(480.0)),
+        panel: physical(PANEL_PART),
+        visible: physical(flyout.height.unwrap_or(480.0) + 2.0 * MARGIN),
     };
     Some((anchor, frame))
 }
@@ -334,7 +350,8 @@ fn show_flyout(app: &AppHandle, anchor: Anchor, page: Page, toggle: bool) {
     // Must run off the main thread, because WebView2 creation deadlocks inside event-loop callbacks.
     let dark = app.state::<Core>().state().settings.dark;
     let pinned = app.state::<Mutex<Flyout>>().lock().unwrap().pinned;
-    let url = format!("index.html?pinned={pinned}#{}", page_name(page));
+    let look = if cfg!(feature = "win11") { "win11" } else { "classic" };
+    let url = format!("index.html?pinned={pinned}&look={look}#{}", page_name(page));
     let built = WebviewWindowBuilder::new(app, FLYOUT, WebviewUrl::App(url.into()))
         .theme(theme(dark))
         .title("Audio Bartender")
@@ -344,6 +361,8 @@ fn show_flyout(app: &AppHandle, anchor: Anchor, page: Page, toggle: bool) {
         .resizable(false)
         .shadow(true)
         .inner_size(FRAME_WIDTH, FRAME_HEIGHT)
+        // The Windows 11 cards have rounded corners and shadows over what's behind.
+        .transparent(cfg!(feature = "win11"))
         .visible(false)
         .build();
     if built.is_ok() {

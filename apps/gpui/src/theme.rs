@@ -12,6 +12,11 @@ pub fn hex(color: u32) -> Hsla {
 pub const DARK_FOOTER: u32 = 0x0f0f14;
 
 /// Applies light or dark mode with the app palette, which matches the Tauri front end.
+/// The card color, which `theme.background` is too outside the Windows 11 build.
+pub fn card(dark: bool) -> Hsla {
+    hex(if dark { 0x1c1c25 } else { 0xffffff })
+}
+
 pub fn apply(window: &mut Window, cx: &mut App, dark: Option<bool>, accent: Accent) {
     match dark {
         Some(dark) => Theme::change(if dark { ThemeMode::Dark } else { ThemeMode::Light }, Some(window), cx),
@@ -33,6 +38,10 @@ pub fn apply(window: &mut Window, cx: &mut App, dark: Option<bool>, accent: Acce
         t.slider_thumb = hex(accent);
         // A thin bar that stays visible, so a long page shows there's more below.
         t.scrollbar_mode = ScrollbarMode::Always;
+        // Windows 11's own UI font, as in its flyouts.
+        if cfg!(feature = "win11") {
+            t.font_family = "Segoe UI Variable Text".into();
+        }
         // Dimmer in dark mode, where a grey thumb otherwise stands out; matches the Tauri one.
         let (thumb, thumb_hover) = if dark {
             (white().opacity(0.14), white().opacity(0.26))
@@ -52,7 +61,10 @@ pub fn apply(window: &mut Window, cx: &mut App, dark: Option<bool>, accent: Acce
         t.muted = hex(window_bg);
         t.title_bar = hex(window_bg);
         t.title_bar_border = hex(window_bg);
-        t.background = hex(card);
+        // The root fills the window with the background. In the Windows 11 build the
+        // space around the cards must stay clear for their shadows, so the cards use
+        // `card` instead.
+        t.background = if cfg!(feature = "win11") { transparent_black() } else { hex(card) };
         t.secondary = hex(hover);
         t.secondary_hover = hex(hover);
         t.border = hex(border);

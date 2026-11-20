@@ -8,11 +8,14 @@
     Version stamped into the installer. Defaults to the workspace version in Cargo.toml,
     and must match it, so a tag can't ship a binary that reports another version.
 .PARAMETER OutDir
-    Where the exes and the installer go. Defaults to dist/.
+    Where the exes and the installer go. Defaults to dist/, or dist/win11/ with -Win11.
+.PARAMETER Win11
+    Builds the Windows 11 look: rounded, shadowed cards that float above the taskbar.
 #>
 param(
     [string]$Version,
-    [string]$OutDir
+    [string]$OutDir,
+    [switch]$Win11
 )
 
 $ErrorActionPreference = 'Stop'
@@ -20,7 +23,7 @@ $ProgressPreference = 'SilentlyContinue'
 
 $root  = $PSScriptRoot
 $tools = Join-Path $root '.tools'
-$dist  = if ($OutDir) { [IO.Path]::GetFullPath($OutDir) } else { Join-Path $root 'dist' }
+$dist  = if ($OutDir) { [IO.Path]::GetFullPath($OutDir) } elseif ($Win11) { Join-Path $root 'dist/win11' } else { Join-Path $root 'dist' }
 
 $cargoVersion = (Select-String -Path (Join-Path $root 'Cargo.toml') -Pattern '^version = "(.+)"' | Select-Object -First 1).Matches[0].Groups[1].Value
 if (-not $Version) { $Version = $cargoVersion }
@@ -59,7 +62,8 @@ if (-not (Test-Path $innoDir)) {
     if ($p.ExitCode -ne 0) { throw "Inno Setup unpack exited with code $($p.ExitCode)." }
 }
 
-cargo build --release --locked -p audio_bartender_gpui -p audio_bartender_tauri
+$features = if ($Win11) { @('--features', 'audio_bartender_gpui/win11,audio_bartender_tauri/win11') } else { @() }
+cargo build --release --locked -p audio_bartender_gpui -p audio_bartender_tauri @features
 if ($LASTEXITCODE -ne 0) { throw "cargo build exited with code $LASTEXITCODE." }
 
 $exes = foreach ($app in 'gpui', 'tauri') {
