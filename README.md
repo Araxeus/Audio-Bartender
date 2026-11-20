@@ -2,6 +2,26 @@
 
 A tray audio mixer for Windows 10/11. It replaces the Windows volume icon with a flyout for per-app volume, live level meters, output devices and media controls, and it picks which app receives the keyboard media keys (play/pause, next, previous, stop).
 
+## Install
+
+Download from the releases page:
+
+| File | What |
+|---|---|
+| `AudioBartender-setup.exe` | Installer. Asks whether to install for all users or just you, and which interface to use: Native (GPUI, recommended) or Web (Tauri, needs the WebView2 Runtime). Either one installs as `AudioBartender.exe` |
+| `AudioBartender-portable.exe` | The Native interface, nothing to install |
+| `AudioBartender-web-portable.exe` | The Web interface, nothing to install |
+
+Silent installs take `/VERYSILENT`, `/ALLUSERS` or `/CURRENTUSER`, `/INTERFACE=native|web` and `/TASKS="startup"`.
+
+## Start with Windows
+
+The switch in Settings adds or removes `HKCU\...\Run\AudioBartender` with `--hidden`. A copy disabled in Task Manager's Startup tab shows as off, and turning it on clears that mark.
+
+- **Portable:** that's all. The app never asks for admin rights.
+- **Installed for all users:** setup also registers an `AudioBartender` scheduled task that runs the app elevated, so the keyboard hook also sees keys typed while an admin window has focus. An unelevated launch hands off to the task, and a launch that should show the flyout still shows it. The app spots an installed copy by Inno's `unins000.exe` beside it.
+- **Installed just for you:** no admin and no task, so it behaves like the portable copy.
+
 ## Layout
 
 | Path | What |
@@ -23,8 +43,8 @@ A tray audio mixer for Windows 10/11. It replaces the Windows volume icon with a
 
 The flyout is the whole UI. Left-click the tray icon to open or close it; it also opens on launch, from the tray menu, and from a second launch. It closes when you click elsewhere unless it's pinned.
 
-- Top row: media controls, then theme, settings, pin (stay open) and quit.
-- Middle: the media key target list with each app's volume, then other apps playing audio, as in the Volume Mixer. Clicking a card (or its radio button) picks where media keys go; with On click volume bars, only the radio button does. The wheel changes volume (2% per notch) only over a volume control and scrolls the list everywhere else. The settings page replaces this list.
+- Top row: the app name, then theme, settings, pin (stay open) and quit.
+- Middle: the media key target list with each app's volume, then other apps playing audio, as in the Volume Mixer. Clicking a card (or its radio button) picks where media keys go. The wheel changes volume (2% per notch) only over a volume control and scrolls the list everywhere else. The settings page replaces this list.
 - Bottom, next to the tray: the output device (click to choose another) and the master volume.
 
 ## Tray icon
@@ -36,23 +56,29 @@ The flyout is the whole UI. Left-click the tray icon to open or close it; it als
 
 ## Settings
 
-Stored in `%APPDATA%\AudioBartender\config.ini` and shared by both front ends:
+Stored in `%APPDATA%\AudioBartender\config.ini` and shared by both front ends. The settings page lists each mode setting with its current value; clicking one opens its choices with a line about each.
 
-- Start with Windows (`HKCU\...\Run\AudioBartender` with `--hidden`)
+- Start with Windows (see above)
 - Album art as app icon (the track thumbnail the app reports to SMTC)
+- Tray icons: opens the Windows pages for showing ours and hiding Windows' volume icon
 - Theme: System, Light, Dark
 - Accent color: Blue (default), Cyan, Teal, Purple, Hot pink or Orange. The core owns the palette, so both front ends and the tooltip cards match
 - Tray icon: Ring or Number
-- Tooltip: Now playing (a card with the media key app's track and art, the device and the volume), Compact (device, volume and media key app) or Text (the plain Windows tooltip)
-- Volume bars: Compact (a small bar to drag or scroll; click to mute), Always (a slider under every app) or On click (a percentage; click the card for its slider)
+- Tooltip: Now playing, Compact or Text
+- Tooltip buttons: None, Hover (default), Inline, Capsule or Player. Cards with buttons stay open while hovered and change the volume on scroll
+- Media controls: None, Banner, Row, Dock or Hover (default, on each app's row and for that app)
+- Volume bars: None, Compact (default), Always or On hover (a percentage that turns into a slider while the row is hovered)
+- Level meters: None, In volume (default), Icon ring, Live bars, Underline or Edge strip
 
-Launch flags: `--hidden` starts in the tray only, `--settings` opens on the settings page, `--pinned` starts pinned (handy for comparing both front ends side by side).
+Launch flags: `--hidden` starts in the tray only, `--settings` opens on the settings page, `--pinned` starts pinned, and `--dev` turns off the single-instance lock and the hand-off to the elevated task.
 
-The single-instance lock is off for now (`SINGLE_INSTANCE` in `crates/core/src/input.rs`), so both front ends can run side by side. With it on, a second launch opens the running instance's flyout.
+Both front ends share one single-instance lock, so a second launch of either opens the running copy's flyout.
 
 ## Build and compare
 
 ```powershell
+pwsh build.ps1                    # release build of both, then the installer, all in dist/
+pwsh dist/dev.ps1 --pinned        # run both front ends from dist/ side by side
 pwsh scripts/measure.ps1          # release build, copy to dist/, measure + screenshot both
 pwsh scripts/measure.ps1 -NoBuild
 pwsh scripts/side-by-side.ps1     # open both flyouts pinned, next to each other; Enter closes them
@@ -70,5 +96,5 @@ Set `AUDIO_BARTENDER_LOG=1` to log routing, forwarded keys and tray wheel steps 
 - Changing the default output device uses `IPolicyConfig`, which is undocumented but stable since Windows 7.
 - The Tauri flyout keeps its webview for 60 s after closing, so reopening is instant, then frees it.
 - GPUI can only grow a window downward, so the GPUI flyout resizes itself through Win32 (`place_window` in core) to keep its bottom against the taskbar.
-- GPUI hardcodes Windows SDK 10.0.26100 for `fxc.exe`. `.cargo/config.toml` points `GPUI_FXC_PATH` at 10.0.22621.
+- GPUI hardcodes Windows SDK 10.0.26100 for `fxc.exe`. `.cargo/config.toml` points `GPUI_FXC_PATH` at 10.0.22621, and CI overrides it with the runner's newest SDK.
 - Hardware that sends media keys as raw HID reports straight to an app bypasses the hook.
