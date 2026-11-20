@@ -8,6 +8,8 @@ let pinned = params.get("pinned") === "true";
 let devicesOpen = false;
 let first = true;
 let lastSize = "";
+/** The window region shows the settings panel. A closed panel stays drawn until it doesn't. */
+let shownPanel = false;
 let latest = null;
 /** Every accent with its colors, from the core. */
 let accents = [];
@@ -443,7 +445,7 @@ function render(state) {
   $("device").replaceChildren(deviceHeader(state));
   $("master").replaceChildren(volumes.sliderRow(MASTER, state.audio.volume, state.audio.muted));
 
-  const panel = page === "settings";
+  const panel = page === "settings" || shownPanel;
   $("panel").hidden = !panel;
   $("panel").replaceChildren(...(panel ? settingsPanel(state) : []));
 
@@ -461,20 +463,30 @@ function render(state) {
   }
   $("middle").replaceChildren(...middle);
 
-  // The window fits the content, so report size changes to the host. It answers
-  // which side of the flyout has room for the panel.
-  const height = Math.ceil(document.body.getBoundingClientRect().height);
-  const size = `${height}/${panel}`;
-  if (size !== lastSize) {
-    lastSize = size;
-    invoke("flyout_size", { height, panel }).then((left) => {
-      document.body.dataset.panel = left ? "left" : "right";
-    });
-  }
+  // A newly opened panel joins the window region once it's painted.
+  const opening = page === "settings" && !shownPanel;
+  reportSize(!opening);
+  if (opening) requestAnimationFrame(() => requestAnimationFrame(() => reportSize(true)));
   if (first) {
     first = false;
     invoke("ready");
   }
+}
+
+/** Reports the flyout and open panel heights, so the window region shows exactly them. */
+function reportSize(withPanel) {
+  const flyout = Math.ceil($("column").getBoundingClientRect().height);
+  const panel = withPanel && page === "settings" ? Math.ceil($("panel").getBoundingClientRect().height) : null;
+  const size = `${flyout}/${panel}`;
+  if (size === lastSize) return;
+  lastSize = size;
+  invoke("flyout_size", { flyout, panel }).then(([left, down]) => {
+    document.body.dataset.panel = left ? "left" : "right";
+    document.body.dataset.down = down;
+    const hidden = shownPanel && panel === null;
+    shownPanel = panel !== null;
+    if (hidden) rerender();
+  });
 }
 
 follow(volumes, render);

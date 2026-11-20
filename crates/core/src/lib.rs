@@ -596,22 +596,73 @@ impl Anchor {
         (x.clamp(self.work.left, (self.work.right - width).max(self.work.left)), y)
     }
 
-    /// Like [`Anchor::place_with_panel`], but `1 - progress` of the way towards the
-    /// screen edge behind the taskbar, where the flyout starts fully off screen.
-    pub fn place_sliding(&self, width: i32, panel: i32, height: i32, progress: f32) -> (i32, i32) {
-        let (x, y) = self.place_with_panel(width, panel, height);
+    /// True when the taskbar is at the top, so the flyout hangs down from it.
+    pub fn grows_down(&self) -> bool {
+        self.icon.bottom <= self.work.top
+    }
+
+    /// Top-left corner for `frame`, with its showing parts against the taskbar.
+    pub fn place_frame(&self, frame: Frame) -> (i32, i32) {
+        let (x, y) = self.place_with_panel(frame.width, frame.panel, frame.visible);
+        if self.grows_down() { (x, y) } else { (x, y + frame.visible - frame.height) }
+    }
+
+    /// Like [`Anchor::place_frame`], but `1 - progress` of the way towards the screen
+    /// edge behind the taskbar, where the flyout starts fully off screen.
+    pub fn place_sliding(&self, frame: Frame, progress: f32) -> (i32, i32) {
+        let (x, y) = self.place_frame(frame);
         let (w, i, s) = (self.work, self.icon, self.screen);
         let rest = 1.0 - progress.clamp(0.0, 1.0);
         let off = |distance: i32| (distance as f32 * rest).round() as i32;
-        if i.bottom <= w.top {
-            (x, y - off(y + height - s.top))
+        if self.grows_down() {
+            (x, y - off(y + frame.visible - s.top))
         } else if i.top < w.bottom && i.left >= w.right {
             (x + off(s.right - x), y)
         } else if i.top < w.bottom && i.right <= w.left {
-            (x - off(x + width - s.left), y)
+            (x - off(x + frame.width - s.left), y)
         } else {
-            (x, y + off(s.bottom - y))
+            let top = y + frame.height - frame.visible;
+            (x, y + off(s.bottom - top))
         }
+    }
+}
+
+/// A flyout window that never changes size, so opening the settings panel or
+/// listing another app never makes it jump. Its window region shows only the
+/// flyout, `visible` tall, and the settings panel beside it while that is open.
+/// Sizes are in physical pixels.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Frame {
+    pub width: i32,
+    pub height: i32,
+    /// The settings panel's width, part of `width` whether or not it shows.
+    pub panel: i32,
+    /// The flyout's height.
+    pub visible: i32,
+}
+
+impl Frame {
+    /// True when the panel sits left of the flyout.
+    pub fn panel_left(&self, anchor: &Anchor) -> bool {
+        anchor.panel_left(self.width - self.panel, self.panel, self.visible)
+    }
+
+    /// The rectangles that show, as (left, top, right, bottom) inside the frame: the
+    /// flyout, and the panel `panel_height` tall when it's open. Both sit against the
+    /// taskbar. The panel overlaps the flyout by `border`, so their borders meet as one line.
+    pub fn parts(&self, anchor: &Anchor, panel_height: Option<i32>, border: i32) -> Vec<(i32, i32, i32, i32)> {
+        let left = self.panel_left(anchor);
+        let span = |h: i32| if anchor.grows_down() { (0, h) } else { (self.height - h, self.height) };
+        let flyout = self.width - self.panel;
+        let x = if left { self.panel } else { 0 };
+        let (top, bottom) = span(self.visible);
+        let mut parts = vec![(x, top, x + flyout, bottom)];
+        if let Some(height) = panel_height {
+            let (top, bottom) = span(height);
+            let (l, r) = if left { (0, self.panel + border) } else { (flyout - border, self.width) };
+            parts.push((l, top, r, bottom));
+        }
+        parts
     }
 }
 
@@ -804,12 +855,10 @@ pub fn preview_tray_icon(level: f32, muted: bool, style: TrayStyle, light_taskba
     Some(icon::encode_png(size as u32, size as u32, &pixels))
 }
 
-/// Moves a window (by its raw handle), keeping its size, to where `anchor` places a
-/// flyout `progress` of the way through its slide (see [`slide_progress`]). Call after
-/// resizing so the bottom stays against the taskbar.
-/// `panel` is the width of a side panel included in the window, or 0.
-pub fn place_window(hwnd: isize, anchor: &Anchor, panel: i32, progress: f32) {
-    util::place_window(hwnd, anchor, panel, progress);
+/// Moves a flyout window (by its raw handle) to where `anchor` places `frame`,
+/// `progress` of the way through its slide (see [`slide_progress`]).
+pub fn place_window(hwnd: isize, anchor: &Anchor, frame: Frame, progress: f32) {
+    util::place_window(hwnd, anchor, frame, progress);
 }
 
 /// Hides (cloaks) or shows a window without changing its visibility state, for
@@ -818,10 +867,10 @@ pub fn set_cloaked(hwnd: isize, cloaked: bool) {
     util::set_cloaked(hwnd, cloaked);
 }
 
-/// Like [`place_window`], for a borderless window of the given physical size,
-/// which may not have applied yet.
-pub fn place_window_sized(hwnd: isize, anchor: &Anchor, width: i32, panel: i32, height: i32, progress: f32) {
-    util::place_window_sized(hwnd, anchor, width, panel, height, progress);
+/// Limits a window to the union of `parts`, as (left, top, right, bottom) in physical
+/// pixels from its client area's top-left corner. Clicks outside go to the windows behind.
+pub fn set_window_region(hwnd: isize, parts: &[(i32, i32, i32, i32)]) {
+    util::set_window_region(hwnd, parts);
 }
 
 /// The page to open on launch: `--settings` opens the settings page.

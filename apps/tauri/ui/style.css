@@ -247,23 +247,27 @@ button.icon.active { color: var(--accent); }
 
 /* Flyout */
 
+/* The window keeps one size and its region shows only the flyout and the open panel,
+   which sit against the taskbar edge. */
 body.flyout {
   flex-direction: row;
-  max-height: 640px;
+  align-items: flex-end;
+  justify-content: flex-end;
+  height: 100vh;
   overflow: hidden;
-  border: 1px solid var(--border);
-  background: var(--bg);
+  background: transparent;
 }
 
-/* Fixed width, so the measured height never depends on the window width at the time. */
-.flyout-column { display: flex; flex-direction: column; flex: none; width: 358px; }
-.flyout-column .flyout-middle { flex: 1; }
+body[data-down="true"] { align-items: flex-start; }
+body[data-panel="right"] { justify-content: flex-start; }
 
-/* Settings panel */
+.flyout-column { display: flex; flex-direction: column; flex: none; width: 360px; border: 1px solid var(--border); background: var(--bg); }
 
-.settings-panel { flex: none; width: 640px; border-right: 1px solid var(--border); background: var(--card); }
+/* Settings panel. One pixel wider, overlapping the flyout so their borders meet as one line. */
+
+.settings-panel { flex: none; width: 641px; margin-right: -1px; border: 1px solid var(--border); background: var(--card); }
 .settings-panel[hidden] { display: none; }
-body[data-panel="right"] .settings-panel { order: 1; border-right: 0; border-left: 1px solid var(--border); }
+body[data-panel="right"] .settings-panel { order: 1; margin-right: 0; margin-left: -1px; }
 .panel-title { padding-left: 4px; font-size: 13px; font-weight: 600; }
 .panel-body { display: flex; align-items: flex-start; padding-bottom: 8px; }
 .panel-column { flex: 1; min-width: 0; }

@@ -28,10 +28,13 @@ pub const WIDTH: f32 = 360.;
 /// The settings panel beside the flyout, two columns wide.
 pub const PANEL: f32 = 640.;
 const MAX_HEIGHT: f32 = 640.;
+/// The window's fixed size. Its region shows only the flyout and the open panel.
+pub const FRAME_WIDTH: f32 = WIDTH + PANEL;
+pub const FRAME_HEIGHT: f32 = MAX_HEIGHT;
 /// The segmented control's track in light mode, as in the Tauri front end.
 const TRACK_LIGHT: u32 = 0xdcdce4;
 
-// Estimated heights, for sizing the window before its content is measured.
+// Estimated heights, for sizing the flyout before its content is measured.
 const CONTROLS: f32 = 45.;
 const VOLUME: f32 = 92.;
 const LABEL: f32 = 34.;
@@ -39,8 +42,6 @@ const TARGET_ROW: f32 = 58.;
 const MIXER_ROW: f32 = 35.;
 const SLIDER: f32 = 32.;
 const SETTING_ROW: f32 = 40.;
-/// The settings panel's two columns, below its header.
-const PANEL_BODY: f32 = 480.;
 /// How often live levels are read while the flyout is open.
 const METER_FRAME: Duration = Duration::from_millis(33);
 /// Time constant, in seconds, for shown levels to catch up with readings.
@@ -50,13 +51,8 @@ const BANNER: f32 = 66.;
 const ROW_CONTROLS: f32 = 36.;
 const DOCK: f32 = 56.;
 
-/// The window width for `page`: the flyout, plus the settings panel beside it.
-pub fn width(page: Page) -> f32 {
-    if page == Page::Settings { WIDTH + PANEL } else { WIDTH }
-}
-
-/// Estimated height that fits `page` with the given state.
-pub fn height(state: &State, page: Page) -> f32 {
+/// Estimated height of the flyout with the given state.
+pub fn height(state: &State) -> f32 {
     let middle = {
         let always = state.settings.volume_bars == VolumeBars::Always;
         let sliders = if always { state.targets.iter().filter(|t| t.volume.is_some()).count() } else { 0 };
@@ -70,9 +66,7 @@ pub fn height(state: &State, page: Page) -> f32 {
         targets + mixer + controls
     };
     let dock = if state.settings.media_controls == MediaControls::Dock { DOCK } else { 0. };
-    let flyout = middle + VOLUME + dock + 12.;
-    let panel = if page == Page::Settings { PANEL_BODY } else { 0. };
-    (CONTROLS + flyout.max(panel)).min(MAX_HEIGHT)
+    (CONTROLS + middle + VOLUME + dock + 12.).min(MAX_HEIGHT)
 }
 
 /// A row's hover listener.
@@ -215,8 +209,8 @@ impl NowPlaying {
     }
 }
 
-/// The laid-out heights of the flyout's three parts and the settings panel's
-/// body, zero until first measured.
+/// The laid-out heights of the flyout's three parts and the settings panel,
+/// zero until first measured.
 #[derive(Default)]
 struct Measured {
     controls: Rc<Cell<f32>>,
@@ -226,14 +220,16 @@ struct Measured {
 }
 
 impl Measured {
-    fn total(&self, panel: bool) -> Option<f32> {
-        let (controls, middle, volume) = (self.controls.get(), self.middle.get(), self.volume.get());
-        let panel = panel.then(|| self.panel.get());
-        if [controls, middle, volume].iter().any(|h| *h <= 0.) || panel.is_some_and(|h| h <= 0.) {
-            return None;
-        }
-        // The window border adds a pixel above and below.
-        Some(controls + (middle + volume).max(panel.unwrap_or(0.)) + 2.)
+    // Each part's border adds a pixel above and below.
+
+    fn flyout(&self) -> Option<f32> {
+        let parts = [self.controls.get(), self.middle.get(), self.volume.get()];
+        parts.iter().all(|h| *h > 0.).then(|| parts.iter().sum::<f32>() + 2.)
+    }
+
+    fn panel(&self) -> Option<f32> {
+        let panel = self.panel.get();
+        (panel > 0.).then_some(panel + 2.)
     }
 }
 
@@ -282,8 +278,12 @@ pub struct Flyout {
     state_bars: VolumeBars,
     dark: Option<bool>,
     accent: Accent,
-    width: f32,
+    /// The flyout's height.
     height: f32,
+    /// The flyout and panel heights last sent to the window region.
+    region: Option<(f32, Option<f32>)>,
+    /// The panel height the window region shows, set once the region applies.
+    shown_panel: Rc<Cell<Option<f32>>>,
     measured: Measured,
     /// When the window opened, for sliding it out from behind the taskbar.
     opened: Instant,
@@ -356,8 +356,9 @@ impl Flyout {
             state_bars: VolumeBars::default(),
             dark,
             accent,
-            width: width(page),
             height,
+            region: None,
+            shown_panel: Rc::default(),
             measured: Measured::default(),
             opened: Instant::now(),
             settled: false,
@@ -525,61 +526,69 @@ impl Flyout {
         }
     }
 
-    /// Resizes the window to its content and slides it in or out.
-    /// GPUI resizes downward from the top, so the window moves once the new size applies.
-    fn fit(&mut self, state: &State, window: &mut Window) {
+    /// Fits the window region to the flyout and the open panel, and slides the
+    /// window in or out. The window itself keeps one size, so nothing jumps.
+    fn fit(&mut self, state: &State, window: &mut Window, cx: &mut Context<Self>) {
+        let Some(hwnd) = hwnd(window) else { return };
+        let (anchor, frame) = (self.anchor, self.frame(window));
+        // GPUI ignores bounds whose center is off screen, which the slide's start is.
+        let size = size(px(FRAME_WIDTH), px(FRAME_HEIGHT));
+        if window.viewport_size() != size {
+            window.resize(size);
+        }
         if let Some(closing) = self.closing {
             if audio_bartender_core::slide_out_progress(closing) <= 0.0 {
                 window.remove_window();
                 return;
             }
             window.request_animation_frame();
-            let Some(hwnd) = hwnd(window) else { return };
-            let anchor = self.anchor;
-            let panel = self.panel_px(window);
             window.on_next_frame(move |_, _| {
                 let progress = audio_bartender_core::slide_out_progress(closing);
-                audio_bartender_core::place_window(hwnd, &anchor, panel, progress);
+                audio_bartender_core::place_window(hwnd, &anchor, frame, progress);
             });
             return;
         }
-        let height = match self.measured.total(self.page == Page::Settings) {
-            Some(total) => total.ceil().min(MAX_HEIGHT),
-            None => height(state, self.page),
-        };
-        let width = width(self.page);
-        let resized = (width, height) != (self.width, self.height);
-        if !resized && self.settled {
+        self.height = self.measured.flyout().map_or_else(|| height(state), |h| h.ceil().min(MAX_HEIGHT));
+        // The panel joins the region once it's measured, so it never shows half laid out.
+        let panel = self.measured.panel().filter(|_| self.page == Page::Settings).map(|h| h.ceil().min(FRAME_HEIGHT));
+        let region = (self.height, panel);
+        if Some(region) == self.region && self.settled {
             return;
         }
-        if resized {
-            (self.width, self.height) = (width, height);
-            window.resize(size(px(width), px(height)));
-        }
+        self.region = Some(region);
         let progress = audio_bartender_core::slide_progress(self.opened);
         if progress < 1.0 {
             window.request_animation_frame();
         } else {
             self.settled = true;
         }
-        let Some(hwnd) = hwnd(window) else { return };
-        let (anchor, opened, panel) = (self.anchor, self.opened, self.panel_px(window));
-        window.on_next_frame(move |_, _| {
-            audio_bartender_core::place_window(hwnd, &anchor, panel, audio_bartender_core::slide_progress(opened));
+        let frame = self.frame(window);
+        let scale = window.scale_factor();
+        let (opened, shown, view) = (self.opened, self.shown_panel.clone(), cx.entity_id());
+        window.on_next_frame(move |_, cx| {
+            let progress = audio_bartender_core::slide_progress(opened);
+            audio_bartender_core::place_window(hwnd, &anchor, frame, progress);
+            let border = scale.round().max(1.) as i32;
+            let parts = frame.parts(&anchor, panel.map(|h| (h * scale).round() as i32), border);
+            audio_bartender_core::set_window_region(hwnd, &parts);
             audio_bartender_core::set_cloaked(hwnd, false);
+            // A closed panel stays drawn until the region no longer shows it.
+            if shown.replace(panel) != panel {
+                cx.notify(view);
+            }
         });
     }
 
-    /// The settings panel's width in physical pixels, or 0 when it's closed.
-    fn panel_px(&self, window: &Window) -> i32 {
-        if self.page == Page::Settings { (PANEL * window.scale_factor()) as i32 } else { 0 }
-    }
-
-    /// True when the settings panel goes left of the flyout, where there's room.
-    fn panel_left(&self, window: &Window) -> bool {
+    /// The window in physical pixels, with the flyout at its current height.
+    fn frame(&self, window: &Window) -> audio_bartender_core::Frame {
         let scale = window.scale_factor();
-        let px = |v: f32| (v * scale) as i32;
-        self.anchor.panel_left(px(WIDTH), px(PANEL), px(self.height))
+        let physical = |v: f32| (v * scale).round() as i32;
+        audio_bartender_core::Frame {
+            width: physical(FRAME_WIDTH),
+            height: physical(FRAME_HEIGHT),
+            panel: physical(PANEL),
+            visible: physical(self.height),
+        }
     }
 
     fn label(text: &'static str, theme: &Theme) -> Div {
@@ -1216,16 +1225,22 @@ impl Flyout {
                     .on_click(cx.listener(|this, _, _, cx| this.open_page(Page::Apps, cx))),
             );
         let view = cx.entity_id();
-        v_flex().flex_none().w(px(PANEL)).h_full().bg(theme.background).child(header).child(
-            h_flex()
-                .items_start()
-                .relative()
-                .pb_2()
-                .child(left)
-                .child(div().w(px(1.)).self_stretch().my_3().bg(theme.border))
-                .child(right)
-                .child(measure(&self.measured.panel, view)),
-        )
+        v_flex()
+            .flex_none()
+            .relative()
+            .bg(theme.background)
+            .border_1()
+            .border_color(theme.border)
+            .child(header)
+            .child(
+                h_flex()
+                    .items_start()
+                    .pb_2()
+                    .child(left)
+                    .child(div().w(px(1.)).self_stretch().my_3().bg(theme.border))
+                    .child(right),
+            )
+            .child(measure(&self.measured.panel, view))
     }
 }
 
@@ -1236,7 +1251,7 @@ impl Render for Flyout {
         let theme = cx.theme().clone();
         let view = cx.entity_id();
         self.volumes.begin_frame();
-        self.fit(&state, window);
+        self.fit(&state, window, cx);
 
         let controls = self.controls(&theme, cx);
         let master = self.volumes.slider_row(ui::MASTER, state.audio.volume, state.audio.muted, None, &theme);
@@ -1272,9 +1287,12 @@ impl Render for Flyout {
         };
 
         let flyout = v_flex()
-            .flex_1()
-            .min_w_0()
-            .h_full()
+            .flex_none()
+            .w(px(WIDTH))
+            .h(px(self.height))
+            .bg(theme.muted)
+            .border_1()
+            .border_color(theme.border)
             .child(controls.relative().child(measure(&self.measured.controls, view)))
             .child({
                 // Only a capped window scrolls, with a scrollbar so it's clear there's more;
@@ -1304,23 +1322,21 @@ impl Render for Flyout {
                     .child(div().px_2().child(master))
                     .child(measure(&self.measured.volume, view)),
             );
-        let panel = (self.page == Page::Settings).then(|| {
-            let left = self.panel_left(window);
-            let panel = self.settings_panel(&state, &theme, cx).border_color(theme.border);
-            (left, if left { panel.border_r_1() } else { panel.border_l_1() })
+        // Drawn while open, so it gets measured, and while the region still shows it.
+        let left = self.frame(window).panel_left(&self.anchor);
+        let panel = (self.page == Page::Settings || self.shown_panel.get().is_some()).then(|| {
+            // One pixel wider, overlapping the flyout so their borders meet as one line.
+            let panel = self.settings_panel(&state, &theme, cx).w(px(PANEL + 1.));
+            if left { panel.mr(px(-1.)) } else { panel.ml(px(-1.)) }
         });
-        let (before, after) = match panel {
-            Some((true, panel)) => (Some(panel), None),
-            Some((false, panel)) => (None, Some(panel)),
-            None => (None, None),
-        };
-        h_flex()
-            .items_start()
+        let (before, after) = if left { (panel, None) } else { (None, panel) };
+        // The flyout and panel sit against the taskbar edge. The rest is outside the region.
+        div()
+            .flex()
             .size_full()
-            .bg(theme.muted)
+            .map(|d| if self.anchor.grows_down() { d.items_start() } else { d.items_end() })
+            .map(|d| if left { d.justify_end() } else { d.justify_start() })
             .text_color(theme.foreground)
-            .border_1()
-            .border_color(theme.border)
             .children(before)
             .child(flyout)
             .children(after)

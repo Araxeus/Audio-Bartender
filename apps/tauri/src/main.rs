@@ -14,6 +14,9 @@ const FLYOUT: &str = "flyout";
 const FLYOUT_WIDTH: f64 = 360.0;
 /// The settings panel beside the flyout, two columns wide.
 const PANEL_WIDTH: f64 = 640.0;
+/// The window's fixed size. Its region shows only the flyout and the open panel.
+const FRAME_WIDTH: f64 = FLYOUT_WIDTH + PANEL_WIDTH;
+const FRAME_HEIGHT: f64 = 640.0;
 
 /// A tray click that lands right after the flyout closed is the click that closed it.
 const REOPEN_GUARD: Duration = Duration::from_millis(300);
@@ -24,9 +27,10 @@ const FLYOUT_KEEPALIVE: Duration = Duration::from_secs(60);
 #[derive(Default)]
 struct Flyout {
     anchor: Option<Anchor>,
+    /// The flyout's height.
     height: Option<f64>,
-    /// The settings panel shows beside the flyout.
-    panel: bool,
+    /// The settings panel's height while the region shows it.
+    panel: Option<f64>,
     closed_at: Option<Instant>,
     /// When the flyout was last shown, for sliding it out from behind the taskbar.
     shown_at: Option<Instant>,
@@ -130,21 +134,47 @@ fn set_pinned(app: AppHandle, pinned: bool) {
     app.state::<Mutex<Flyout>>().lock().unwrap().pinned = pinned;
 }
 
-/// The page reports its content height and whether the settings panel shows, so the
-/// window fits it exactly. Returns true when the panel goes left of the flyout.
+/// The page reports the flyout's height and the open panel's, so the window region
+/// shows exactly those. Returns whether the panel goes left of the flyout, and
+/// whether both hang down from a taskbar at the top.
 #[tauri::command]
-fn flyout_size(app: AppHandle, height: f64, panel: bool) -> bool {
-    let anchor = {
-        let flyout = app.state::<Mutex<Flyout>>();
-        let mut flyout = flyout.lock().unwrap();
-        (flyout.height, flyout.panel) = (Some(height), panel);
-        flyout.anchor
-    };
+fn flyout_size(app: AppHandle, flyout: f64, panel: Option<f64>) -> (bool, bool) {
+    {
+        let state = app.state::<Mutex<Flyout>>();
+        let mut state = state.lock().unwrap();
+        (state.height, state.panel) = (Some(flyout), panel);
+    }
     place_flyout(&app);
-    anchor.is_none_or(|anchor| {
-        let physical = |v: f64| (v * anchor.scale as f64) as i32;
-        anchor.panel_left(physical(FLYOUT_WIDTH), physical(PANEL_WIDTH), physical(height))
-    })
+    apply_region(&app);
+    let Some((anchor, frame)) = frame(&app) else { return (true, false) };
+    (frame.panel_left(&anchor), anchor.grows_down())
+}
+
+/// Limits the window to the flyout and the open panel.
+fn apply_region(app: &AppHandle) {
+    let Some((anchor, frame)) = frame(app) else { return };
+    let Some(window) = app.get_webview_window(FLYOUT) else { return };
+    let Ok(hwnd) = window.hwnd() else { return };
+    let panel = app.state::<Mutex<Flyout>>().lock().unwrap().panel;
+    let scale = anchor.scale as f64;
+    let border = scale.round().max(1.0) as i32;
+    let parts = frame.parts(&anchor, panel.map(|h| (h * scale).round() as i32), border);
+    audio_bartender_core::set_window_region(hwnd.0 as isize, &parts);
+}
+
+/// The anchor and the window in physical pixels, with the flyout at its current height.
+fn frame(app: &AppHandle) -> Option<(Anchor, audio_bartender_core::Frame)> {
+    let flyout = app.state::<Mutex<Flyout>>();
+    let flyout = flyout.lock().unwrap();
+    let anchor = flyout.anchor?;
+    let physical = |v: f64| (v * anchor.scale as f64).round() as i32;
+    let frame = audio_bartender_core::Frame {
+        width: physical(FRAME_WIDTH),
+        height: physical(FRAME_HEIGHT),
+        panel: physical(PANEL_WIDTH),
+        visible: physical(flyout.height.unwrap_or(480.0)),
+    };
+    Some((anchor, frame))
 }
 
 /// The page calls this after its first render, so the window never flashes blank.
@@ -163,6 +193,7 @@ fn reveal(app: &AppHandle, window: &WebviewWindow) {
         flyout.closing_at = None;
     }
     place_flyout(app);
+    apply_region(app);
     let _ = window.show();
     let _ = window.set_focus();
     let app = app.clone();
@@ -192,26 +223,21 @@ fn page_name(page: Page) -> &'static str {
 /// Sizes the flyout to its content and puts it next to the tray icon.
 fn place_flyout(app: &AppHandle) {
     let Some(window) = app.get_webview_window(FLYOUT) else { return };
-    let (anchor, height, panel, progress) = {
+    let progress = {
         let flyout = app.state::<Mutex<Flyout>>();
         let flyout = flyout.lock().unwrap();
-        let progress = match (flyout.closing_at, flyout.shown_at) {
+        match (flyout.closing_at, flyout.shown_at) {
             (Some(at), _) => audio_bartender_core::slide_out_progress(at),
             (None, Some(at)) => audio_bartender_core::slide_progress(at),
             (None, None) => 1.0,
-        };
-        (flyout.anchor, flyout.height.unwrap_or(480.0), flyout.panel, progress)
+        }
     };
-    let Some(anchor) = anchor else { return };
-    let scale = anchor.scale as f64;
-    let panel = if panel { PANEL_WIDTH } else { 0.0 };
-    let _ = window.set_size(LogicalSize::new(FLYOUT_WIDTH + panel, height));
-    let physical = |v: f64| (v * scale) as i32;
-    let (width, panel, height) = (physical(FLYOUT_WIDTH + panel), physical(panel), physical(height));
+    let Some((anchor, frame)) = frame(app) else { return };
+    let _ = window.set_size(LogicalSize::new(FRAME_WIDTH, FRAME_HEIGHT));
     match window.hwnd() {
-        Ok(hwnd) => audio_bartender_core::place_window_sized(hwnd.0 as isize, &anchor, width, panel, height, progress),
+        Ok(hwnd) => audio_bartender_core::place_window(hwnd.0 as isize, &anchor, frame, progress),
         Err(_) => {
-            let (x, y) = anchor.place_with_panel(width, panel, height);
+            let (x, y) = anchor.place_frame(frame);
             let _ = window.set_position(PhysicalPosition::new(x, y));
         }
     }
@@ -317,7 +343,7 @@ fn show_flyout(app: &AppHandle, anchor: Anchor, page: Page, toggle: bool) {
         .always_on_top(true)
         .resizable(false)
         .shadow(true)
-        .inner_size(FLYOUT_WIDTH, 480.0)
+        .inner_size(FRAME_WIDTH, FRAME_HEIGHT)
         .visible(false)
         .build();
     if built.is_ok() {
