@@ -124,6 +124,7 @@ fn ready(window: WebviewWindow) {
 
 /// Shows the flyout, sliding it out from behind the taskbar.
 fn reveal(app: &AppHandle, window: &WebviewWindow) {
+    mediakeys_core::log("flyout reveal");
     {
         let flyout = app.state::<Mutex<Flyout>>();
         let mut flyout = flyout.lock().unwrap();
@@ -185,6 +186,7 @@ fn place_flyout(app: &AppHandle) {
 
 /// Slides the flyout back behind the taskbar, then hides it.
 fn hide_flyout(app: &AppHandle) {
+    mediakeys_core::log("flyout hide");
     let start = Instant::now();
     {
         let flyout = app.state::<Mutex<Flyout>>();
@@ -208,14 +210,22 @@ fn hide_flyout(app: &AppHandle) {
             }
             std::thread::sleep(Duration::from_millis(8));
         }
-        if let Some(window) = sliding.get_webview_window(FLYOUT) {
-            let _ = window.hide();
-        }
-        let flyout = sliding.state::<Mutex<Flyout>>();
-        let mut flyout = flyout.lock().unwrap();
-        if flyout.closing_at == Some(start) {
-            flyout.closing_at = None;
-        }
+        // Hide on the main thread, where a reveal's show is queued too, so a flyout
+        // reopened meanwhile stays open.
+        let main = sliding.clone();
+        let _ = sliding.run_on_main_thread(move || {
+            {
+                let flyout = main.state::<Mutex<Flyout>>();
+                let mut flyout = flyout.lock().unwrap();
+                if flyout.closing_at != Some(start) {
+                    return;
+                }
+                flyout.closing_at = None;
+            }
+            if let Some(window) = main.get_webview_window(FLYOUT) {
+                let _ = window.hide();
+            }
+        });
     });
     // Free the webview if the flyout stays closed for a while.
     let app = app.clone();
@@ -317,8 +327,13 @@ fn main() {
             ready
         ])
         .on_window_event(|window, event| {
-            // Clicking anywhere else closes the flyout, like the Windows one.
+            if let WindowEvent::Focused(focused) = event {
+                mediakeys_core::log(format!("flyout focused {focused}"));
+            }
+            // Clicking anywhere else closes the flyout, like the Windows one. A new
+            // webview gains and loses focus while still hidden, which must not count.
             if let (FLYOUT, WindowEvent::Focused(false)) = (window.label(), event)
+                && window.is_visible().unwrap_or(false)
                 && !window.state::<Mutex<Flyout>>().lock().unwrap().pinned
             {
                 hide_flyout(window.app_handle());

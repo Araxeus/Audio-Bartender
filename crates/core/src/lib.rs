@@ -22,6 +22,9 @@ mod tray_icon;
 mod util;
 mod volume;
 
+/// Appends a line to `%TEMP%\mediakeys.log` when `MEDIAKEYS_LOG` is set.
+pub use util::log;
+
 use std::sync::mpsc::{self, Sender};
 use std::sync::{Arc, Mutex};
 
