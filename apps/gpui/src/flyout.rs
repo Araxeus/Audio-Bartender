@@ -577,7 +577,10 @@ impl Flyout {
                 h_flex()
                     .gap_2()
                     .pl_1()
-                    .child(ui::logo(px(18.), self.accent.colors(dark).gradient))
+                    .child(
+                        ui::logo(px(18.), self.accent.colors(dark).gradient)
+                            .child(svg().path("brand/glyph.svg").size(px(14.)).text_color(white())),
+                    )
                     .child(div().text_sm().font_semibold().child("Audio Bartender")),
             )
             .child(

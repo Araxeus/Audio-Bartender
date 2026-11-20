@@ -42,6 +42,10 @@ struct AppAssets;
 
 impl AssetSource for AppAssets {
     fn load(&self, path: &str) -> Result<Option<Cow<'static, [u8]>>> {
+        // The Back Bar mark, in its small-size cut.
+        if path == "brand/glyph.svg" {
+            return Ok(Some(Cow::Borrowed(include_bytes!("../../../assets/logo/glyph-small.svg"))));
+        }
         if let Some(bytes) = AppIcons.load(path)? {
             return Ok(Some(bytes));
         }

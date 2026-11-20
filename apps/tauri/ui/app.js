@@ -141,10 +141,17 @@ function nowPlayingView(state, className) {
   return el("div", "now-playing " + className, art, text, transport(now.playing));
 }
 
+/** The Back Bar mark on an accent tile, in its small-size cut. */
+function brandMark() {
+  const tile = el("span", "avatar brand-logo logo");
+  tile.innerHTML = '<svg viewBox="0 0 256 256"><path fill="currentColor" d="M58 106A6 6 0 0 1 64 100H72A6 6 0 0 1 78 106V128L92 142V196A12 12 0 0 1 80 208H56A12 12 0 0 1 44 196V142L58 128Z M118 54A6 6 0 0 1 124 48H132A6 6 0 0 1 138 54V80L152 94V196A12 12 0 0 1 140 208H116A12 12 0 0 1 104 196V94L118 80Z M178 134A6 6 0 0 1 184 128H192A6 6 0 0 1 198 134V148L212 162V196A12 12 0 0 1 200 208H176A12 12 0 0 1 164 196V162L178 148Z"/></svg>';
+  return tile;
+}
+
 function controls() {
   const dark = isDark();
   return [
-    el("div", "brand", logo("avatar brand-logo"), el("span", "", "Audio Bartender")),
+    el("div", "brand", brandMark(), el("span", "", "Audio Bartender")),
     el(
       "div",
       "transport",
