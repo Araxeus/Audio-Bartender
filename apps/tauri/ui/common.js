@@ -14,6 +14,8 @@ const PALETTE = ["#6d5ef5", "#0ea5e9", "#f97316", "#10b981", "#ec4899", "#eab308
 // Lucide-style stroke icons, drawn on a 24-unit grid.
 const SPEAKER_BODY =
   '<path d="M11 4.7a.7.7 0 0 0-1.2-.5L6.4 7.6A1.4 1.4 0 0 1 5.4 8H3a1 1 0 0 0-1 1v6a1 1 0 0 0 1 1h2.4a1.4 1.4 0 0 1 1 .4l3.4 3.4a.7.7 0 0 0 1.2-.5z"/>';
+const PIN =
+  '<path d="M12 17v5"/><path d="M9 10.76a2 2 0 0 1-1.11 1.79l-1.78.9A2 2 0 0 0 5 15.24V16a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1v-.76a2 2 0 0 0-1.11-1.79l-1.78-.9A2 2 0 0 1 15 10.76V7a1 1 0 0 1 1-1 2 2 0 0 0 0-4H8a2 2 0 0 0 0 4 1 1 0 0 1 1 1z"/>';
 const STROKES = {
   volume: SPEAKER_BODY,
   volume1: SPEAKER_BODY + '<path d="M16 9a5 5 0 0 1 0 6"/>',
@@ -24,14 +26,14 @@ const STROKES = {
   chevronUp: '<path d="m18 15-6-6-6 6"/>',
   settings: '<path d="M20 7h-9M14 17H5"/><circle cx="17" cy="17" r="3"/><circle cx="7" cy="7" r="3"/>',
   power: '<path d="M12 2v10"/><path d="M18.4 6.6a9 9 0 1 1-12.77.04"/>',
-  back: '<path d="m12 19-7-7 7-7"/><path d="M19 12H5"/>',
-  window: '<rect x="2" y="4" width="20" height="16" rx="2"/><path d="M2 8h20M6 4v4M10 4v4"/>',
   moon: '<path d="M12 3a6 6 0 0 0 9 9 9 9 0 1 1-9-9Z"/>',
   sun: '<circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M6.3 17.7l-1.4 1.4M19.1 4.9l-1.4 1.4"/>',
   speaker: '<rect width="16" height="20" x="4" y="2" rx="2"/><circle cx="12" cy="14" r="4"/><path d="M12 6h.01"/>',
   prev: '<path d="M19 20 9 12l10-8zM5 19V5"/>',
   next: '<path d="m5 4 10 8-10 8zM19 5v14"/>',
   play: '<path d="M6 3l14 9-14 9z"/>',
+  pin: PIN,
+  pinOff: PIN + '<path d="M2 2l20 20"/>',
 };
 const SPARKLES = '<path fill="currentColor" d="M12 2l2.4 6.6L21 11l-6.6 2.4L12 20l-2.4-6.6L3 11l6.6-2.4z"/>';
 
@@ -226,16 +228,6 @@ export function setting(name, value) {
   invoke("set_setting", { setting: { [name]: value } });
 }
 
-/** Status line text and whether keys are captured. */
-export function status(state) {
-  const routed = state.targets.find((t) => t.id === state.selected && t.running);
-  const text = routed
-    ? `Captured · sending to ${routed.name}`
-    : state.selected
-      ? "Waiting for the chosen app · Windows decides meanwhile"
-      : "Windows decides";
-  return { routed: Boolean(routed), text };
-}
 
 /** "Playing · Title — Artist" and friends. */
 export function detailText(target) {

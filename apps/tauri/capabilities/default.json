@@ -1,6 +1,6 @@
 {
   "identifier": "default",
-  "windows": ["main", "flyout"],
+  "windows": ["flyout"],
   "permissions": [
     "core:event:default",
     "core:window:allow-minimize",

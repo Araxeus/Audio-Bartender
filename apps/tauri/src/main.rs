@@ -4,13 +4,12 @@ use std::sync::Mutex;
 use std::sync::mpsc;
 use std::time::{Duration, Instant};
 
-use mediakeys_core::{Anchor, Core, Event, IconPage, MediaKey, Setting, State};
+use mediakeys_core::{Anchor, Core, Event, IconPage, MediaKey, Page, Setting, State};
 use tauri::{
     AppHandle, Emitter, LogicalSize, Manager, PhysicalPosition, RunEvent, Theme, WebviewUrl, WebviewWindow,
     WebviewWindowBuilder, WindowEvent,
 };
 
-const MAIN: &str = "main";
 const FLYOUT: &str = "flyout";
 const FLYOUT_WIDTH: f64 = 360.0;
 
@@ -25,6 +24,8 @@ struct Flyout {
     anchor: Option<Anchor>,
     height: Option<f64>,
     closed_at: Option<Instant>,
+    /// Stays open when it loses focus.
+    pinned: bool,
 }
 
 #[tauri::command]
@@ -94,57 +95,33 @@ fn quit(app: AppHandle, core: tauri::State<Core>) {
 }
 
 #[tauri::command]
-fn open_main(app: AppHandle) {
-    if let Some(flyout) = app.get_webview_window(FLYOUT) {
-        let _ = flyout.hide();
-    }
-    std::thread::spawn(move || show_main(&app, false));
+fn set_pinned(app: AppHandle, pinned: bool) {
+    app.state::<Mutex<Flyout>>().lock().unwrap().pinned = pinned;
 }
 
-/// The flyout page reports its content height, so the window fits it exactly.
+/// The page reports its content height, so the window fits it exactly.
 #[tauri::command]
 fn flyout_size(app: AppHandle, height: f64) {
     app.state::<Mutex<Flyout>>().lock().unwrap().height = Some(height);
     place_flyout(&app);
 }
 
-/// The page calls this after its first render, so a window never flashes blank.
+/// The page calls this after its first render, so the window never flashes blank.
 #[tauri::command]
 fn ready(window: WebviewWindow) {
     let _ = window.show();
     let _ = window.set_focus();
 }
 
-/// Native title bar theme. `None` follows Windows.
 fn theme(dark: Option<bool>) -> Option<Theme> {
     dark.map(|dark| if dark { Theme::Dark } else { Theme::Light })
 }
 
-/// Focuses the main window, or creates it, optionally on its settings page. Closing
-/// it destroys the webview, so the tray-only state costs no WebView2 memory.
-fn show_main(app: &AppHandle, settings: bool) {
-    if let Some(window) = app.get_webview_window(MAIN) {
-        let _ = window.unminimize();
-        let _ = window.show();
-        let _ = window.set_focus();
-        if settings {
-            let _ = window.emit_to(MAIN, "page", "settings");
-        }
-        return;
+fn page_name(page: Page) -> &'static str {
+    match page {
+        Page::Apps => "apps",
+        Page::Settings => "settings",
     }
-    let page = if settings { "index.html#settings" } else { "index.html" };
-    // Must run off the main thread, because WebView2 creation deadlocks inside event-loop callbacks.
-    let settings = app.state::<Core>().state().settings;
-    let _ = WebviewWindowBuilder::new(app, MAIN, WebviewUrl::App(page.into()))
-        .theme(theme(settings.dark))
-        .decorations(!settings.custom_title_bar)
-        .title("Media Keys Selector")
-        .inner_size(420.0, 640.0)
-        .min_inner_size(360.0, 480.0)
-        .maximizable(false)
-        .center()
-        .visible(false)
-        .build();
 }
 
 /// Sizes the flyout to its content and puts it next to the tray icon.
@@ -182,30 +159,36 @@ fn hide_flyout(app: &AppHandle) {
     });
 }
 
-/// Opens the flyout next to the tray icon, or closes it if it is open.
-fn toggle_flyout(app: &AppHandle, anchor: Anchor) {
+/// Shows the flyout on `page` next to `anchor`. With `toggle` (a tray click), an
+/// open flyout closes instead.
+fn show_flyout(app: &AppHandle, anchor: Anchor, page: Page, toggle: bool) {
     let existing = app.get_webview_window(FLYOUT);
-    if existing.as_ref().is_some_and(|w| w.is_visible().unwrap_or(false)) {
+    let visible = existing.as_ref().is_some_and(|w| w.is_visible().unwrap_or(false));
+    if visible && toggle {
         hide_flyout(app);
         return;
     }
     {
         let flyout = app.state::<Mutex<Flyout>>();
         let mut flyout = flyout.lock().unwrap();
-        if flyout.closed_at.is_some_and(|at| at.elapsed() < REOPEN_GUARD) {
+        if toggle && flyout.closed_at.is_some_and(|at| at.elapsed() < REOPEN_GUARD) {
             return;
         }
         flyout.anchor = Some(anchor);
         flyout.closed_at = None;
     }
     if let Some(window) = existing {
+        let _ = window.emit_to(FLYOUT, "page", page_name(page));
         place_flyout(app);
         let _ = window.show();
         let _ = window.set_focus();
         return;
     }
+    // Must run off the main thread, because WebView2 creation deadlocks inside event-loop callbacks.
     let dark = app.state::<Core>().state().settings.dark;
-    let built = WebviewWindowBuilder::new(app, FLYOUT, WebviewUrl::App("flyout.html".into()))
+    let pinned = app.state::<Mutex<Flyout>>().lock().unwrap().pinned;
+    let url = format!("index.html?pinned={pinned}#{}", page_name(page));
+    let built = WebviewWindowBuilder::new(app, FLYOUT, WebviewUrl::App(url.into()))
         .theme(theme(dark))
         .title("Media Keys Selector")
         .decorations(false)
@@ -229,13 +212,13 @@ fn main() {
         return;
     };
     let hidden = mediakeys_core::start_hidden();
-    let settings = mediakeys_core::start_in_settings();
+    let pinned = mediakeys_core::start_pinned();
 
     let app = tauri::Builder::default()
         // tao's raw keyboard input registration stops low-level hooks in this process.
         .device_event_filter(tauri::DeviceEventFilter::Always)
         .manage(core)
-        .manage(Mutex::new(Flyout::default()))
+        .manage(Mutex::new(Flyout { pinned, ..Flyout::default() }))
         .invoke_handler(tauri::generate_handler![
             state,
             select,
@@ -250,44 +233,34 @@ fn main() {
             set_device,
             open_icon_page,
             quit,
-            open_main,
+            set_pinned,
             flyout_size,
             ready
         ])
-        .on_window_event(|window, event| match (window.label(), event) {
+        .on_window_event(|window, event| {
             // Clicking anywhere else closes the flyout, like the Windows one.
-            (FLYOUT, WindowEvent::Focused(false)) => hide_flyout(window.app_handle()),
-            (MAIN, WindowEvent::CloseRequested { .. }) => {
-                let core = window.state::<Core>();
-                if !core.state().settings.close_to_tray {
-                    core.shutdown();
-                    window.app_handle().exit(0);
-                }
+            if let (FLYOUT, WindowEvent::Focused(false)) = (window.label(), event)
+                && !window.state::<Mutex<Flyout>>().lock().unwrap().pinned
+            {
+                hide_flyout(window.app_handle());
             }
-            _ => {}
         })
         .setup(move |app| {
             let handle = app.handle().clone();
             std::thread::spawn(move || {
-                if settings || !hidden {
-                    show_main(&handle, settings);
+                if !hidden {
+                    let anchor = handle.state::<Core>().default_anchor();
+                    show_flyout(&handle, anchor, mediakeys_core::start_page(), false);
                 }
                 for event in rx {
                     match event {
                         Event::State(state) => {
-                            for label in [MAIN, FLYOUT] {
-                                if let Some(window) = handle.get_webview_window(label) {
-                                    let _ = window.set_theme(theme(state.settings.dark));
-                                }
-                            }
-                            if let Some(window) = handle.get_webview_window(MAIN) {
-                                let _ = window.set_decorations(!state.settings.custom_title_bar);
+                            if let Some(window) = handle.get_webview_window(FLYOUT) {
+                                let _ = window.set_theme(theme(state.settings.dark));
                             }
                             let _ = handle.emit("state", state);
                         }
-                        Event::Show => show_main(&handle, false),
-                        Event::ShowSettings => show_main(&handle, true),
-                        Event::Flyout(anchor) => toggle_flyout(&handle, anchor),
+                        Event::Flyout { anchor, page, toggle } => show_flyout(&handle, anchor, page, toggle),
                         Event::Quit => handle.exit(0),
                     }
                 }
@@ -297,7 +270,7 @@ fn main() {
         .build(tauri::generate_context!())
         .expect("build tauri app");
 
-    // Closing windows keeps the app alive in the tray; Quit exits.
+    // Closing the flyout keeps the app alive in the tray; Quit exits.
     app.run(|_, event| {
         if let RunEvent::ExitRequested { code: None, api, .. } = event {
             api.prevent_exit();

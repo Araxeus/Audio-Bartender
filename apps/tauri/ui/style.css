@@ -9,10 +9,8 @@
   --muted: #6b6b78;
   --accent: #6d5ef5;
   --accent-soft: rgba(109, 94, 245, .10);
-  --selected-shadow: 0 1px 2px rgba(0, 0, 0, .06);
   --playing: #16a34a;
   --danger: #dc2626;
-  --shadow: 0 1px 2px rgba(0, 0, 0, .05);
   --footer: transparent;
   --track: #dcdce4;
 }
@@ -28,17 +26,13 @@
   --muted: #8e8ea3;
   --accent: #9d8cff;
   --accent-soft: rgba(157, 140, 255, .13);
-  --selected-shadow: 0 4px 18px rgba(157, 140, 255, .16);
   --playing: #4ade80;
   --danger: #f87171;
-  --shadow: none;
   --footer: #0f0f14;
   --track: #33333f;
 }
 
 * { box-sizing: border-box; }
-
-html, body { height: 100%; }
 
 body {
   margin: 0;
@@ -55,58 +49,6 @@ button { font: inherit; color: inherit; }
 
 .icon-glyph { display: inline-grid; place-items: center; flex: none; }
 .icon-glyph svg { width: 16px; height: 16px; }
-
-/* Title bar */
-
-.titlebar {
-  display: none;
-  flex: none;
-  align-items: center;
-  gap: 8px;
-  height: 32px;
-  padding-left: 12px;
-  color: var(--muted);
-  font-size: 12px;
-}
-
-:root[data-titlebar="custom"] .titlebar { display: flex; }
-:root[data-titlebar="custom"] body.main-window { border: 1px solid var(--border); }
-:root[data-titlebar="custom"] header { padding-top: 4px; }
-
-.titlebar .logo-mark { width: 16px; height: 16px; }
-.titlebar .title { flex: 1; }
-
-.caption {
-  display: grid;
-  place-items: center;
-  width: 46px;
-  height: 32px;
-  border: 0;
-  background: transparent;
-}
-
-.caption svg { width: 10px; height: 10px; }
-.caption:hover { background: var(--card-hover); }
-.caption.close:hover { background: #e81123; color: #fff; }
-
-/* Header */
-
-header {
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  padding: 18px 20px 10px;
-}
-
-h1 { margin: 6px 0 0; font-size: 20px; font-weight: 600; }
-.heading-row { display: flex; align-items: center; gap: 6px; margin-top: 2px; }
-.heading-row h1 { margin: 0; }
-
-.status { display: inline-flex; align-items: center; gap: 8px; color: var(--muted); font-size: 12px; }
-.status .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--muted); }
-.status.routed .dot { background: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
-
-.tools { display: flex; gap: 2px; }
 
 /* Buttons */
 
@@ -130,48 +72,7 @@ button.ghost { border-color: transparent; background: transparent; color: var(--
 button.ghost:hover { background: var(--card-hover); color: var(--text); }
 button.icon.active { color: var(--accent); }
 
-.text-button {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  height: 32px;
-  padding: 0 10px;
-  border: 1px solid transparent;
-  border-radius: 6px;
-  cursor: pointer;
-}
-
 /* Lists */
-
-main {
-  flex: 1;
-  overflow-y: auto;
-  padding: 6px 20px 12px;
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-}
-
-.option {
-  display: flex;
-  flex-direction: column;
-  border: 1px solid var(--border);
-  border-radius: 8px;
-  background: var(--card);
-  box-shadow: var(--shadow);
-  cursor: pointer;
-  transition: background .12s, border-color .12s, box-shadow .12s;
-}
-
-.option:hover { background: var(--card-hover); }
-.option:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
-.option[aria-checked="true"] { border-color: var(--accent); background: var(--accent-soft); box-shadow: var(--selected-shadow); }
-.option.offline .text { opacity: .6; }
-.option.mixer { cursor: default; }
-.option.mixer .option-row { padding: 7px 12px; }
-.option > .slider-row { padding: 0 12px 10px; }
-
-.option-row { display: flex; align-items: center; gap: 12px; padding: 10px 12px; }
 
 .avatar {
   flex: none;
@@ -188,7 +89,6 @@ main {
 
 .avatar.small { width: 28px; height: 28px; font-size: 13px; }
 .avatar.tiny { width: 22px; height: 22px; font-size: 11px; border-radius: 6px; }
-.option.mixer .avatar { width: 24px; height: 24px; font-size: 12px; border-radius: 6px; }
 .avatar .app-icon { width: 90%; height: 90%; }
 .avatar .art { width: 100%; height: 100%; object-fit: cover; }
 .avatar.offline img { filter: grayscale(1); opacity: .6; }
@@ -213,7 +113,6 @@ main {
 .bars i:nth-child(3) { animation-delay: -.7s; }
 @keyframes bounce { 0%, 100% { height: 3px; } 50% { height: 10px; } }
 
-.hint { padding: 4px; color: var(--muted); font-size: 11px; text-align: center; opacity: .8; }
 .section-label { padding: 12px 2px 2px; color: var(--muted); font-size: 11px; font-weight: 600; letter-spacing: .04em; text-transform: uppercase; }
 
 /* Volume */
@@ -286,26 +185,11 @@ main {
 
 .range:hover::-webkit-slider-thumb, .range:active::-webkit-slider-thumb { transform: scale(1.15); }
 
-/* Footer */
-
-footer.main-footer, body.main-window > footer {
-  flex: none;
-  border-top: 1px solid var(--border);
-  background: var(--footer);
-}
-
-.master { padding: 10px 20px 0; }
-.device-label { display: flex; align-items: center; gap: 6px; margin-bottom: 2px; color: var(--muted); font-size: 12px; }
-.device-label .icon-glyph svg { width: 13px; height: 13px; }
-.device-label span:last-child { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.footer-row { display: flex; align-items: center; justify-content: space-between; padding: 8px 20px 14px; }
-.transport { display: flex; gap: 6px; }
-
 /* Settings */
 
-.settings { border: 1px solid var(--border); border-radius: 8px; background: var(--card); overflow: hidden; }
-.setting { display: flex; align-items: center; gap: 12px; padding: 11px 12px; border-bottom: 1px solid var(--border); }
-.setting:last-child { border-bottom: 0; }
+.fly-setting { display: flex; align-items: center; justify-content: space-between; gap: 12px; min-height: 50px; margin: 0 8px; padding: 0 8px; border-bottom: 1px solid var(--border); font-size: 13px; }
+.fly-setting:last-child { border-bottom: 0; }
+.transport { display: flex; gap: 6px; }
 
 .segmented { display: flex; gap: 2px; padding: 2px; border: 1px solid var(--border); border-radius: 7px; background: var(--bg); }
 .segmented button { padding: 3px 9px; border: 0; border-radius: 5px; background: transparent; color: var(--muted); font-size: 12px; cursor: pointer; }
@@ -325,8 +209,6 @@ footer.main-footer, body.main-window > footer {
 .small-button:hover { background: var(--card-hover); }
 
 /* Flyout */
-
-html:has(body.flyout), body.flyout { height: auto; }
 
 body.flyout {
   max-height: 640px;
