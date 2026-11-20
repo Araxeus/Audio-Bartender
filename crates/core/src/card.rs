@@ -275,6 +275,7 @@ pub fn show(content: &Content, anchor: Anchor) {
         unsafe {
             let _ = ShowWindow(card.hwnd, SW_SHOWNOACTIVATE);
         }
+        crate::util::raise_topmost(card.hwnd);
         card.schedule();
     });
 }

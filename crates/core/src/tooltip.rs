@@ -113,6 +113,7 @@ fn show_text(text: &str) {
         SendMessageW(tooltip, TTM_TRACKACTIVATE, Some(WPARAM(1)), Some(LPARAM(&info as *const _ as isize)));
         place(tooltip);
     }
+    crate::util::raise_topmost(tooltip);
 }
 
 /// Centers the tooltip above the icon. Runs after showing, when its size is known.

@@ -111,6 +111,15 @@ fn position(hwnd: HWND, anchor: &crate::Anchor, size: (i32, i32), panel: i32, bo
     }
 }
 
+/// Puts a topmost window above the other topmost windows, such as a flyout that
+/// came to the front after it.
+pub(crate) fn raise_topmost(hwnd: HWND) {
+    use windows::Win32::UI::WindowsAndMessaging::{HWND_TOPMOST, SWP_NOACTIVATE, SWP_NOMOVE, SWP_NOSIZE, SetWindowPos};
+    unsafe {
+        let _ = SetWindowPos(hwnd, Some(HWND_TOPMOST), 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE);
+    }
+}
+
 /// Hides or shows a window without changing its visibility state.
 pub fn set_cloaked(hwnd: isize, cloaked: bool) {
     use windows::Win32::Graphics::Dwm::{DWMWA_CLOAK, DwmSetWindowAttribute};
