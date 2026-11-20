@@ -86,7 +86,9 @@ fn inner_radius() -> Pixels {
 const TRACK_LIGHT: u32 = 0xdcdce4;
 
 // Estimated heights, for sizing the flyout before its content is measured.
-const CONTROLS: f32 = 45.;
+const CONTROLS: f32 = HEADER;
+/// The header's height with its bottom border, as in the Tauri front end.
+const HEADER: f32 = 45.;
 const VOLUME: f32 = 92.;
 const LABEL: f32 = 27.;
 const TARGET_ROW: f32 = 51.;
@@ -658,8 +660,8 @@ impl Flyout {
         let (core_theme, core_quit) = (self.core.clone(), self.core.clone());
         h_flex()
             .justify_between()
+            .h(px(HEADER))
             .px_3()
-            .py_2()
             .rounded_t(inner_radius())
             .border_b_1()
             .border_color(theme.border)
@@ -797,7 +799,7 @@ impl Flyout {
             .id("device")
             .gap_2()
             .px_2()
-            .py_1p5()
+            .py(px(7.))
             .rounded(theme.radius)
             .cursor_pointer()
             .hover(|s| s.bg(theme.secondary_hover))
@@ -1060,7 +1062,7 @@ impl Flyout {
                 }
                 VolumeBars::None => row,
                 _ => row.child(
-                    main.py_1()
+                    main.py(px(5.))
                         .child(name.flex_1())
                         .children(self.volume_control(&app.id, app.volume, app.muted, in_volume, &theme)),
                 ),
@@ -1327,8 +1329,8 @@ impl Flyout {
             .child(self.segmented(Mode::LevelMeters, s, theme));
         let header = h_flex()
             .justify_between()
+            .h(px(HEADER))
             .px_3()
-            .py_2()
             .border_b_1()
             .border_color(theme.border)
             .when(theme.is_dark(), |d| d.bg(hex(DARK_FOOTER)))
@@ -1428,7 +1430,6 @@ impl Render for Flyout {
             // Volume sits at the bottom, next to the tray icon the user just clicked.
             .child(
                 v_flex()
-                    .gap_1()
                     .px_2()
                     .pt_2()
                     .pb_3()
@@ -1439,7 +1440,7 @@ impl Render for Flyout {
                     .relative()
                     .children(dock)
                     .child(device_header)
-                    .child(div().px_2().child(master))
+                    .child(div().px_2().pt(px(2.)).child(master))
                     .child(measure(&self.measured.volume, view)),
             );
         let flyout = card_box(card(flyout, dark), &self.anchor);
