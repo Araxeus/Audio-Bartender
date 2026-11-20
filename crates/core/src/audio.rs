@@ -98,6 +98,19 @@ pub fn set_master(level: f32) {
     }
 }
 
+/// Sets the master volume from a slider, unmuting above zero like the Windows flyout.
+pub fn set_master_level(level: f32) -> Option<(f32, bool)> {
+    let volume = master(&enumerator()?)?;
+    let level = (level * 100.0).round().clamp(0.0, 100.0) / 100.0;
+    unsafe {
+        let _ = volume.SetMasterVolumeLevelScalar(level, std::ptr::null());
+        if level > 0.0 {
+            let _ = volume.SetMute(false, std::ptr::null());
+        }
+    }
+    Some(read(&volume))
+}
+
 pub fn toggle_master_mute() {
     let Some(volume) = enumerator().and_then(|e| master(&e)) else { return };
     let (_, muted) = read(&volume);

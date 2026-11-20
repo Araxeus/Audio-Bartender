@@ -1,8 +1,9 @@
 //! The card-style tray tooltips, drawn with Direct2D into a layered window so they get
 //! rounded corners, a soft shadow, album art and the app's theme.
 //!
-//! A card with media buttons takes the mouse. It never takes focus, so a click
-//! sends its key without pulling the user out of their app.
+//! Cards take the mouse: media buttons send keys, and the volume bar sets the master
+//! volume on click or drag. A card never takes focus, so this doesn't pull the user
+//! out of their app.
 //!
 //! Everything here runs on the tray thread.
 
@@ -157,7 +158,7 @@ struct Card {
     anchor: Anchor,
     shown_at: Instant,
     visible: bool,
-    /// The window takes the mouse because it has buttons.
+    /// The window takes the mouse. Plain text tooltips don't.
     clickable: bool,
     /// The pointer is on the card, and since when, for the Hover buttons' fade.
     hovered: bool,
@@ -167,6 +168,16 @@ struct Card {
     /// Index of the button under the pointer, and of the one held down.
     hot: Option<usize>,
     pressed: Option<usize>,
+    /// The pointer is on the volume bar.
+    bar_hot: bool,
+    /// The level being dragged, shown until the audio state catches up.
+    dragging: Option<f32>,
+}
+
+/// What a mouse event asks for.
+enum Action {
+    Press(MediaKey),
+    Volume(f32),
 }
 
 /// Hover and press state for one frame.
@@ -174,6 +185,8 @@ struct Card {
 struct Ui {
     hot: Option<usize>,
     pressed: Option<usize>,
+    bar_hot: bool,
+    dragging: Option<f32>,
     /// How far the Hover buttons have faded in, 0 to 1.
     reveal: f32,
 }
@@ -236,6 +249,8 @@ pub fn create() {
                 tracking: false,
                 hot: None,
                 pressed: None,
+                bar_hot: false,
+                dragging: None,
             })
         });
     }
@@ -251,7 +266,7 @@ pub fn show(content: &Content, anchor: Anchor) {
         }
         card.anchor = anchor;
         card.content = Some(content.clone());
-        card.set_clickable(buttons_style(content) != MediaButtons::None);
+        card.set_clickable(true);
         if !card.visible {
             card.visible = true;
             card.shown_at = Instant::now();
@@ -269,7 +284,8 @@ pub fn hide() {
         let Some(card) = card else { return };
         card.visible = false;
         SCREEN.iter().for_each(|v| v.store(0, Relaxed));
-        if card.pressed.take().is_some() {
+        card.bar_hot = false;
+        if card.pressed.take().is_some() | card.dragging.take().is_some() {
             unsafe {
                 let _ = ReleaseCapture();
             }
@@ -284,7 +300,7 @@ pub fn hide() {
     });
 }
 
-/// True while a card with buttons shows, so the pointer may be on its way to it.
+/// True while a card shows, so the pointer may be on its way to it.
 pub fn interactive() -> bool {
     CARD.with(|card| card.try_borrow().is_ok_and(|c| c.as_ref().is_some_and(|c| c.visible && c.clickable)))
 }
@@ -317,9 +333,11 @@ unsafe extern "system" fn wndproc(hwnd: HWND, msg: u32, wparam: WPARAM, lparam: 
         // Clicks must not pull focus from the app the user is in.
         WM_MOUSEACTIVATE => LRESULT(MA_NOACTIVATE as isize),
         WM_MOUSEMOVE | WM_MOUSELEAVE | WM_LBUTTONDOWN | WM_LBUTTONUP => {
-            let key = CARD.with_borrow_mut(|card| card.as_mut().and_then(|card| card.mouse(msg, lparam)));
-            if let Some(key) = key {
-                crate::input::press(key);
+            let action = CARD.with_borrow_mut(|card| card.as_mut().and_then(|card| card.mouse(msg, lparam)));
+            match action {
+                Some(Action::Press(key)) => crate::input::press(key),
+                Some(Action::Volume(level)) => crate::input::set_master_from_card(level),
+                None => {}
             }
             LRESULT(0)
         }
@@ -328,8 +346,7 @@ unsafe extern "system" fn wndproc(hwnd: HWND, msg: u32, wparam: WPARAM, lparam: 
 }
 
 impl Card {
-    /// Lets the window take the mouse only when it has buttons, so a plain card
-    /// stays a tooltip that clicks pass through.
+    /// Lets the window take the mouse, or pass clicks through like a tooltip.
     fn set_clickable(&mut self, on: bool) {
         if self.clickable == on {
             return;
@@ -348,8 +365,9 @@ impl Card {
         if self.hovered { k } else { 1. - k }
     }
 
-    /// Updates hover and press state. Returns the key a finished click sends.
-    fn mouse(&mut self, msg: u32, lparam: LPARAM) -> Option<MediaKey> {
+    /// Updates hover, press and drag state. Returns what the event asks for: a key
+    /// from a finished click, or a volume from the bar.
+    fn mouse(&mut self, msg: u32, lparam: LPARAM) -> Option<Action> {
         let content = self.content.as_ref()?;
         let scale = self.anchor.scale.max(1.0);
         let x = (lparam.0 & 0xffff) as u16 as i16 as f32 / scale;
@@ -357,7 +375,11 @@ impl Card {
         let buttons = buttons(content);
         let hit =
             buttons.iter().position(|b| x >= b.rect.left && x < b.rect.right && y >= b.rect.top && y < b.rect.bottom);
-        let before = (self.hot, self.pressed, self.hovered);
+        let bar = volume_bar(content);
+        // A generous target around the thin bar, and the level under the pointer.
+        let on_bar = bar.is_some_and(|b| x >= b.left - 6. && x < b.right + 6. && y >= b.top - 9. && y < b.bottom + 9.);
+        let level_at = |b: D2D_RECT_F| (((x - b.left) / (b.right - b.left)).clamp(0., 1.) * 100.).round() / 100.;
+        let before = (self.hot, self.pressed, self.hovered, self.bar_hot, self.dragging);
         let mut key = None;
         match msg {
             WM_MOUSEMOVE => {
@@ -375,17 +397,33 @@ impl Card {
                     self.hover_at = Instant::now();
                 }
                 self.hot = hit;
+                self.bar_hot = on_bar || self.dragging.is_some();
+                if self.dragging.is_some()
+                    && let Some(b) = bar
+                {
+                    let level = level_at(b);
+                    if self.dragging != Some(level) {
+                        self.dragging = Some(level);
+                        key = Some(Action::Volume(level));
+                    }
+                }
             }
             WM_MOUSELEAVE => {
                 self.tracking = false;
                 self.hovered = false;
                 self.hover_at = Instant::now();
                 self.hot = None;
+                self.bar_hot = self.dragging.is_some();
             }
             WM_LBUTTONDOWN => {
                 self.pressed = hit;
                 if hit.is_some() {
                     unsafe { SetCapture(self.hwnd) };
+                } else if on_bar && let Some(b) = bar {
+                    let level = level_at(b);
+                    self.dragging = Some(level);
+                    unsafe { SetCapture(self.hwnd) };
+                    key = Some(Action::Volume(level));
                 }
             }
             _ => {
@@ -394,13 +432,19 @@ impl Card {
                         let _ = ReleaseCapture();
                     }
                     if hit == Some(i) {
-                        key = Some(buttons[i].key);
+                        key = Some(Action::Press(buttons[i].key));
+                    }
+                }
+                if self.dragging.take().is_some() {
+                    unsafe {
+                        let _ = ReleaseCapture();
                     }
                 }
                 self.hot = hit;
+                self.bar_hot = on_bar;
             }
         }
-        if before != (self.hot, self.pressed, self.hovered) && self.visible {
+        if before != (self.hot, self.pressed, self.hovered, self.bar_hot, self.dragging) && self.visible {
             self.draw();
             self.schedule();
         }
@@ -439,7 +483,13 @@ impl Card {
         for (slot, value) in SCREEN.iter().zip(card) {
             slot.store(value, Relaxed);
         }
-        let ui = Ui { hot: self.hot, pressed: self.pressed, reveal: self.reveal() };
+        let ui = Ui {
+            hot: self.hot,
+            pressed: self.pressed,
+            bar_hot: self.bar_hot,
+            dragging: self.dragging,
+            reveal: self.reveal(),
+        };
         let Some(painter) = &mut self.painter else { return };
         if painter.paint(self.hwnd, &content, size, scale, t, ui, position, alpha).is_err() {
             // A lost device makes the next draw start over.
@@ -504,6 +554,24 @@ fn divider(buttons: MediaButtons) -> (f32, f32) {
         MediaButtons::Player => (120., 11.),
         _ => (80., 11.),
     }
+}
+
+/// The volume bar's track, in window DIPs. Drawing and hit testing both use it.
+fn volume_bar(content: &Content) -> Option<D2D_RECT_F> {
+    let (width, height) = card_size(content);
+    let card = rect(SHADOW, SHADOW, SHADOW + width, SHADOW + height);
+    let style = buttons_style(content);
+    let x = card.left + 12.;
+    let (y, right) = match content.style {
+        TooltipStyle::Text => return None,
+        TooltipStyle::Compact => (card.top + 12., compact_right(&card, style)),
+        _ => {
+            let (offset, gap) = divider(style);
+            (card.top + offset + gap, card.right - 12.)
+        }
+    };
+    let top = y + 26.;
+    Some(rect(x, top, right, top + 4.))
 }
 
 /// The media line on the compact card.
@@ -1006,7 +1074,7 @@ impl Painter {
             TooltipStyle::Compact => {
                 let right = compact_right(&card, style);
                 let line = compact_line(&card, style);
-                self.volume(content, p, x, y, right);
+                self.volume(content, p, x, y, right, ui);
                 self.avatar(&content.media, content.accent, x, line, 18.);
                 let status_right = if style == MediaButtons::Inline { right + 4. - INLINE } else { right };
                 self.status(&content.media, p, x + 26., line, status_right, true, false, t);
@@ -1041,7 +1109,7 @@ impl Painter {
                 let (offset, gap) = divider(style);
                 let divider = card.top + offset;
                 self.fill(rounded(rect(card.left, divider, card.right, divider + 1.), 0.), p.border, 1.);
-                self.volume(content, p, x, divider + gap, right);
+                self.volume(content, p, x, divider + gap, right, ui);
                 match style {
                     MediaButtons::Capsule => self.capsule(&buttons, p, content.dark),
                     MediaButtons::Hover => {
@@ -1064,21 +1132,32 @@ impl Painter {
         }
     }
 
-    /// Glyph, device and percentage on one line, then the volume bar.
-    fn volume(&self, content: &Content, p: &Palette, x: f32, y: f32, right: f32) {
-        let tint = if content.muted { p.danger } else { p.text };
-        self.text(volume_glyph(content.level, content.muted), &self.formats.glyph, rect(x, y, x + 18., y + 20.), tint);
-        let value = if content.muted { "Muted".to_owned() } else { format!("{}%", (content.level * 100.).round()) };
+    /// Glyph, device and percentage on one line, then the volume bar. A hovered or
+    /// dragged bar grows and shows a thumb, so it reads as something to grab.
+    #[allow(clippy::too_many_arguments)]
+    fn volume(&self, content: &Content, p: &Palette, x: f32, y: f32, right: f32, ui: Ui) {
+        let level = ui.dragging.unwrap_or(content.level).clamp(0., 1.);
+        let muted = content.muted && ui.dragging.is_none_or(|l| l == 0.);
+        let tint = if muted { p.danger } else { p.text };
+        self.text(volume_glyph(level, muted), &self.formats.glyph, rect(x, y, x + 18., y + 20.), tint);
+        let value = if muted { "Muted".to_owned() } else { format!("{}%", (level * 100.).round()) };
         self.text(&value, &self.formats.value, rect(right - 60., y, right, y + 20.), tint);
         let device = content.device.as_deref().unwrap_or("No output device");
         self.text(device, &self.formats.body, rect(x + 24., y, right - 44., y + 20.), p.text);
 
-        let bar = y + 26.;
-        self.fill(rounded(rect(x, bar, right, bar + 4.), 2.), p.track, 1.);
-        let fill = x + (right - x) * content.level.clamp(0., 1.);
-        let fill_color = if content.muted { p.muted } else { content.accent };
+        let grow = if ui.bar_hot { 1. } else { 0. };
+        let (top, bottom) = (y + 26. - grow, y + 30. + grow);
+        let radius = (bottom - top) / 2.;
+        self.fill(rounded(rect(x, top, right, bottom), radius), p.track, 1.);
+        let fill = x + (right - x) * level;
+        let fill_color = if muted { p.muted } else { content.accent };
         if fill > x {
-            self.fill(rounded(rect(x, bar, fill.max(x + 4.), bar + 4.), 2.), fill_color, 1.);
+            self.fill(rounded(rect(x, top, fill.max(x + 4.), bottom), radius), fill_color, 1.);
+        }
+        if ui.bar_hot {
+            let (cx, cy) = (fill.clamp(x + 6., right - 6.), (top + bottom) / 2.);
+            self.fill(rounded(rect(cx - 7., cy - 7., cx + 7., cy + 7.), 7.), p.card, 1.);
+            self.fill(rounded(rect(cx - 5.5, cy - 5.5, cx + 5.5, cy + 5.5), 5.5), fill_color, 1.);
         }
     }
 
@@ -1340,8 +1419,8 @@ mod tests {
                     muted: false,
                     media: media.clone(),
                 };
-                // Next is hovered, and Hover buttons are fully shown.
-                let ui = Ui { hot: Some(2), pressed: None, reveal: 1. };
+                // Next and the volume bar are hovered, and Hover buttons are fully shown.
+                let ui = Ui { hot: Some(2), pressed: None, bar_hot: true, dragging: None, reveal: 1. };
                 let (w, h, px) = render(&mut painter, &content, ui, scale);
                 for y in 0..cell_h {
                     for x in 0..cell_w {

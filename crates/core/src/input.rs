@@ -178,6 +178,19 @@ fn keep_tooltip() -> bool {
     now - away < CARD_GRACE_MS
 }
 
+/// Sets the master volume from a card's bar and redraws the tray at once, rather
+/// than waiting for the worker's round trip.
+pub(crate) fn set_master_from_card(level: f32) {
+    if let Some((level, muted)) = audio::set_master_level(level) {
+        {
+            let mut tray = TRAY_STATE.lock().unwrap();
+            tray.level = level;
+            tray.muted = muted;
+        }
+        post(WM_REDRAW, 0);
+    }
+}
+
 /// Sends a media key from a card button.
 pub(crate) fn press(key: MediaKey) {
     shared().send(Cmd::Press(key));
