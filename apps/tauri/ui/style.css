@@ -302,7 +302,7 @@ body[data-panel="right"] .settings-panel { order: 1; }
 .device-header:hover { background: var(--card-hover); }
 .device-name { flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 
-.flyout-middle { max-height: 500px; overflow-y: auto; padding-bottom: 8px; }
+.flyout-middle { max-height: 500px; overflow-y: auto; padding-bottom: 14px; }
 /* A slim rounded scrollbar in place of the native one, which has arrows and a grey track on Windows. */
 .flyout-middle::-webkit-scrollbar { width: 10px; }
 .flyout-middle::-webkit-scrollbar-track { background: transparent; }
@@ -375,7 +375,7 @@ body[data-meters="strip"] .meter-strip { display: flex; flex-direction: column; 
 .fly-row.mixer .fly-row-main > .mixer-name { flex: none; width: 96px; font-size: 13px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .fly-row-main > .slider-row { flex: 1; min-width: 0; }
 .fly-row.mixer.always .fly-row-main { padding-top: 1px; padding-bottom: 1px; }
-.fly-row-main { display: flex; align-items: center; gap: 12px; padding: 8px; }
+.fly-row-main { display: flex; align-items: center; gap: 12px; padding: 10px 8px; }
 
 .flyout-controls {
   display: flex;
@@ -406,7 +406,9 @@ button.icon.tiny { width: 26px; height: 22px; }
 .now-playing.dock { padding: 0 8px 10px; margin-bottom: 6px; border-bottom: 1px solid var(--border); }
 .now-playing.dock .avatar { width: 36px; height: 36px; }
 .row-controls { padding: 0 8px 8px 48px; margin-top: -4px; }
-.hover-swap { display: flex; align-items: center; height: 22px; }
+.hover-swap { display: flex; align-items: center; height: 26px; }
+/* The buttons sit a little below the name. */
+.fly-row:hover .hover-swap { align-items: flex-end; }
 .hover-swap .transport { display: none; gap: 4px; }
 .fly-row:hover .hover-swap .detail { display: none; }
 .fly-row:hover .hover-swap .transport { display: flex; }

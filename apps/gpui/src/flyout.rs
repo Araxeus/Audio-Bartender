@@ -91,7 +91,7 @@ const CONTROLS: f32 = HEADER;
 const HEADER: f32 = 45.;
 const VOLUME: f32 = 92.;
 const LABEL: f32 = 27.;
-const TARGET_ROW: f32 = 51.;
+const TARGET_ROW: f32 = 55.;
 const MIXER_ROW: f32 = 35.;
 const SLIDER: f32 = 32.;
 const SETTING_ROW: f32 = 40.;
@@ -934,7 +934,7 @@ impl Flyout {
                     h_flex()
                         .gap_3()
                         .px_2()
-                        .py_2()
+                        .py(px(10.))
                         .child(
                             ui::logo(px(28.), self.accent.colors(theme.is_dark()).gradient)
                                 .child(Icon::new(IconName::Sparkles).small().text_color(white())),
@@ -981,7 +981,7 @@ impl Flyout {
                         h_flex()
                             .gap_3()
                             .px_2()
-                            .py_2()
+                            .py(px(10.))
                             .child(Self::ringed(
                                 avatar,
                                 (meters == LevelMeters::Ring).then_some(level),
@@ -995,13 +995,21 @@ impl Flyout {
                                             // The track line swaps to buttons for this app while hovered.
                                             // Chosen at render time, because a hover style that hides
                                             // elements can change between prepaint and paint.
-                                            let line = if self.hovered.as_ref() == Some(&target.id) {
+                                            let hovered = self.hovered.as_ref() == Some(&target.id);
+                                            let line = if hovered {
                                                 let playing = target.playback == Playback::Playing;
                                                 self.transport(&target.id, Some(target.id.clone()), playing, true)
                                             } else {
                                                 detail()
                                             };
-                                            d.child(div().h(px(22.)).flex().items_center().child(line))
+                                            // The buttons sit a little below the name.
+                                            d.child(
+                                                div()
+                                                    .h(px(26.))
+                                                    .flex()
+                                                    .map(|d| if hovered { d.items_end() } else { d.items_center() })
+                                                    .child(line),
+                                            )
                                         } else {
                                             d.child(detail())
                                         }
@@ -1418,7 +1426,8 @@ impl Render for Flyout {
             .child({
                 // Only a capped window scrolls, with a scrollbar so it's clear there's more;
                 // otherwise rounding could leave a pixel to scroll.
-                let content = v_flex().relative().pb_2().children(middle).child(measure(&self.measured.middle, view));
+                let content =
+                    v_flex().relative().pb(px(14.)).children(middle).child(measure(&self.measured.middle, view));
                 let area = div().flex_1().min_h_0().child(content);
                 if self.height >= MAX_HEIGHT {
                     // Room on the right, so the overlay bar doesn't sit against the rows.
