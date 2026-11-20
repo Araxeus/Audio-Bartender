@@ -7,6 +7,7 @@ use std::sync::atomic::{AtomicBool, AtomicI32, AtomicIsize, AtomicU32, AtomicU64
 use std::sync::{Arc, Mutex, OnceLock};
 
 use windows::Win32::Foundation::{ERROR_ALREADY_EXISTS, GetLastError, HWND, LPARAM, LRESULT, POINT, RECT, WPARAM};
+use windows::Win32::Graphics::Gdi::InvalidateRect;
 use windows::Win32::Graphics::Gdi::{
     GetMonitorInfoW, MONITOR_DEFAULTTONEAREST, MONITOR_DEFAULTTOPRIMARY, MONITORINFO, MonitorFromPoint, MonitorFromRect,
 };
@@ -17,19 +18,21 @@ use windows::Win32::UI::Input::KeyboardAndMouse::{
     VIRTUAL_KEY, VK_MEDIA_NEXT_TRACK, VK_MEDIA_PLAY_PAUSE, VK_MEDIA_PREV_TRACK, VK_MEDIA_STOP,
 };
 use windows::Win32::UI::Shell::{
-    NIF_GUID, NIF_ICON, NIF_MESSAGE, NIF_TIP, NIN_POPUPCLOSE, NIN_POPUPOPEN, NIM_ADD, NIM_DELETE, NIM_MODIFY, NIM_SETVERSION,
-    NOTIFYICON_VERSION_4, NOTIFY_ICON_MESSAGE, NOTIFYICONDATAW,
-    NOTIFYICONIDENTIFIER, Shell_NotifyIconGetRect, Shell_NotifyIconW,
+    NIF_GUID, NIF_ICON, NIF_MESSAGE, NIF_TIP, NIM_ADD, NIM_DELETE, NIM_MODIFY, NIM_SETVERSION, NIN_POPUPCLOSE,
+    NIN_POPUPOPEN, NOTIFY_ICON_MESSAGE, NOTIFYICON_VERSION_4, NOTIFYICONDATAW, NOTIFYICONIDENTIFIER,
+    Shell_NotifyIconGetRect, Shell_NotifyIconW,
 };
 use windows::Win32::UI::WindowsAndMessaging::*;
-use windows::Win32::Graphics::Gdi::InvalidateRect;
 use windows::core::{BOOL, GUID, PCSTR, PCWSTR, PWSTR, w};
 
-use crate::tray_icon::{self, Look};
 use crate::tooltip;
-use crate::util::{fill_wide, now_ms};
 use crate::tooltip::Tip;
-use crate::{Accent, Anchor, Cmd, Event, MediaButtons, MediaKey, Page, Playback, Rect, Shared, State, TooltipStyle, TrayStyle, audio, card, volume};
+use crate::tray_icon::{self, Look};
+use crate::util::{fill_wide, now_ms};
+use crate::{
+    Accent, Anchor, Cmd, Event, MediaButtons, MediaKey, Page, Playback, Rect, Shared, State, TooltipStyle, TrayStyle,
+    audio, card, volume,
+};
 use windows::Win32::UI::Shell::ShellExecuteW;
 use windows::Win32::UI::WindowsAndMessaging::SW_SHOWNORMAL;
 
@@ -187,12 +190,11 @@ static LAST_HOVER_MS: AtomicU64 = AtomicU64::new(0);
 /// Bit per media key that is currently held, to ignore auto-repeat.
 static HELD: AtomicU32 = AtomicU32::new(0);
 
-/// Off while both front ends run side by side for comparison.
-const SINGLE_INSTANCE: bool = false;
-
 /// Returns false when another instance runs, after asking it to show its window.
+/// Both front ends share the lock, so only one of them runs. `--dev` turns it off
+/// for running them side by side.
 pub fn claim_single_instance() -> bool {
-    if !SINGLE_INSTANCE {
+    if crate::autostart::dev() {
         return true;
     }
     unsafe {
@@ -273,7 +275,8 @@ pub fn update_tray(state: &State) {
 pub fn remove_tray() {
     let hwnd = HWND(TRAY.load(Relaxed) as _);
     if !hwnd.is_invalid() {
-        let mut data = NOTIFYICONDATAW { cbSize: size_of::<NOTIFYICONDATAW>() as u32, hWnd: hwnd, ..Default::default() };
+        let mut data =
+            NOTIFYICONDATAW { cbSize: size_of::<NOTIFYICONDATAW>() as u32, hWnd: hwnd, ..Default::default() };
         identify(&mut data);
         unsafe {
             let _ = Shell_NotifyIconW(NIM_DELETE, &data);
@@ -298,8 +301,12 @@ fn run_tray() {
     crate::util::com_init();
     unsafe {
         let instance = GetModuleHandleW(None).unwrap_or_default();
-        let class =
-            WNDCLASSW { lpfnWndProc: Some(wndproc), hInstance: instance.into(), lpszClassName: CLASS, ..Default::default() };
+        let class = WNDCLASSW {
+            lpfnWndProc: Some(wndproc),
+            hInstance: instance.into(),
+            lpszClassName: CLASS,
+            ..Default::default()
+        };
         RegisterClassW(&class);
         TASKBAR_CREATED.store(RegisterWindowMessageW(w!("TaskbarCreated")), Relaxed);
 
@@ -320,6 +327,11 @@ fn run_tray() {
             return;
         };
         TRAY.store(hwnd.0 as isize, Relaxed);
+        // An elevated window gets messages from Explorer and from an unelevated second
+        // launch only when it allows them.
+        for msg in [WM_TRAY, WM_SHOW, TASKBAR_CREATED.load(Relaxed)] {
+            let _ = ChangeWindowMessageFilterEx(hwnd, msg, MSGFLT_ALLOW, None);
+        }
         tooltip::create(hwnd);
         card::create();
         allow_dark_menus(hwnd);
@@ -400,7 +412,7 @@ unsafe extern "system" fn wndproc(hwnd: HWND, msg: u32, wparam: WPARAM, lparam: 
             WM_MOUSEMOVE => remember_icon_rect(hwnd, false),
             NIN_POPUPOPEN => {
                 let tip = TRAY_STATE.lock().unwrap().tip();
-                tooltip::show(&tip, icon_rect(hwnd).unwrap_or_else(|| cursor_rect()));
+                tooltip::show(&tip, icon_rect(hwnd).unwrap_or_else(cursor_rect));
             }
             // Redrawing the icon also makes the shell close the tooltip, so while the
             // pointer stays on the icon, or heads for a card with buttons, keep it and
@@ -565,7 +577,12 @@ fn identify(data: &mut NOTIFYICONDATAW) {
 
 fn identifier(hwnd: HWND) -> NOTIFYICONIDENTIFIER {
     let guid = if USE_GUID.load(Relaxed) { icon_guid() } else { GUID::zeroed() };
-    NOTIFYICONIDENTIFIER { cbSize: size_of::<NOTIFYICONIDENTIFIER>() as u32, hWnd: hwnd, guidItem: guid, ..Default::default() }
+    NOTIFYICONIDENTIFIER {
+        cbSize: size_of::<NOTIFYICONIDENTIFIER>() as u32,
+        hWnd: hwnd,
+        guidItem: guid,
+        ..Default::default()
+    }
 }
 
 /// Draws the current volume and pushes it to the shell with `action`.
@@ -714,7 +731,11 @@ unsafe fn show_menu(hwnd: HWND) {
             let label = match target.volume {
                 _ if !target.running => format!("{} (not running)", target.name),
                 Some(level) => {
-                    wheel.push(WheelItem { command: (ID_TARGET + i) as u32, id: target.id.clone(), name: target.name.clone() });
+                    wheel.push(WheelItem {
+                        command: (ID_TARGET + i) as u32,
+                        id: target.id.clone(),
+                        name: target.name.clone(),
+                    });
                     volume_label(&target.name, level, target.muted)
                 }
                 None => target.name.clone(),

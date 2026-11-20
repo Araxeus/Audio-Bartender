@@ -11,6 +11,7 @@
 //! the whole UI.
 
 mod audio;
+mod autostart;
 mod card;
 mod config;
 mod icon;
@@ -70,7 +71,6 @@ impl ImageKind {
             ImageKind::Webp => "image/webp",
         }
     }
-
 }
 
 /// An encoded image: an app icon or album art. Serializes as `{ url, art }` with a
@@ -207,7 +207,8 @@ pub struct AccentColors {
 }
 
 impl Accent {
-    pub const ALL: [Accent; 6] = [Accent::Blue, Accent::Cyan, Accent::Teal, Accent::Purple, Accent::Pink, Accent::Orange];
+    pub const ALL: [Accent; 6] =
+        [Accent::Blue, Accent::Cyan, Accent::Teal, Accent::Purple, Accent::Pink, Accent::Orange];
 
     /// The config file and front end name.
     pub fn name(self) -> &'static str {
@@ -306,8 +307,14 @@ pub enum LevelMeters {
 }
 
 impl LevelMeters {
-    pub const ALL: [LevelMeters; 6] =
-        [LevelMeters::None, LevelMeters::Volume, LevelMeters::Ring, LevelMeters::Bars, LevelMeters::Line, LevelMeters::Strip];
+    pub const ALL: [LevelMeters; 6] = [
+        LevelMeters::None,
+        LevelMeters::Volume,
+        LevelMeters::Ring,
+        LevelMeters::Bars,
+        LevelMeters::Line,
+        LevelMeters::Strip,
+    ];
 
     /// The config file name.
     pub fn name(self) -> &'static str {
@@ -598,15 +605,23 @@ pub enum Event {
     State(State),
     /// Show the flyout next to `anchor` on `page`. With `toggle` (a tray click), an
     /// open flyout closes instead.
-    Flyout { anchor: Anchor, page: Page, toggle: bool },
+    Flyout {
+        anchor: Anchor,
+        page: Page,
+        toggle: bool,
+    },
     /// The user picked Quit in the tray menu. The tray icon is already gone.
     Quit,
 }
 
 pub(crate) enum Cmd {
-    Refresh { resubscribe: bool },
+    Refresh {
+        resubscribe: bool,
+    },
     /// Volumes or devices changed. Cheaper than a full refresh.
-    RefreshAudio { devices: bool },
+    RefreshAudio {
+        devices: bool,
+    },
     Select(Option<String>),
     Press(MediaKey),
     /// A key for one target, whether or not media keys go to it.
@@ -650,7 +665,9 @@ impl Core {
     /// show its window, so the caller should simply exit.
     /// `on_event` runs on core threads and must hand work off quickly.
     pub fn start(on_event: impl Fn(Event) + Send + Sync + 'static) -> Option<Core> {
-        if !input::claim_single_instance() {
+        autostart::handle_helper_args();
+        // A running copy shows its flyout instead, so check that before handing off.
+        if !input::claim_single_instance() || autostart::hand_off() {
             return None;
         }
         let (tx, rx) = mpsc::channel();
@@ -749,7 +766,7 @@ impl Core {
 pub fn preview_tray_icon(level: f32, muted: bool, style: TrayStyle, light_taskbar: bool, size: i32) -> Option<Vec<u8>> {
     let look = tray_icon::Look { level, muted, style, light_taskbar };
     let mut pixels = tray_icon::bgra(&look, size)?;
-    pixels.chunks_exact_mut(4).for_each(|px| px.swap(0, 2));
+    pixels.as_chunks_mut::<4>().0.iter_mut().for_each(|px| px.swap(0, 2));
     Some(icon::encode_png(size as u32, size as u32, &pixels))
 }
 
@@ -783,7 +800,15 @@ pub fn start_pinned() -> bool {
     std::env::args().any(|a| a == "--pinned")
 }
 
-/// True when the app was launched by autostart and should stay in the tray.
+/// True when the app should start in the tray without its flyout: launched by
+/// autostart, or by the elevated task for a launch that didn't ask for the flyout.
 pub fn start_hidden() -> bool {
-    std::env::args().any(|a| a == "--hidden")
+    static HIDDEN: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    *HIDDEN.get_or_init(|| {
+        if autostart::launched_by_task() {
+            !autostart::take_open_request()
+        } else {
+            std::env::args().any(|a| a == "--hidden")
+        }
+    })
 }

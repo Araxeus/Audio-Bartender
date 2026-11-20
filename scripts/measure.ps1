@@ -135,7 +135,7 @@ $results = foreach ($app in 'gpui', 'tauri') {
     catch { Write-Warning "dist/audio_bartender_$app.exe is in use; not replaced" }
 
     # Tray only: what the app costs while you're not looking at it.
-    $p = Start-Process $exe -ArgumentList '--hidden' -PassThru
+    $p = Start-Process $exe -ArgumentList '--hidden', '--dev' -PassThru
     Start-Sleep -Seconds ($SettleSeconds + 2)
     $tray = Get-PrivateMB $p.Id
     Get-Tree $p.Id | ForEach-Object { Stop-Process -Id $_ -Force -ErrorAction SilentlyContinue }
@@ -143,7 +143,7 @@ $results = foreach ($app in 'gpui', 'tauri') {
 
     # Flyout open, pinned so it stays up while measured.
     $sw = [Diagnostics.Stopwatch]::StartNew()
-    $p = Start-Process $exe -ArgumentList '--pinned' -PassThru
+    $p = Start-Process $exe -ArgumentList '--pinned', '--dev' -PassThru
     $hwnd = [IntPtr]::Zero
     while ($sw.Elapsed.TotalSeconds -lt 20 -and $hwnd -eq [IntPtr]::Zero) {
         Start-Sleep -Milliseconds 10

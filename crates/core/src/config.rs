@@ -1,15 +1,13 @@
 use std::path::PathBuf;
 
 use windows::Win32::System::Registry::{
-    HKEY_CURRENT_USER, REG_BINARY, REG_SZ, RRF_RT_REG_BINARY, RRF_RT_REG_SZ, RegDeleteKeyValueW, RegGetValueW,
-    RegSetKeyValueW,
+    HKEY_CURRENT_USER, REG_BINARY, RRF_RT_REG_BINARY, RRF_RT_REG_SZ, RegDeleteKeyValueW, RegGetValueW, RegSetKeyValueW,
 };
 use windows::core::{PCWSTR, w};
 
 use crate::{Accent, LevelMeters, MediaButtons, MediaControls, Settings, TooltipStyle, TrayStyle, VolumeBars};
 
 const RUN_KEY: PCWSTR = w!("Software\\Microsoft\\Windows\\CurrentVersion\\Run");
-const RUN_VALUE: PCWSTR = w!("AudioBartender");
 /// Where Task Manager keeps its Startup tab switch for each Run entry.
 const APPROVED_KEY: PCWSTR = w!("Software\\Microsoft\\Windows\\CurrentVersion\\Explorer\\StartupApproved\\Run");
 
@@ -122,13 +120,20 @@ fn migrate() {
     unsafe {
         let mut buf = [0u16; 1024];
         let mut size = (buf.len() * 2) as u32;
-        let found =
-            RegGetValueW(HKEY_CURRENT_USER, RUN_KEY, OLD_RUN_VALUE, RRF_RT_REG_SZ, None, Some(buf.as_mut_ptr().cast()), Some(&mut size));
+        let found = RegGetValueW(
+            HKEY_CURRENT_USER,
+            RUN_KEY,
+            OLD_RUN_VALUE,
+            RRF_RT_REG_SZ,
+            None,
+            Some(buf.as_mut_ptr().cast()),
+            Some(&mut size),
+        );
         if found.is_err() {
             return;
         }
         let _ = RegDeleteKeyValueW(HKEY_CURRENT_USER, RUN_KEY, OLD_RUN_VALUE);
-        set_autostart(true);
+        crate::autostart::set(true);
         let mut approved = [0u8; 16];
         let mut size = approved.len() as u32;
         let found = RegGetValueW(
@@ -141,43 +146,15 @@ fn migrate() {
             Some(&mut size),
         );
         if found.is_ok() {
-            let _ = RegSetKeyValueW(HKEY_CURRENT_USER, APPROVED_KEY, RUN_VALUE, REG_BINARY.0, Some(approved.as_ptr().cast()), size);
+            let _ = RegSetKeyValueW(
+                HKEY_CURRENT_USER,
+                APPROVED_KEY,
+                crate::autostart::RUN_VALUE,
+                REG_BINARY.0,
+                Some(approved.as_ptr().cast()),
+                size,
+            );
             let _ = RegDeleteKeyValueW(HKEY_CURRENT_USER, APPROVED_KEY, OLD_RUN_VALUE);
         }
-    }
-}
-
-fn run_command() -> Option<String> {
-    let exe = std::env::current_exe().ok()?;
-    Some(format!("\"{}\" --hidden", exe.display()))
-}
-
-/// True when the Run key launches this exe.
-pub fn autostart() -> bool {
-    let Some(expected) = run_command() else { return false };
-    let mut buf = [0u16; 1024];
-    let mut size = (buf.len() * 2) as u32;
-    let found = unsafe {
-        RegGetValueW(HKEY_CURRENT_USER, RUN_KEY, RUN_VALUE, RRF_RT_REG_SZ, None, Some(buf.as_mut_ptr().cast()), Some(&mut size))
-    };
-    found.is_ok() && crate::util::from_wide(&buf).eq_ignore_ascii_case(&expected)
-}
-
-pub fn set_autostart(on: bool) {
-    unsafe {
-        if !on {
-            let _ = RegDeleteKeyValueW(HKEY_CURRENT_USER, RUN_KEY, RUN_VALUE);
-            return;
-        }
-        let Some(cmd) = run_command() else { return };
-        let data = crate::util::wide(&cmd);
-        let _ = RegSetKeyValueW(
-            HKEY_CURRENT_USER,
-            RUN_KEY,
-            RUN_VALUE,
-            REG_SZ.0,
-            Some(data.as_ptr().cast()),
-            (data.len() * 2) as u32,
-        );
     }
 }

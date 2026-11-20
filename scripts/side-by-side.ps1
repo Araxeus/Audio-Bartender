@@ -42,7 +42,7 @@ $area = [System.Windows.Forms.Screen]::PrimaryScreen.WorkingArea
 $procs = @()
 $x = $area.Right - 2 * 400
 foreach ($app in 'gpui', 'tauri') {
-    $p = Start-Process (Join-Path $root "target/release/audio_bartender_$app.exe") -ArgumentList $Flags -PassThru
+    $p = Start-Process (Join-Path $root "target/release/audio_bartender_$app.exe") -ArgumentList (@($Flags) + "--dev") -PassThru
     $hwnd = [IntPtr]::Zero
     $deadline = (Get-Date).AddSeconds(15)
     while ($hwnd -eq [IntPtr]::Zero -and (Get-Date) -lt $deadline) { Start-Sleep -Milliseconds 50; $hwnd = [S]::FindMain([uint32]$p.Id) }

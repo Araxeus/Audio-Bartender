@@ -5,8 +5,7 @@ use std::time::{Duration, Instant};
 
 use windows::Foundation::TypedEventHandler;
 use windows::Media::Control::{
-    GlobalSystemMediaTransportControlsSession as Session,
-    GlobalSystemMediaTransportControlsSessionManager as Manager,
+    GlobalSystemMediaTransportControlsSession as Session, GlobalSystemMediaTransportControlsSessionManager as Manager,
     GlobalSystemMediaTransportControlsSessionMediaProperties as MediaProperties,
     GlobalSystemMediaTransportControlsSessionPlaybackStatus as Status,
 };
@@ -15,12 +14,12 @@ use windows::Win32::Foundation::{LPARAM, WPARAM};
 use windows::Win32::UI::WindowsAndMessaging::{PostMessageW, WM_APPCOMMAND};
 use windows::core::RuntimeType;
 
-use crate::config::{self, Config};
+use crate::config::Config;
 use crate::names::Names;
 use crate::util::{Process, main_window, process_path, processes};
 use crate::{
-    AppIcon, Audio, Cmd, Device, Event, ImageKind, MediaKey, MixerApp, Playback, Setting, Shared, State, Target,
-    audio, icon, input, volume,
+    AppIcon, Audio, Cmd, Device, Event, ImageKind, MediaKey, MixerApp, Playback, Setting, Shared, State, Target, audio,
+    icon, input, volume,
 };
 
 /// Players without SMTC support. They get keys as WM_APPCOMMAND window messages.
@@ -196,7 +195,7 @@ impl Worker {
             Cmd::Set(setting) => {
                 let s = &mut self.config.settings;
                 match setting {
-                    Setting::Autostart(on) => config::set_autostart(on),
+                    Setting::Autostart(on) => crate::autostart::set(on),
                     Setting::Dark(dark) => s.dark = dark,
                     Setting::AlbumArt(on) => s.album_art = on,
                     Setting::TrayStyle(style) => s.tray_style = style,
@@ -294,7 +293,8 @@ impl Worker {
                 };
                 let fetched = read_art(props);
                 // Keep earlier art if a later fetch comes back empty.
-                let previous = self.art.get(&m.target.id).filter(|(cached, ..)| cached == key).and_then(|(_, art, _)| art.clone());
+                let previous =
+                    self.art.get(&m.target.id).filter(|(cached, ..)| cached == key).and_then(|(_, art, _)| art.clone());
                 let art = fetched.or(previous);
                 self.art.insert(m.target.id.clone(), (key.clone(), art, since));
             }
@@ -345,7 +345,7 @@ impl Worker {
 
         let (volume, muted) = self.watcher.as_ref().and_then(|w| w.master()).map(audio::read).unwrap_or_default();
         let mut settings = self.config.settings.clone();
-        settings.autostart = config::autostart();
+        settings.autostart = crate::autostart::enabled();
 
         let state = State {
             targets,
@@ -408,10 +408,9 @@ impl Worker {
                 let matching: Vec<Session> = self
                     .sessions()
                     .into_iter()
-                    .filter(|s| s.SourceAppUserModelId().is_ok_and(|a| a.to_string() == aumid))
+                    .filter(|s| s.SourceAppUserModelId().is_ok_and(|a| a == aumid))
                     .collect();
-                let session =
-                    matching.iter().find(|s| playback(s) == Playback::Playing).or_else(|| matching.first());
+                let session = matching.iter().find(|s| playback(s) == Playback::Playing).or_else(|| matching.first());
                 if let Some(session) = session {
                     press_session(session, key);
                 }
@@ -426,7 +425,14 @@ impl Worker {
     }
 }
 
-fn target(id: String, name: String, playback: Playback, track: Option<String>, running: bool, via_window: bool) -> Target {
+fn target(
+    id: String,
+    name: String,
+    playback: Playback,
+    track: Option<String>,
+    running: bool,
+    via_window: bool,
+) -> Target {
     Target { id, name, playback, track, running, via_window, volume: None, muted: false, icon: None }
 }
 
