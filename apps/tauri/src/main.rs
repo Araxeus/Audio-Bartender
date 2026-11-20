@@ -59,6 +59,12 @@ fn press_for(core: tauri::State<Core>, id: String, key: MediaKey) {
     core.press_for(&id, key);
 }
 
+/// Live levels of the given app rows, 0 to 1.
+#[tauri::command]
+fn levels(core: tauri::State<Core>, ids: Vec<String>) -> Vec<f32> {
+    ids.iter().map(|id| core.level(id)).collect()
+}
+
 #[tauri::command]
 fn set_setting(core: tauri::State<Core>, setting: Setting) {
     core.set(setting);
@@ -319,6 +325,7 @@ fn main() {
             select,
             press,
             press_for,
+            levels,
             set_setting,
             adjust_volume,
             set_volume,

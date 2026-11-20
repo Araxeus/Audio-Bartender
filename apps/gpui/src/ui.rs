@@ -93,15 +93,13 @@ pub fn volume_icon(level: f32, muted: bool) -> IconName {
     }
 }
 
-/// Volume controls for one view (sliders, compact bars and percentages), plus which
-/// app row has its slider open.
+/// Volume controls for one view: sliders, compact bars and percentages.
 pub struct Volumes {
     core: Core,
     /// Levels the user set a moment ago, shown until the audio state catches up.
     local: Rc<RefCell<HashMap<String, (f32, Instant)>>>,
     /// Where each volume control was drawn, so clicks on them don't reach the row.
     controls: Rc<RefCell<HashMap<String, Bounds<Pixels>>>>,
-    expanded: Rc<RefCell<Option<String>>>,
     view: AnyWeakEntity,
 }
 
@@ -111,13 +109,13 @@ impl Volumes {
             core,
             local: Rc::default(),
             controls: Rc::default(),
-            expanded: Rc::default(),
             view: cx.entity().downgrade().into(),
         }
     }
 
-    pub fn expanded(&self) -> Option<String> {
-        self.expanded.borrow().clone()
+    /// True while the user is changing `id`'s volume, so its slider stays put.
+    pub fn changing(&self, id: &str) -> bool {
+        self.local.borrow().get(id).is_some_and(|(_, at)| at.elapsed() < DRAG_GRACE)
     }
 
     /// Forgets where controls were drawn. Call at the start of each render.
@@ -174,38 +172,37 @@ impl Volumes {
         }
     }
 
-    /// Click handler that opens `id`'s slider, closing any other, or closes it.
-    pub fn on_toggle(&self, id: &str) -> impl Fn(&ClickEvent, &mut Window, &mut App) + 'static + use<> {
-        let (expanded, view, id) = (self.expanded.clone(), self.view.clone(), id.to_owned());
-        move |_, _, cx| {
-            let mut current = expanded.borrow_mut();
-            *current = if current.as_deref() == Some(id.as_str()) { None } else { Some(id.clone()) };
-            drop(current);
-            notify(&view, cx);
-        }
-    }
-
-    /// The "80%" on an app row whose slider opens on click.
-    pub fn pill(&self, id: &str, level: f32, muted: bool, theme: &Theme) -> Div {
-        let open = self.expanded.borrow().as_deref() == Some(id);
+    /// The "80%" on an app row, which turns into a slider while the row is hovered.
+    /// `meter` washes it with the app's live level.
+    pub fn pill(&self, id: &str, level: f32, muted: bool, meter: Option<f32>, theme: &Theme) -> Div {
         h_flex()
+            .relative()
             .flex_none()
-            .min_w(px(52.))
-            .justify_end()
+            .w(px(BAR_WIDTH))
+            .h(px(22.))
+            .overflow_hidden()
+            .justify_center()
             .gap_1()
-            .px_1p5()
-            .py_0p5()
             .rounded(theme.radius)
             .text_xs()
-            .text_color(if open { theme.primary } else { theme.muted_foreground })
+            .text_color(theme.muted_foreground)
+            .when_some(meter, |d, meter| {
+                d.child(div().absolute().top_0().bottom_0().left_0().w(relative(meter.clamp(0.0, 1.0))).bg(theme.primary.opacity(0.18)))
+            })
             .child(Icon::new(volume_icon(level, muted)).xsmall())
             .child(if muted { "Muted".to_owned() } else { format!("{}%", (level * 100.0).round()) })
             .on_scroll(self.on_wheel(id))
     }
 
+    /// A slider the size of the pill, for a hovered row.
+    pub fn hover_slider(&self, id: &str, level: f32, meter: Option<f32>, theme: &Theme) -> Div {
+        h_flex().flex_none().w(px(BAR_WIDTH)).h(px(22.)).child(self.slider(id, level, meter, theme))
+    }
+
     /// A small bar that fills with the volume. Dragging sets it, the wheel nudges
     /// it, and a click without dragging toggles mute.
-    pub fn bar(&self, id: &str, level: f32, muted: bool, theme: &Theme) -> Stateful<Div> {
+    /// `meter` draws the app's live level over the volume fill.
+    pub fn bar(&self, id: &str, level: f32, muted: bool, meter: Option<f32>, theme: &Theme) -> Stateful<Div> {
         let level = self.shown(id, level);
         let fill = if muted { theme.muted_foreground.opacity(0.25) } else { theme.primary.opacity(0.3) };
         let key = format!("bar-{id}");
@@ -226,6 +223,9 @@ impl Volumes {
             .cursor_ew_resize()
             .hover(|s| s.border_color(theme.primary.opacity(0.6)))
             .child(div().absolute().top_0().bottom_0().left_0().w(relative(level.clamp(0.0, 1.0))).bg(fill))
+            .when_some(meter, |d, meter| {
+                d.child(div().absolute().top_0().bottom_0().left_0().w(relative(meter.clamp(0.0, 1.0))).bg(theme.primary.opacity(0.55)))
+            })
             .child(
                 h_flex()
                     .relative()
@@ -260,7 +260,8 @@ impl Volumes {
 
     /// A thin track with a round thumb, styled like the Tauri range input. Click
     /// or drag to set the volume, or use the wheel.
-    pub fn slider(&self, id: &str, level: f32, theme: &Theme) -> Stateful<Div> {
+    /// With `meter`, the volume fill dims and the live level fills it in full color.
+    pub fn slider(&self, id: &str, level: f32, meter: Option<f32>, theme: &Theme) -> Stateful<Div> {
         let level = self.shown(id, level).clamp(0.0, 1.0);
         let track = hex_color(if theme.is_dark() { 0x33333f } else { 0xdcdce4 });
         let key = format!("slider-{id}");
@@ -290,7 +291,25 @@ impl Volumes {
                     .h(px(4.))
                     .rounded_full()
                     .bg(track)
-                    .child(div().h_full().w(relative(level)).rounded_full().bg(theme.primary))
+                    .child(
+                        div()
+                            .h_full()
+                            .w(relative(level))
+                            .rounded_full()
+                            .bg(if meter.is_some() { theme.primary.opacity(0.35) } else { theme.primary }),
+                    )
+                    .when_some(meter, |d, meter| {
+                        d.child(
+                            div()
+                                .absolute()
+                                .top_0()
+                                .left_0()
+                                .h_full()
+                                .w(relative(meter.clamp(0.0, level)))
+                                .rounded_full()
+                                .bg(theme.primary),
+                        )
+                    })
                     .child(
                         // An accent ring, a gap in the card color, then the accent dot.
                         div()
@@ -326,7 +345,7 @@ impl Volumes {
     }
 
     /// Mute button, slider and value, for the master volume or an app.
-    pub fn slider_row(&self, id: &str, level: f32, muted: bool, theme: &Theme) -> Div {
+    pub fn slider_row(&self, id: &str, level: f32, muted: bool, meter: Option<f32>, theme: &Theme) -> Div {
         let (core, key) = (self.core.clone(), id.to_owned());
         let shown = self.shown(id, level);
         h_flex()
@@ -348,7 +367,7 @@ impl Volumes {
                         cx.stop_propagation();
                     }),
             )
-            .child(self.slider(id, level, theme))
+            .child(self.slider(id, level, meter, theme))
             .child(
                 div()
                     .flex_none()

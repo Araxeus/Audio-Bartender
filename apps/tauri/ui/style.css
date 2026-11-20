@@ -139,7 +139,12 @@ button.icon.active { color: var(--accent); }
 }
 
 .pill { cursor: inherit; }
-.pill.open { color: var(--accent); }
+
+/* On hover: the percentage turns into a slider of the same size, and stays one while dragged. */
+.hover-volume { flex: none; display: flex; align-items: center; justify-content: flex-end; width: 84px; height: 22px; }
+.hover-volume .range { display: none; }
+.fly-row:hover .hover-volume .pill, .hover-volume:has(.range:active) .pill { display: none; }
+.fly-row:hover .hover-volume .range, .hover-volume:has(.range:active) .range { display: block; }
 .pill .icon-glyph svg, .bar .icon-glyph svg { width: 14px; height: 14px; }
 
 .bar {
@@ -214,15 +219,21 @@ button.icon.active { color: var(--accent); }
 
 /* Settings */
 
-.fly-setting { display: flex; align-items: center; justify-content: space-between; gap: 12px; min-height: 50px; margin: 0 8px; padding: 0 8px; border-bottom: 1px solid var(--border); font-size: 13px; }
-.fly-setting:last-child { border-bottom: 0; }
-.fly-setting.stacked { flex-direction: column; align-items: flex-start; justify-content: center; gap: 8px; min-height: 72px; }
+.fly-setting { display: flex; align-items: center; justify-content: space-between; gap: 12px; min-height: 40px; margin: 0 8px; padding: 0 8px; border-radius: 6px; font-size: 13px; }
+button.fly-setting { width: calc(100% - 16px); border: 0; background: transparent; text-align: left; cursor: pointer; }
+button.fly-setting:hover { background: var(--card-hover); }
+.fly-setting .value { display: flex; align-items: center; gap: 4px; color: var(--muted); }
+.choice-back { display: flex; align-items: center; gap: 8px; width: calc(100% - 16px); height: 36px; margin: 8px 8px 4px; padding: 0 8px; border: 0; border-radius: 6px; background: transparent; font-size: 13px; font-weight: 600; text-align: left; cursor: pointer; }
+.choice-back:hover { background: var(--card-hover); }
+.choice { display: flex; align-items: flex-start; gap: 12px; width: calc(100% - 16px); margin: 0 8px; padding: 8px; border: 0; border-radius: 6px; background: transparent; text-align: left; cursor: pointer; }
+.choice:hover { background: var(--card-hover); }
+.choice.on { background: var(--accent-soft); }
+.choice .radio { margin-top: 2px; }
+.choice-text { display: grid; min-width: 0; }
+.choice-text .name { font-size: 13px; font-weight: 400; }
+.choice.on .choice-text .name { font-weight: 600; }
+.choice-text .about { color: var(--muted); font-size: 12px; }
 .transport { display: flex; gap: 6px; }
-
-.segmented { display: flex; gap: 2px; padding: 2px; border: 1px solid var(--border); border-radius: 7px; background: var(--bg); }
-.segmented button { padding: 3px 9px; border: 0; border-radius: 5px; background: transparent; color: var(--muted); font-size: 12px; cursor: pointer; }
-.segmented button:hover { color: var(--text); }
-.segmented button.selected { background: var(--accent); color: #fff; }
 
 .swatches { display: flex; gap: 6px; }
 .swatch { width: 22px; height: 22px; padding: 2px; border: 2px solid transparent; border-radius: 50%; background: transparent; cursor: pointer; }
@@ -271,8 +282,8 @@ body.flyout {
 .device-header:hover { background: var(--card-hover); }
 .device-name { flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 
-.flyout-middle { max-height: 470px; overflow-y: auto; padding-bottom: 8px; }
-.flyout-middle .section-label { padding: 12px 16px 4px; }
+.flyout-middle { max-height: 500px; overflow-y: auto; padding-bottom: 8px; }
+.flyout-middle .section-label { padding: 10px 16px 2px; }
 
 .device {
   display: flex;
@@ -294,7 +305,34 @@ body.flyout {
 .device.current { color: var(--accent); }
 .device .check { width: 16px; display: grid; place-items: center; }
 
-.fly-row { margin: 0 8px; border-radius: 6px; }
+.fly-row { --lv: 0; position: relative; margin: 0 8px; border-radius: 6px; }
+
+/* Level meters. Each app row carries its live level in --lv; body[data-meters] picks the style. */
+.meter-line, .meter-strip, .live-bars { display: none; }
+body[data-meters="volume"] .fly-row .bar {
+  background: linear-gradient(to right,
+    color-mix(in srgb, var(--accent) 60%, transparent) calc(var(--lv) * 100%),
+    var(--bar-fill) calc(var(--lv) * 100%) var(--fill),
+    var(--card) var(--fill));
+}
+body[data-meters="volume"] .fly-row .range::-webkit-slider-runnable-track {
+  background: linear-gradient(to right,
+    var(--accent) calc(var(--lv) * 100%),
+    color-mix(in srgb, var(--accent) 35%, transparent) calc(var(--lv) * 100%) var(--fill),
+    var(--track) var(--fill));
+}
+body[data-meters="volume"] .fly-row .pill { background: linear-gradient(to right, color-mix(in srgb, var(--accent) 18%, transparent) calc(var(--lv) * 100%), transparent calc(var(--lv) * 100%)); }
+body[data-meters="ring"] .fly-row .avatar { outline: 2px solid color-mix(in srgb, var(--accent) min(100%, calc(var(--lv) * 140%)), transparent); outline-offset: 1px; }
+body[data-meters="bars"] .detail .bars { display: none; }
+body[data-meters="bars"] .fly-row:not(.quiet) .live-bars { display: inline-flex; align-items: flex-end; gap: 2px; height: 11px; margin-right: 6px; vertical-align: -1px; }
+.live-bars i { width: 2.5px; border-radius: 1px; background: var(--playing); }
+.live-bars i:nth-child(1) { height: calc(2px + var(--b0) * 9px); }
+.live-bars i:nth-child(2) { height: calc(2px + var(--b1) * 9px); }
+.live-bars i:nth-child(3) { height: calc(2px + var(--b2) * 9px); }
+body[data-meters="line"] .meter-line { display: block; position: absolute; left: 10px; right: 10px; bottom: 1px; height: 2px; pointer-events: none; }
+.meter-line i { display: block; height: 100%; width: calc(var(--lv) * 100%); border-radius: 1px; background: linear-gradient(90deg, color-mix(in srgb, var(--accent) 40%, transparent), var(--accent)); }
+body[data-meters="strip"] .meter-strip { display: flex; flex-direction: column; justify-content: flex-end; position: absolute; left: 2px; top: 8px; bottom: 8px; width: 3px; pointer-events: none; }
+.meter-strip i { display: block; width: 100%; height: calc(var(--lv) * 100%); border-radius: 2px; background: linear-gradient(0deg, var(--playing), #facc15); }
 .fly-row.clickable { cursor: pointer; }
 .fly-row.clickable:not(.checked):hover { background: var(--card-hover); }
 .fly-row.checked { background: var(--accent-soft); }

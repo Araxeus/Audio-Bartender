@@ -24,6 +24,8 @@ const STROKES = {
   check: '<path d="M20 6 9 17l-5-5"/>',
   chevronDown: '<path d="m6 9 6 6 6-6"/>',
   chevronUp: '<path d="m18 15-6-6-6 6"/>',
+  chevronLeft: '<path d="m15 18-6-6 6-6"/>',
+  chevronRight: '<path d="m9 18 6-6-6-6"/>',
   settings: '<path d="M20 7h-9M14 17H5"/><circle cx="17" cy="17" r="3"/><circle cx="7" cy="7" r="3"/>',
   power: '<path d="M12 2v10"/><path d="M18.4 6.6a9 9 0 1 1-12.77.04"/>',
   moon: '<path d="M12 3a6 6 0 0 0 9 9 9 9 0 1 1-9-9Z"/>',
@@ -126,14 +128,10 @@ function applyTheme() {
   root.style.setProperty("--logo-to", hex(colors.gradient[1]));
 }
 
-/**
- * Volume pills, sliders and wheel handling for one page, plus which app row
- * has its slider revealed. `rerender` redraws the page.
- */
+/** Volume pills, sliders and wheel handling for one page. `rerender` redraws the page. */
 export class Volumes {
   constructor(rerender) {
     this.rerender = rerender;
-    this.expanded = null;
     this.dragging = false;
     // Whether the current press started on a volume control, so the card under it
     // ignores the click. Every press resets it before reaching a control.
@@ -175,16 +173,12 @@ export class Volumes {
     );
   }
 
-  /** Opens `id`'s slider, closing any other, or closes it. */
-  toggle(id) {
-    this.expanded = this.expanded === id ? null : id;
-    this.rerender();
-  }
-
-  /** The "80%" on an app row whose slider opens on click. */
-  pill(id, level, muted) {
-    const node = el("span", "pill" + (this.expanded === id ? " open" : ""), icon(volumeIcon(level, muted)), muted ? "Muted" : `${Math.round(level * 100)}%`);
+  /** The "80%" on an app row, which turns into a slider while the row is hovered. */
+  hoverControl(id, level, muted) {
+    const pill = el("span", "pill", icon(volumeIcon(level, muted)), muted ? "Muted" : `${Math.round(level * 100)}%`);
+    const node = el("span", "hover-volume", pill, this.range(id, level));
     this.wheel(node, id);
+    this.grab(node);
     return node;
   }
 
@@ -240,26 +234,33 @@ export class Volumes {
     return node;
   }
 
-  /** Mute button, slider and value, for the master volume or a revealed app row. */
+  /** Mute button, slider and value, for the master volume or an app row. */
   sliderRow(id, level, muted) {
     const row = el("div", "slider-row");
     const mute = button("mute" + (muted ? " muted" : ""), muted ? "Unmute" : "Mute", icon(volumeIcon(level, muted)), () =>
       this.toggleMute(id),
     );
+    const range = this.range(id, level);
+    const value = el("span", "value", range.value);
+    range.addEventListener("input", () => (value.textContent = range.value));
+    row.append(mute, range, value);
+    this.wheel(row, id);
+    this.grab(row);
+    return row;
+  }
 
+  /** A volume slider. Renders wait until it's released. */
+  range(id, level) {
     const range = el("input", "range");
     range.type = "range";
     range.min = "0";
     range.max = "100";
     range.value = String(Math.round(level * 100));
     range.style.setProperty("--fill", `${range.value}%`);
-    const value = el("span", "value", range.value);
-
     range.addEventListener("click", (event) => event.stopPropagation());
     range.addEventListener("pointerdown", () => (this.dragging = true));
     range.addEventListener("input", () => {
       range.style.setProperty("--fill", `${range.value}%`);
-      value.textContent = range.value;
       this.setVolume(id, Number(range.value) / 100);
     });
     const release = () => {
@@ -269,11 +270,7 @@ export class Volumes {
     };
     range.addEventListener("pointerup", release);
     range.addEventListener("change", release);
-
-    row.append(mute, range, value);
-    this.wheel(row, id);
-    this.grab(row);
-    return row;
+    return range;
   }
 }
 
