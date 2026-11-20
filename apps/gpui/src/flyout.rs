@@ -75,7 +75,8 @@ impl Flyout {
     ) -> Self {
         let dark = state.read(cx).settings.dark;
         theme::apply(window, cx, dark);
-        let height = height(state.read(cx), page);
+        // Zero makes the first render size and place the window like every later one.
+        let height = 0.;
         let _subscriptions = vec![
             cx.observe_in(&state, window, |this: &mut Self, state, window, cx| {
                 let dark = state.read(cx).settings.dark;
@@ -105,6 +106,7 @@ impl Flyout {
     }
 
     /// Resizes the window to its content, keeping the bottom against the taskbar.
+    /// GPUI resizes downward from the top, so the window moves once the new size applies.
     fn fit(&mut self, state: &State, window: &mut Window) {
         let slider = self.volumes.expanded().is_some() && self.page == Page::Apps;
         let height = content_height(state, self.page, self.devices_open, slider);
@@ -112,11 +114,11 @@ impl Flyout {
             return;
         }
         self.height = height;
-        if let Ok(handle) = HasWindowHandle::window_handle(window)
-            && let RawWindowHandle::Win32(win32) = handle.as_raw()
-        {
-            mediakeys_core::place_window(win32.hwnd.get(), &self.anchor, WIDTH, height);
-        }
+        window.resize(size(px(WIDTH), px(height)));
+        let Ok(handle) = HasWindowHandle::window_handle(window) else { return };
+        let RawWindowHandle::Win32(win32) = handle.as_raw() else { return };
+        let (hwnd, anchor) = (win32.hwnd.get(), self.anchor);
+        window.on_next_frame(move |_, _| mediakeys_core::place_window(hwnd, &anchor));
     }
 
     fn label(text: &'static str, theme: &Theme) -> Div {

@@ -54,7 +54,7 @@ const ID_MIXER: usize = 500;
 const WHEEL_STEP: f32 = 0.02;
 
 /// Volume change per wheel notch over a menu entry, matching the flyout.
-const MENU_STEP: f32 = 0.05;
+const MENU_STEP: f32 = 0.02;
 
 /// Volume id of the master volume in the menu.
 const MASTER: &str = "master";

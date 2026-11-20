@@ -424,10 +424,10 @@ pub fn preview_tray_icon(level: f32, muted: bool, style: TrayStyle, light_taskba
     Some(icon::encode_png(size as u32, size as u32, &pixels))
 }
 
-/// Moves and resizes a window (by its raw handle) so its client area is
-/// `width` x `height` logical pixels, placed next to the tray like the flyout.
-pub fn place_window(hwnd: isize, anchor: &Anchor, width: f32, height: f32) {
-    util::place_window(hwnd, anchor, width, height);
+/// Moves a window (by its raw handle), keeping its size, to where `anchor` places a
+/// flyout. Call after resizing so the bottom stays against the taskbar.
+pub fn place_window(hwnd: isize, anchor: &Anchor) {
+    util::place_window(hwnd, anchor);
 }
 
 /// The page to open on launch: `--settings` opens the settings page.

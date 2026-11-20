@@ -4,7 +4,7 @@ export const { invoke } = window.__TAURI__.core;
 const { listen } = window.__TAURI__.event;
 
 /** Volume change per wheel notch. */
-const WHEEL_STEP = 0.05;
+const WHEEL_STEP = 0.02;
 
 /** Slider id of the master volume. */
 export const MASTER = "master";

@@ -16,7 +16,7 @@ use gpui_kit::*;
 use mediakeys_core::{AppIcon, Core, ImageKind};
 
 /// Volume change per wheel notch.
-pub const WHEEL_STEP: f32 = 0.05;
+pub const WHEEL_STEP: f32 = 0.02;
 
 /// Slider id of the master volume.
 pub const MASTER: &str = "master";

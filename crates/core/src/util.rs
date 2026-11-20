@@ -49,28 +49,28 @@ pub fn open_icon_page(page: crate::IconPage) {
     }
 }
 
-/// Moves and resizes a window so its client area is `width` x `height` logical pixels,
-/// placed by `anchor`. Keeps the flyout against the taskbar as its content grows.
-pub fn place_window(hwnd: isize, anchor: &crate::Anchor, width: f32, height: f32) {
-    use windows::Win32::Foundation::{POINT, RECT};
-    use windows::Win32::Graphics::Gdi::ClientToScreen;
+/// Moves a window, keeping its size, so its visible frame sits where `anchor` places
+/// a flyout of that size. Keeps a resized flyout against the taskbar.
+pub fn place_window(hwnd: isize, anchor: &crate::Anchor) {
+    use windows::Win32::Foundation::RECT;
+    use windows::Win32::Graphics::Dwm::{DWMWA_EXTENDED_FRAME_BOUNDS, DwmGetWindowAttribute};
     use windows::Win32::UI::WindowsAndMessaging::{
-        GetClientRect, GetWindowRect, SWP_NOACTIVATE, SWP_NOZORDER, SetWindowPos,
+        GetWindowRect, SWP_NOACTIVATE, SWP_NOSIZE, SWP_NOZORDER, SetWindowPos,
     };
     let hwnd = HWND(hwnd as _);
-    let (w, h) = ((width * anchor.scale).round() as i32, (height * anchor.scale).round() as i32);
-    let (x, y) = anchor.place(w, h);
     unsafe {
-        // The window rectangle can include invisible resize borders around the client area.
-        let (mut window, mut client, mut origin) = (RECT::default(), RECT::default(), POINT::default());
-        if GetWindowRect(hwnd, &mut window).is_err() || GetClientRect(hwnd, &mut client).is_err() {
+        // The window rectangle can include invisible borders; DWM knows the visible one.
+        let (mut window, mut visible) = (RECT::default(), RECT::default());
+        if GetWindowRect(hwnd, &mut window).is_err() {
             return;
         }
-        let _ = ClientToScreen(hwnd, &mut origin);
-        let (dx, dy) = (origin.x - window.left, origin.y - window.top);
-        let extra_w = (window.right - window.left) - client.right;
-        let extra_h = (window.bottom - window.top) - client.bottom;
-        let _ = SetWindowPos(hwnd, None, x - dx, y - dy, w + extra_w, h + extra_h, SWP_NOZORDER | SWP_NOACTIVATE);
+        let size = size_of::<RECT>() as u32;
+        if DwmGetWindowAttribute(hwnd, DWMWA_EXTENDED_FRAME_BOUNDS, &mut visible as *mut RECT as _, size).is_err() {
+            visible = window;
+        }
+        let (x, y) = anchor.place(visible.right - visible.left, visible.bottom - visible.top);
+        let (dx, dy) = (visible.left - window.left, visible.top - window.top);
+        let _ = SetWindowPos(hwnd, None, x - dx, y - dy, 0, 0, SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE);
     }
 }
 
