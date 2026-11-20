@@ -1182,7 +1182,8 @@ impl Render for Flyout {
                 let content = v_flex().relative().pb_2().children(middle).child(measure(&self.measured.middle, view));
                 let area = div().flex_1().min_h_0().child(content);
                 if self.height >= MAX_HEIGHT {
-                    area.overflow_y_scrollbar().into_any_element()
+                    // Room on the right, so the overlay bar doesn't sit against the rows.
+                    area.pr(px(10.)).overflow_y_scrollbar().into_any_element()
                 } else {
                     area.overflow_hidden().into_any_element()
                 }

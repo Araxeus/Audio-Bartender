@@ -33,6 +33,15 @@ pub fn apply(window: &mut Window, cx: &mut App, dark: Option<bool>, accent: Acce
         t.slider_thumb = hex(accent);
         // A thin bar that stays visible, so a long page shows there's more below.
         t.scrollbar_mode = ScrollbarMode::Always;
+        // Dimmer in dark mode, where a grey thumb otherwise stands out; matches the Tauri one.
+        let (thumb, thumb_hover) = if dark {
+            (white().opacity(0.14), white().opacity(0.26))
+        } else {
+            (hex(0x6b6b78).opacity(0.45), hex(0x6b6b78).opacity(0.7))
+        };
+        t.scrollbar = transparent_black();
+        t.scrollbar_thumb = thumb;
+        t.scrollbar_thumb_hover = thumb_hover;
 
         // `muted` is the window, `background` the cards.
         let (window_bg, card, hover, border, text, muted) = if dark {
