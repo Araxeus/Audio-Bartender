@@ -269,10 +269,14 @@ pub(super) fn reset() {
     }
 }
 
-fn window() -> Option<HWND> {
+fn window(taskbar: HWND) -> Option<HWND> {
     let hwnd = HWND(WINDOW.load(Relaxed) as _);
     if !hwnd.is_invalid() {
-        return Some(hwnd);
+        if unsafe { GetWindow(hwnd, GW_OWNER).ok() } == Some(taskbar) {
+            return Some(hwnd);
+        }
+        // Explorer may replace the taskbar while the previous popup still exists.
+        unsafe { DestroyWindow(hwnd) }.ok()?;
     }
     unsafe {
         let instance = GetModuleHandleW(None).ok()?;
@@ -285,7 +289,13 @@ fn window() -> Option<HWND> {
         };
         RegisterClassW(&class);
         let hwnd = CreateWindowExW(
-            WS_EX_TOOLWINDOW | WS_EX_NOACTIVATE,
+            WS_EX_TOOLWINDOW
+                | WS_EX_NOACTIVATE
+                | if GetWindowLongPtrW(taskbar, GWL_EXSTYLE) as u32 & WS_EX_TOPMOST.0 != 0 {
+                    WS_EX_TOPMOST
+                } else {
+                    WINDOW_EX_STYLE::default()
+                },
             CLASS,
             w!("Audio Bartender volume"),
             WS_POPUP,
@@ -293,7 +303,7 @@ fn window() -> Option<HWND> {
             0,
             0,
             0,
-            None,
+            Some(taskbar),
             None,
             Some(instance.into()),
             None,
@@ -336,7 +346,9 @@ fn show(found: Placement) -> Option<()> {
             return None;
         }
         let tile = tile(found.button, GetDpiForWindow(taskbar))?;
-        let hwnd = window()?;
+        // An owned popup follows Explorer when clicking Quick Settings raises
+        // the taskbar, including between our geometry updates.
+        let hwnd = window(taskbar)?;
         let edge = POINT { x: (tile.left + tile.right) / 2, y: (tile.top - 1).max(found.button.top) };
         let hit = WindowFromPoint(edge);
         // A tooltip or Quick Settings can cover this sample without moving the speaker.
@@ -396,7 +408,13 @@ pub(super) fn icon_size(hwnd: HWND) -> i32 {
 }
 
 unsafe extern "system" fn wndproc(hwnd: HWND, msg: u32, wp: WPARAM, lp: LPARAM) -> LRESULT {
+    static CLICKED: AtomicBool = AtomicBool::new(false);
     let event = match msg {
+        WM_NCDESTROY => {
+            let _ = WINDOW.compare_exchange(hwnd.0 as isize, 0, Relaxed, Relaxed);
+            CLICKED.store(false, Relaxed);
+            return unsafe { DefWindowProcW(hwnd, msg, wp, lp) };
+        }
         WM_TIMER if wp.0 == 1 => {
             unsafe {
                 let _ = KillTimer(Some(hwnd), 1);
@@ -428,7 +446,7 @@ unsafe extern "system" fn wndproc(hwnd: HWND, msg: u32, wp: WPARAM, lp: LPARAM) 
         WM_MOUSEMOVE => {
             let mut track = TRACKMOUSEEVENT {
                 cbSize: size_of::<TRACKMOUSEEVENT>() as u32,
-                dwFlags: TME_HOVER | TME_LEAVE,
+                dwFlags: if CLICKED.load(Relaxed) { TME_LEAVE } else { TME_HOVER | TME_LEAVE },
                 hwndTrack: hwnd,
                 dwHoverTime: HOVER_DEFAULT,
             };
@@ -437,9 +455,23 @@ unsafe extern "system" fn wndproc(hwnd: HWND, msg: u32, wp: WPARAM, lp: LPARAM) 
             }
             WM_MOUSEMOVE
         }
+        WM_MOUSEHOVER if CLICKED.load(Relaxed) => return LRESULT(0),
         WM_MOUSEHOVER => NIN_POPUPOPEN,
-        WM_MOUSELEAVE => NIN_POPUPCLOSE,
-        WM_LBUTTONUP | WM_MBUTTONUP => msg,
+        WM_MOUSELEAVE => {
+            // Showing the flyout can cause a synthetic leave under a stationary mouse.
+            let mut pt = POINT::default();
+            if unsafe { GetCursorPos(&mut pt) }.is_ok()
+                && !rect().is_some_and(|r| pt.x >= r.left && pt.x < r.right && pt.y >= r.top && pt.y < r.bottom)
+            {
+                CLICKED.store(false, Relaxed);
+            }
+            NIN_POPUPCLOSE
+        }
+        WM_LBUTTONUP => {
+            CLICKED.store(true, Relaxed);
+            msg
+        }
+        WM_MBUTTONUP => msg,
         WM_RBUTTONUP => WM_CONTEXTMENU,
         WM_MOUSEWHEEL => {
             post(WM_WHEEL, (wp.0 >> 16) & 0xffff);
