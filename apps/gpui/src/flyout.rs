@@ -26,6 +26,8 @@ use crate::theme::{self, DARK_FOOTER, hex};
 use crate::ui::{self, Volumes};
 
 pub const WIDTH: f32 = 360.;
+/// The settings panel beside the flyout, two columns wide.
+pub const PANEL: f32 = 640.;
 const MAX_HEIGHT: f32 = 640.;
 
 // Estimated heights, for sizing the window before its content is measured.
@@ -36,22 +38,25 @@ const TARGET_ROW: f32 = 58.;
 const MIXER_ROW: f32 = 35.;
 const SLIDER: f32 = 32.;
 const SETTING_ROW: f32 = 40.;
-const SETTINGS: usize = 13;
+/// The settings panel's two columns, below its header.
+const PANEL_BODY: f32 = 480.;
 /// How often live levels are read while the flyout is open.
 const METER_FRAME: Duration = Duration::from_millis(33);
 /// Time constant, in seconds, for shown levels to catch up with readings.
 const LEVEL_EASE: f32 = 0.045;
-const SETTING_GROUPS: usize = 3;
 /// Extra height of each media controls layout.
 const BANNER: f32 = 66.;
 const ROW_CONTROLS: f32 = 36.;
 const DOCK: f32 = 56.;
 
+/// The window width for `page`: the flyout, plus the settings panel beside it.
+pub fn width(page: Page) -> f32 {
+    if page == Page::Settings { WIDTH + PANEL } else { WIDTH }
+}
+
 /// Estimated height that fits `page` with the given state.
 pub fn height(state: &State, page: Page) -> f32 {
-    let middle = if page == Page::Settings {
-        LABEL * SETTING_GROUPS as f32 + SETTING_ROW * SETTINGS as f32
-    } else {
+    let middle = {
         let always = state.settings.volume_bars == VolumeBars::Always;
         let sliders = if always { state.targets.iter().filter(|t| t.volume.is_some()).count() } else { 0 };
         let targets = LABEL + TARGET_ROW * (1 + state.targets.len()) as f32 + SLIDER * sliders as f32;
@@ -64,15 +69,17 @@ pub fn height(state: &State, page: Page) -> f32 {
         targets + mixer + controls
     };
     let dock = if state.settings.media_controls == MediaControls::Dock { DOCK } else { 0. };
-    (CONTROLS + middle + VOLUME + dock + 12.).min(MAX_HEIGHT)
+    let flyout = middle + VOLUME + dock + 12.;
+    let panel = if page == Page::Settings { PANEL_BODY } else { 0. };
+    (CONTROLS + flyout.max(panel)).min(MAX_HEIGHT)
 }
 
 /// A row's hover listener.
 type HoverHandler = Box<dyn Fn(&bool, &mut Window, &mut App) + 'static>;
 
-/// A setting with a page of choices.
+/// A setting picked from a few modes, shown as a segmented control.
 #[derive(Clone, Copy, PartialEq, Eq)]
-enum Choice {
+enum Mode {
     Theme,
     TrayIcon,
     Tooltip,
@@ -82,31 +89,31 @@ enum Choice {
     LevelMeters,
 }
 
-impl Choice {
+impl Mode {
     fn title(self) -> &'static str {
         match self {
-            Choice::Theme => "Theme",
-            Choice::TrayIcon => "Tray icon",
-            Choice::Tooltip => "Tooltip",
-            Choice::TooltipButtons => "Tooltip buttons",
-            Choice::MediaControls => "Media controls",
-            Choice::VolumeBars => "Volume bars",
-            Choice::LevelMeters => "Level meters",
+            Mode::Theme => "Theme",
+            Mode::TrayIcon => "Tray icon",
+            Mode::Tooltip => "Tooltip",
+            Mode::TooltipButtons => "Tooltip buttons",
+            Mode::MediaControls => "Media controls",
+            Mode::VolumeBars => "Volume bars",
+            Mode::LevelMeters => "Level meters",
         }
     }
 
-    /// Each choice: the setting it applies, its name, a short description, and whether it's current.
+    /// Each mode: the setting it applies, its name, a short description, and whether it's current.
     fn options(self, s: &Settings) -> Vec<(Setting, &'static str, &'static str, bool)> {
         let buttons = |b: MediaButtons, name, about| (Setting::MediaButtons(b), name, about, s.media_buttons == b);
         let controls = |c: MediaControls, name, about| (Setting::MediaControls(c), name, about, s.media_controls == c);
         let bars = |b: VolumeBars, name, about| (Setting::VolumeBars(b), name, about, s.volume_bars == b);
         match self {
-            Choice::Theme => vec![
+            Mode::Theme => vec![
                 (Setting::Dark(None), "System", "Follow Windows", s.dark.is_none()),
-                (Setting::Dark(Some(false)), "Light", "", s.dark == Some(false)),
-                (Setting::Dark(Some(true)), "Dark", "", s.dark == Some(true)),
+                (Setting::Dark(Some(false)), "Light", "Always light", s.dark == Some(false)),
+                (Setting::Dark(Some(true)), "Dark", "Always dark", s.dark == Some(true)),
             ],
-            Choice::TrayIcon => vec![
+            Mode::TrayIcon => vec![
                 (
                     Setting::TrayStyle(TrayStyle::Ring),
                     "Ring",
@@ -120,7 +127,7 @@ impl Choice {
                     s.tray_style == TrayStyle::Number,
                 ),
             ],
-            Choice::Tooltip => vec![
+            Mode::Tooltip => vec![
                 (
                     Setting::Tooltip(TooltipStyle::NowPlaying),
                     "Now playing",
@@ -140,42 +147,38 @@ impl Choice {
                     s.tooltip == TooltipStyle::Text,
                 ),
             ],
-            Choice::TooltipButtons => vec![
+            Mode::TooltipButtons => vec![
                 buttons(MediaButtons::None, "None", "No buttons on the tooltip"),
                 buttons(MediaButtons::Hover, "Hover", "Shown while the pointer is on the tooltip"),
                 buttons(MediaButtons::Inline, "Inline", "Small buttons at the end of the status line"),
                 buttons(MediaButtons::Capsule, "Capsule", "A capsule on the line above the volume"),
                 buttons(MediaButtons::Player, "Player", "A big play button between the skip buttons"),
             ],
-            Choice::MediaControls => vec![
+            Mode::MediaControls => vec![
                 controls(MediaControls::None, "None", "No media buttons in the flyout"),
                 controls(MediaControls::Banner, "Banner", "A now playing card at the top"),
                 controls(MediaControls::Row, "Row", "Under the selected app"),
                 controls(MediaControls::Dock, "Dock", "A now playing line above the device volume"),
                 controls(MediaControls::Hover, "Hover", "On each app's row while hovered, for that app"),
             ],
-            Choice::VolumeBars => vec![
+            Mode::VolumeBars => vec![
                 bars(VolumeBars::None, "None", "No volume on app rows"),
                 bars(VolumeBars::Compact, "Compact", "A small bar to drag or scroll, click to mute"),
                 bars(VolumeBars::Always, "Always", "A slider under every app"),
                 bars(VolumeBars::OnHover, "On hover", "A percentage that turns into a slider on hover"),
             ],
-            Choice::LevelMeters => {
+            Mode::LevelMeters => {
                 let meters = |m: LevelMeters, name, about| (Setting::LevelMeters(m), name, about, s.level_meters == m);
                 vec![
                     meters(LevelMeters::None, "None", "No live levels"),
-                    meters(LevelMeters::Volume, "In volume", "The level moves inside the volume control"),
-                    meters(LevelMeters::Ring, "Icon ring", "A ring around the app icon lights up"),
-                    meters(LevelMeters::Bars, "Live bars", "Equalizer bars before the app name"),
-                    meters(LevelMeters::Line, "Underline", "A line along the bottom of the row"),
-                    meters(LevelMeters::Strip, "Edge strip", "A meter at the row's left edge"),
+                    meters(LevelMeters::Volume, "Volume", "The level moves inside the volume control"),
+                    meters(LevelMeters::Ring, "Ring", "A ring around the app icon lights up"),
+                    meters(LevelMeters::Bars, "Bars", "Equalizer bars before the app name"),
+                    meters(LevelMeters::Line, "Line", "A line along the bottom of the row"),
+                    meters(LevelMeters::Strip, "Strip", "A meter at the row's left edge"),
                 ]
             }
         }
-    }
-
-    fn current(self, s: &Settings) -> &'static str {
-        self.options(s).into_iter().find(|o| o.3).map_or("", |o| o.1)
     }
 }
 
@@ -211,19 +214,25 @@ impl NowPlaying {
     }
 }
 
-/// The laid-out heights of the flyout's three parts, zero until first measured.
+/// The laid-out heights of the flyout's three parts and the settings panel's
+/// body, zero until first measured.
 #[derive(Default)]
 struct Measured {
     controls: Rc<Cell<f32>>,
     middle: Rc<Cell<f32>>,
     volume: Rc<Cell<f32>>,
+    panel: Rc<Cell<f32>>,
 }
 
 impl Measured {
-    fn total(&self) -> Option<f32> {
-        let parts = [self.controls.get(), self.middle.get(), self.volume.get()];
+    fn total(&self, panel: bool) -> Option<f32> {
+        let (controls, middle, volume) = (self.controls.get(), self.middle.get(), self.volume.get());
+        let panel = panel.then(|| self.panel.get());
+        if [controls, middle, volume].iter().any(|h| *h <= 0.) || panel.is_some_and(|h| h <= 0.) {
+            return None;
+        }
         // The window border adds a pixel above and below.
-        parts.iter().all(|h| *h > 0.).then(|| parts.iter().sum::<f32>() + 2.)
+        Some(controls + (middle + volume).max(panel.unwrap_or(0.)) + 2.)
     }
 }
 
@@ -263,8 +272,6 @@ pub struct Flyout {
     pinned: bool,
     /// The app row under the pointer, for the Hover media controls.
     hovered: Option<String>,
-    /// The setting whose choices the settings page shows.
-    choice: Option<Choice>,
     /// Latest live level per app row id, read while meters show.
     levels: HashMap<String, f32>,
     /// The levels on screen, easing towards `levels` every frame.
@@ -274,6 +281,7 @@ pub struct Flyout {
     state_bars: VolumeBars,
     dark: Option<bool>,
     accent: Accent,
+    width: f32,
     height: f32,
     measured: Measured,
     /// When the window opened, for sliding it out from behind the taskbar.
@@ -341,13 +349,13 @@ impl Flyout {
             devices_open: false,
             pinned,
             hovered: None,
-            choice: None,
             levels: HashMap::new(),
             shown_levels: HashMap::new(),
             last_frame: Instant::now(),
             state_bars: VolumeBars::default(),
             dark,
             accent,
+            width: width(page),
             height,
             measured: Measured::default(),
             opened: Instant::now(),
@@ -360,14 +368,13 @@ impl Flyout {
     pub fn open_page(&mut self, page: Page, cx: &mut Context<Self>) {
         self.page = page;
         self.devices_open = false;
-        self.choice = None;
         cx.notify();
     }
 
     /// Reads live levels for every app row, redrawing when one moved.
     fn poll_levels(&mut self, cx: &mut Context<Self>) {
         let state = self.state.read(cx);
-        let showing = state.settings.level_meters != LevelMeters::None && self.page == Page::Apps && !self.devices_open;
+        let showing = state.settings.level_meters != LevelMeters::None && !self.devices_open;
         if !showing {
             if !self.levels.is_empty() {
                 self.levels.clear();
@@ -528,22 +535,25 @@ impl Flyout {
             window.request_animation_frame();
             let Some(hwnd) = hwnd(window) else { return };
             let anchor = self.anchor;
+            let panel = self.panel_px(window);
             window.on_next_frame(move |_, _| {
-                audio_bartender_core::place_window(hwnd, &anchor, audio_bartender_core::slide_out_progress(closing));
+                let progress = audio_bartender_core::slide_out_progress(closing);
+                audio_bartender_core::place_window(hwnd, &anchor, panel, progress);
             });
             return;
         }
-        let height = match self.measured.total() {
+        let height = match self.measured.total(self.page == Page::Settings) {
             Some(total) => total.ceil().min(MAX_HEIGHT),
             None => height(state, self.page),
         };
-        let resized = height != self.height;
+        let width = width(self.page);
+        let resized = (width, height) != (self.width, self.height);
         if !resized && self.settled {
             return;
         }
         if resized {
-            self.height = height;
-            window.resize(size(px(WIDTH), px(height)));
+            (self.width, self.height) = (width, height);
+            window.resize(size(px(width), px(height)));
         }
         let progress = audio_bartender_core::slide_progress(self.opened);
         if progress < 1.0 {
@@ -552,11 +562,23 @@ impl Flyout {
             self.settled = true;
         }
         let Some(hwnd) = hwnd(window) else { return };
-        let (anchor, opened) = (self.anchor, self.opened);
+        let (anchor, opened, panel) = (self.anchor, self.opened, self.panel_px(window));
         window.on_next_frame(move |_, _| {
-            audio_bartender_core::place_window(hwnd, &anchor, audio_bartender_core::slide_progress(opened));
+            audio_bartender_core::place_window(hwnd, &anchor, panel, audio_bartender_core::slide_progress(opened));
             audio_bartender_core::set_cloaked(hwnd, false);
         });
+    }
+
+    /// The settings panel's width in physical pixels, or 0 when it's closed.
+    fn panel_px(&self, window: &Window) -> i32 {
+        if self.page == Page::Settings { (PANEL * window.scale_factor()) as i32 } else { 0 }
+    }
+
+    /// True when the settings panel goes left of the flyout, where there's room.
+    fn panel_left(&self, window: &Window) -> bool {
+        let scale = window.scale_factor();
+        let px = |v: f32| (v * scale) as i32;
+        self.anchor.panel_left(px(WIDTH), px(PANEL), px(self.height))
     }
 
     fn label(text: &'static str, theme: &Theme) -> Div {
@@ -991,12 +1013,53 @@ impl Flyout {
             .into_any_element()
     }
 
-    fn settings(&self, state: &State, theme: &Theme, cx: &mut Context<Self>) -> Vec<AnyElement> {
+    /// A setting's label, then a segmented control of its modes, then a line about
+    /// the current one.
+    fn segmented(&self, mode: Mode, s: &Settings, theme: &Theme) -> AnyElement {
+        let options = mode.options(s);
+        let about = options.iter().find(|o| o.3).map_or("", |o| o.2);
+        let (fg, muted) = (theme.foreground, theme.muted_foreground);
+        let (track, chip) =
+            if theme.is_dark() { (theme.muted, theme.secondary) } else { (theme.secondary, theme.background) };
+        let buttons = options.into_iter().enumerate().map(|(i, (setting, name, _, on))| {
+            let core = self.core.clone();
+            div()
+                .id(SharedString::from(format!("mode-{}-{i}", mode.title())))
+                .flex_1()
+                .min_w_0()
+                .h(px(24.))
+                .flex()
+                .items_center()
+                .justify_center()
+                .rounded(px(5.))
+                .text_xs()
+                .cursor_pointer()
+                .map(|d| {
+                    if on {
+                        d.bg(chip).text_color(fg).font_semibold().shadow_xs()
+                    } else {
+                        d.text_color(muted).hover(move |st| st.text_color(fg))
+                    }
+                })
+                .child(name)
+                .on_click(move |_, _, _| core.set(setting.clone()))
+        });
+        v_flex()
+            .mx_2()
+            .px_2()
+            .pt_1p5()
+            .pb_2()
+            .gap_1p5()
+            .child(div().text_sm().child(mode.title()))
+            .child(h_flex().p(px(2.)).gap(px(2.)).rounded(px(7.)).bg(track).children(buttons))
+            .child(div().h(px(16.)).text_xs().text_color(muted).truncate().child(about))
+            .into_any_element()
+    }
+
+    /// Every setting at once, in two columns beside the flyout, so changes show in
+    /// the app list as they're made.
+    fn settings_panel(&self, state: &State, theme: &Theme, cx: &mut Context<Self>) -> Div {
         let s = &state.settings;
-        if let Some(choice) = self.choice {
-            return self.choice_page(choice, s, theme, cx);
-        }
-        let hover = theme.secondary_hover;
         let row = |title: &'static str, control: AnyElement| {
             h_flex()
                 .mx_2()
@@ -1018,137 +1081,89 @@ impl Flyout {
                 .label(label)
                 .on_click(move |_, _, _| audio_bartender_core::open_icon_page(page))
         };
-        let nav = |choice: Choice| {
+        let update = {
+            let core = self.core.clone();
             h_flex()
-                .id(SharedString::from(format!("nav-{}", choice.title())))
                 .mx_2()
                 .px_2()
                 .h(px(SETTING_ROW))
                 .gap_3()
-                .rounded(theme.radius)
-                .cursor_pointer()
-                .hover(move |st| st.bg(hover))
-                .child(div().flex_1().min_w_0().text_sm().child(choice.title()))
                 .child(
-                    h_flex()
-                        .gap_1()
-                        .text_sm()
+                    div()
+                        .flex_1()
+                        .min_w_0()
+                        .truncate()
+                        .text_xs()
                         .text_color(theme.muted_foreground)
-                        .child(choice.current(s))
-                        .child(Icon::new(IconName::ChevronRight).small()),
+                        .child(state.update.summary.clone()),
                 )
-                .on_click(cx.listener(move |this, _, _, cx| {
-                    this.choice = Some(choice);
-                    cx.notify();
-                }))
+                .child(
+                    Button::new("check-update")
+                        .small()
+                        .ghost()
+                        .label("Check now")
+                        .disabled(state.update.busy())
+                        .on_click(move |_, _, _| core.check_update()),
+                )
                 .into_any_element()
         };
-        vec![
-            Self::label("GENERAL", theme).into_any_element(),
-            row("Start with Windows", switch("autostart", s.autostart, Setting::Autostart)),
-            row("Album art as app icon", switch("album-art", s.album_art, Setting::AlbumArt)),
-            row("Automatic updates", switch("auto-update", s.auto_update, Setting::AutoUpdate)),
-            {
-                let core = self.core.clone();
-                h_flex()
-                    .mx_2()
-                    .px_2()
-                    .h(px(SETTING_ROW))
-                    .gap_3()
-                    .child(
-                        div()
-                            .flex_1()
-                            .min_w_0()
-                            .truncate()
-                            .text_xs()
-                            .text_color(theme.muted_foreground)
-                            .child(state.update.summary.clone()),
-                    )
-                    .child(
-                        Button::new("check-update")
-                            .small()
-                            .ghost()
-                            .label("Check now")
-                            .disabled(state.update.busy())
-                            .on_click(move |_, _, _| core.check_update()),
-                    )
-                    .into_any_element()
-            },
-            row(
+        let left = v_flex()
+            .flex_1()
+            .min_w_0()
+            .child(Self::label("GENERAL", theme))
+            .child(row("Start with Windows", switch("autostart", s.autostart, Setting::Autostart)))
+            .child(row("Album art as app icon", switch("album-art", s.album_art, Setting::AlbumArt)))
+            .child(row("Automatic updates", switch("auto-update", s.auto_update, Setting::AutoUpdate)))
+            .child(update)
+            .child(row(
                 "Tray icons",
                 h_flex()
                     .gap_1()
                     .child(page_button("show-ours", "Show ours", IconPage::ShowOurs))
                     .child(page_button("hide-windows", "Hide Windows'", IconPage::HideWindows))
                     .into_any_element(),
-            ),
-            Self::label("LOOK", theme).into_any_element(),
-            nav(Choice::Theme),
-            row("Accent color", self.swatches(s.accent, theme)),
-            nav(Choice::TrayIcon),
-            Self::label("TOOLTIP AND FLYOUT", theme).into_any_element(),
-            nav(Choice::Tooltip),
-            nav(Choice::TooltipButtons),
-            nav(Choice::MediaControls),
-            nav(Choice::VolumeBars),
-            nav(Choice::LevelMeters),
-        ]
-    }
-
-    /// One setting's choices, each with a line about what it does.
-    fn choice_page(&self, choice: Choice, s: &Settings, theme: &Theme, cx: &mut Context<Self>) -> Vec<AnyElement> {
-        let hover = theme.secondary_hover;
-        let back = h_flex()
-            .id("back")
-            .mx_2()
-            .mt_2()
-            .mb_1()
-            .px_2()
-            .h(px(36.))
-            .gap_2()
-            .rounded(theme.radius)
-            .cursor_pointer()
-            .hover(move |st| st.bg(hover))
-            .child(Icon::new(IconName::ChevronLeft).small())
-            .child(div().text_sm().font_semibold().child(choice.title()))
-            .on_click(cx.listener(|this, _, _, cx| {
-                this.choice = None;
-                cx.notify();
-            }))
-            .into_any_element();
-        let options = choice.options(s).into_iter().enumerate().map(|(i, (setting, name, about, on))| {
-            let core = self.core.clone();
+            ))
+            .child(Self::label("LOOK", theme))
+            .child(row("Accent color", self.swatches(s.accent, theme)))
+            .child(self.segmented(Mode::Theme, s, theme))
+            .child(self.segmented(Mode::TrayIcon, s, theme));
+        let right = v_flex()
+            .flex_1()
+            .min_w_0()
+            .child(Self::label("TRAY TOOLTIP", theme))
+            .child(self.segmented(Mode::Tooltip, s, theme))
+            .child(self.segmented(Mode::TooltipButtons, s, theme))
+            .child(Self::label("FLYOUT", theme))
+            .child(self.segmented(Mode::MediaControls, s, theme))
+            .child(self.segmented(Mode::VolumeBars, s, theme))
+            .child(self.segmented(Mode::LevelMeters, s, theme));
+        let header = h_flex()
+            .justify_between()
+            .px_3()
+            .py_2()
+            .border_b_1()
+            .border_color(theme.border)
+            .when(theme.is_dark(), |d| d.bg(hex(DARK_FOOTER)))
+            .child(div().pl_1().text_sm().font_semibold().child("Settings"))
+            .child(
+                Button::new("close-settings")
+                    .small()
+                    .ghost()
+                    .icon(IconName::Close)
+                    .tooltip("Close settings")
+                    .on_click(cx.listener(|this, _, _, cx| this.open_page(Page::Apps, cx))),
+            );
+        let view = cx.entity_id();
+        v_flex().flex_none().w(px(PANEL)).h_full().bg(theme.background).child(header).child(
             h_flex()
-                .id(SharedString::from(format!("choice-{i}")))
-                .mx_2()
-                .px_2()
-                .py_2()
-                .gap_3()
                 .items_start()
-                .rounded(theme.radius)
-                .cursor_pointer()
-                .map(|d| if on { d.bg(theme.primary.opacity(0.13)) } else { d.hover(move |st| st.bg(hover)) })
-                .child(
-                    div()
-                        .flex_none()
-                        .mt(px(2.))
-                        .size(px(16.))
-                        .rounded_full()
-                        .border_color(if on { theme.primary } else { theme.muted_foreground })
-                        .map(|d| if on { d.border(px(4.5)) } else { d.border(px(1.5)) }),
-                )
-                .child(
-                    v_flex()
-                        .min_w_0()
-                        .child(div().text_sm().when(on, |d| d.font_semibold()).child(name))
-                        .when(!about.is_empty(), |d| {
-                            d.child(div().text_xs().text_color(theme.muted_foreground).child(about))
-                        }),
-                )
-                .on_click(move |_, _, _| core.set(setting.clone()))
-                .into_any_element()
-        });
-        std::iter::once(back).chain(options).collect()
+                .relative()
+                .pb_2()
+                .child(left)
+                .child(div().w(px(1.)).self_stretch().my_3().bg(theme.border))
+                .child(right)
+                .child(measure(&self.measured.panel, view)),
+        )
     }
 }
 
@@ -1169,8 +1184,6 @@ impl Render for Flyout {
         });
         let middle = if self.devices_open {
             vec![self.devices(&state, &theme, cx).into_any_element()]
-        } else if self.page == Page::Settings {
-            self.settings(&state, &theme, cx)
         } else {
             let mut items = Vec::new();
             if state.settings.media_controls == MediaControls::Banner {
@@ -1196,12 +1209,10 @@ impl Render for Flyout {
             items
         };
 
-        v_flex()
-            .size_full()
-            .bg(theme.muted)
-            .text_color(theme.foreground)
-            .border_1()
-            .border_color(theme.border)
+        let flyout = v_flex()
+            .flex_1()
+            .min_w_0()
+            .h_full()
             .child(controls.relative().child(measure(&self.measured.controls, view)))
             .child({
                 // Only a capped window scrolls, with a scrollbar so it's clear there's more;
@@ -1230,6 +1241,26 @@ impl Render for Flyout {
                     .child(device_header)
                     .child(div().px_2().child(master))
                     .child(measure(&self.measured.volume, view)),
-            )
+            );
+        let panel = (self.page == Page::Settings).then(|| {
+            let left = self.panel_left(window);
+            let panel = self.settings_panel(&state, &theme, cx).border_color(theme.border);
+            (left, if left { panel.border_r_1() } else { panel.border_l_1() })
+        });
+        let (before, after) = match panel {
+            Some((true, panel)) => (Some(panel), None),
+            Some((false, panel)) => (None, Some(panel)),
+            None => (None, None),
+        };
+        h_flex()
+            .items_start()
+            .size_full()
+            .bg(theme.muted)
+            .text_color(theme.foreground)
+            .border_1()
+            .border_color(theme.border)
+            .children(before)
+            .child(flyout)
+            .children(after)
     }
 }

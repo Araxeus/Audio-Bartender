@@ -580,10 +580,26 @@ impl Anchor {
         }
     }
 
-    /// Like [`Anchor::place`], but `1 - progress` of the way towards the screen edge
-    /// behind the taskbar, where the flyout starts fully off screen.
-    pub fn place_sliding(&self, width: i32, height: i32, progress: f32) -> (i32, i32) {
-        let (x, y) = self.place(width, height);
+    /// True when a side panel `panel` wide fits left of a flyout `width` wide, so the
+    /// window grows leftwards. Otherwise it grows rightwards.
+    pub fn panel_left(&self, width: i32, panel: i32, height: i32) -> bool {
+        let (x, _) = self.place(width, height);
+        x - panel >= self.work.left
+    }
+
+    /// Like [`Anchor::place`] for a window `width` wide that includes a side panel
+    /// `panel` wide. The flyout part stays where it would be alone.
+    pub fn place_with_panel(&self, width: i32, panel: i32, height: i32) -> (i32, i32) {
+        let flyout = width - panel;
+        let (x, y) = self.place(flyout, height);
+        let x = if self.panel_left(flyout, panel, height) { x - panel } else { x };
+        (x.clamp(self.work.left, (self.work.right - width).max(self.work.left)), y)
+    }
+
+    /// Like [`Anchor::place_with_panel`], but `1 - progress` of the way towards the
+    /// screen edge behind the taskbar, where the flyout starts fully off screen.
+    pub fn place_sliding(&self, width: i32, panel: i32, height: i32, progress: f32) -> (i32, i32) {
+        let (x, y) = self.place_with_panel(width, panel, height);
         let (w, i, s) = (self.work, self.icon, self.screen);
         let rest = 1.0 - progress.clamp(0.0, 1.0);
         let off = |distance: i32| (distance as f32 * rest).round() as i32;
@@ -791,8 +807,9 @@ pub fn preview_tray_icon(level: f32, muted: bool, style: TrayStyle, light_taskba
 /// Moves a window (by its raw handle), keeping its size, to where `anchor` places a
 /// flyout `progress` of the way through its slide (see [`slide_progress`]). Call after
 /// resizing so the bottom stays against the taskbar.
-pub fn place_window(hwnd: isize, anchor: &Anchor, progress: f32) {
-    util::place_window(hwnd, anchor, progress);
+/// `panel` is the width of a side panel included in the window, or 0.
+pub fn place_window(hwnd: isize, anchor: &Anchor, panel: i32, progress: f32) {
+    util::place_window(hwnd, anchor, panel, progress);
 }
 
 /// Hides (cloaks) or shows a window without changing its visibility state, for
@@ -803,8 +820,8 @@ pub fn set_cloaked(hwnd: isize, cloaked: bool) {
 
 /// Like [`place_window`], for a borderless window of the given physical size,
 /// which may not have applied yet.
-pub fn place_window_sized(hwnd: isize, anchor: &Anchor, width: i32, height: i32, progress: f32) {
-    util::place_window_sized(hwnd, anchor, width, height, progress);
+pub fn place_window_sized(hwnd: isize, anchor: &Anchor, width: i32, panel: i32, height: i32, progress: f32) {
+    util::place_window_sized(hwnd, anchor, width, panel, height, progress);
 }
 
 /// The page to open on launch: `--settings` opens the settings page.

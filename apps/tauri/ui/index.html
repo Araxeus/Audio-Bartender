@@ -8,13 +8,17 @@
   <script type="module" src="app.js"></script>
 </head>
 <body class="flyout">
-  <header class="flyout-controls" id="controls"></header>
-  <div class="flyout-middle" id="middle"></div>
-  <!-- Volume sits at the bottom, next to the tray icon the user just clicked. -->
-  <section class="flyout-volume">
-    <div id="dock"></div>
-    <div id="device"></div>
-    <div id="master"></div>
-  </section>
+  <!-- Every setting at once, beside the flyout so changes show as they're made. -->
+  <aside class="settings-panel" id="panel" hidden></aside>
+  <main class="flyout-column">
+    <header class="flyout-controls" id="controls"></header>
+    <div class="flyout-middle" id="middle"></div>
+    <!-- Volume sits at the bottom, next to the tray icon the user just clicked. -->
+    <section class="flyout-volume">
+      <div id="dock"></div>
+      <div id="device"></div>
+      <div id="master"></div>
+    </section>
+  </main>
 </body>
 </html>

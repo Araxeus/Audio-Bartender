@@ -12,6 +12,8 @@ use tauri::{
 
 const FLYOUT: &str = "flyout";
 const FLYOUT_WIDTH: f64 = 360.0;
+/// The settings panel beside the flyout, two columns wide.
+const PANEL_WIDTH: f64 = 640.0;
 
 /// A tray click that lands right after the flyout closed is the click that closed it.
 const REOPEN_GUARD: Duration = Duration::from_millis(300);
@@ -23,6 +25,8 @@ const FLYOUT_KEEPALIVE: Duration = Duration::from_secs(60);
 struct Flyout {
     anchor: Option<Anchor>,
     height: Option<f64>,
+    /// The settings panel shows beside the flyout.
+    panel: bool,
     closed_at: Option<Instant>,
     /// When the flyout was last shown, for sliding it out from behind the taskbar.
     shown_at: Option<Instant>,
@@ -126,11 +130,21 @@ fn set_pinned(app: AppHandle, pinned: bool) {
     app.state::<Mutex<Flyout>>().lock().unwrap().pinned = pinned;
 }
 
-/// The page reports its content height, so the window fits it exactly.
+/// The page reports its content height and whether the settings panel shows, so the
+/// window fits it exactly. Returns true when the panel goes left of the flyout.
 #[tauri::command]
-fn flyout_size(app: AppHandle, height: f64) {
-    app.state::<Mutex<Flyout>>().lock().unwrap().height = Some(height);
+fn flyout_size(app: AppHandle, height: f64, panel: bool) -> bool {
+    let anchor = {
+        let flyout = app.state::<Mutex<Flyout>>();
+        let mut flyout = flyout.lock().unwrap();
+        (flyout.height, flyout.panel) = (Some(height), panel);
+        flyout.anchor
+    };
     place_flyout(&app);
+    anchor.is_none_or(|anchor| {
+        let physical = |v: f64| (v * anchor.scale as f64) as i32;
+        anchor.panel_left(physical(FLYOUT_WIDTH), physical(PANEL_WIDTH), physical(height))
+    })
 }
 
 /// The page calls this after its first render, so the window never flashes blank.
@@ -178,7 +192,7 @@ fn page_name(page: Page) -> &'static str {
 /// Sizes the flyout to its content and puts it next to the tray icon.
 fn place_flyout(app: &AppHandle) {
     let Some(window) = app.get_webview_window(FLYOUT) else { return };
-    let (anchor, height, progress) = {
+    let (anchor, height, panel, progress) = {
         let flyout = app.state::<Mutex<Flyout>>();
         let flyout = flyout.lock().unwrap();
         let progress = match (flyout.closing_at, flyout.shown_at) {
@@ -186,16 +200,18 @@ fn place_flyout(app: &AppHandle) {
             (None, Some(at)) => audio_bartender_core::slide_progress(at),
             (None, None) => 1.0,
         };
-        (flyout.anchor, flyout.height.unwrap_or(480.0), progress)
+        (flyout.anchor, flyout.height.unwrap_or(480.0), flyout.panel, progress)
     };
     let Some(anchor) = anchor else { return };
     let scale = anchor.scale as f64;
-    let _ = window.set_size(LogicalSize::new(FLYOUT_WIDTH, height));
-    let (width, height) = ((FLYOUT_WIDTH * scale) as i32, (height * scale) as i32);
+    let panel = if panel { PANEL_WIDTH } else { 0.0 };
+    let _ = window.set_size(LogicalSize::new(FLYOUT_WIDTH + panel, height));
+    let physical = |v: f64| (v * scale) as i32;
+    let (width, panel, height) = (physical(FLYOUT_WIDTH + panel), physical(panel), physical(height));
     match window.hwnd() {
-        Ok(hwnd) => audio_bartender_core::place_window_sized(hwnd.0 as isize, &anchor, width, height, progress),
+        Ok(hwnd) => audio_bartender_core::place_window_sized(hwnd.0 as isize, &anchor, width, panel, height, progress),
         Err(_) => {
-            let (x, y) = anchor.place(width, height);
+            let (x, y) = anchor.place_with_panel(width, panel, height);
             let _ = window.set_position(PhysicalPosition::new(x, y));
         }
     }

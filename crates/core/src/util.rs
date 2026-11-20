@@ -67,7 +67,7 @@ pub fn open_icon_page(page: crate::IconPage) {
 /// Moves a window, keeping its size, so its visible frame sits where `anchor` places
 /// a flyout of that size, `progress` of the way through its slide. While sliding,
 /// the window stays just below the taskbar so it appears to come out from behind it.
-pub fn place_window(hwnd: isize, anchor: &crate::Anchor, progress: f32) {
+pub fn place_window(hwnd: isize, anchor: &crate::Anchor, panel: i32, progress: f32) {
     use windows::Win32::Foundation::RECT;
     use windows::Win32::Graphics::Dwm::{DWMWA_EXTENDED_FRAME_BOUNDS, DwmGetWindowAttribute};
     use windows::Win32::UI::WindowsAndMessaging::GetWindowRect;
@@ -84,22 +84,22 @@ pub fn place_window(hwnd: isize, anchor: &crate::Anchor, progress: f32) {
         }
         let (width, height) = (visible.right - visible.left, visible.bottom - visible.top);
         let (dx, dy) = (visible.left - window.left, visible.top - window.top);
-        position(hwnd, anchor, (width, height), (dx, dy), progress);
+        position(hwnd, anchor, (width, height), panel, (dx, dy), progress);
     }
 }
 
 /// Moves a borderless window of the given physical size, which may still be pending.
-pub fn place_window_sized(hwnd: isize, anchor: &crate::Anchor, width: i32, height: i32, progress: f32) {
-    position(HWND(hwnd as _), anchor, (width, height), (0, 0), progress);
+pub fn place_window_sized(hwnd: isize, anchor: &crate::Anchor, width: i32, panel: i32, height: i32, progress: f32) {
+    position(HWND(hwnd as _), anchor, (width, height), panel, (0, 0), progress);
 }
 
 /// Puts a window whose visible frame is `size`, offset by `border` inside it, where
 /// `anchor` places it `progress` of the way through its slide.
-fn position(hwnd: HWND, anchor: &crate::Anchor, size: (i32, i32), border: (i32, i32), progress: f32) {
+fn position(hwnd: HWND, anchor: &crate::Anchor, size: (i32, i32), panel: i32, border: (i32, i32), progress: f32) {
     use windows::Win32::UI::WindowsAndMessaging::{
         FindWindowW, SET_WINDOW_POS_FLAGS, SWP_NOACTIVATE, SWP_NOSIZE, SWP_NOZORDER, SetWindowPos,
     };
-    let (x, y) = anchor.place_sliding(size.0, size.1, progress);
+    let (x, y) = anchor.place_sliding(size.0, panel, size.1, progress);
     let (dx, dy) = border;
     unsafe {
         let taskbar = if progress < 1.0 { FindWindowW(windows::core::w!("Shell_TrayWnd"), None).ok() } else { None };

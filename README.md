@@ -56,7 +56,7 @@ The flyout is the whole UI. Left-click the tray icon to open or close it; it als
 
 ## Settings
 
-Stored in `%APPDATA%\AudioBartender\config.ini` and shared by both front ends. The settings page lists each mode setting with its current value; clicking one opens its choices with a line about each.
+Stored in `%APPDATA%\AudioBartender\config.ini` and shared by both front ends. The settings button opens a panel beside the flyout with every setting visible at once, so each change shows in the app list as it's made. Each mode setting is a segmented control with a line about the current choice.
 
 - Start with Windows (see above)
 - Album art as app icon (the track thumbnail the app reports to SMTC)
@@ -71,7 +71,7 @@ Stored in `%APPDATA%\AudioBartender\config.ini` and shared by both front ends. T
 - Volume bars: None, Compact (default), Always or On hover (a percentage that turns into a slider while the row is hovered)
 - Level meters: None, In volume (default), Icon ring, Live bars, Underline or Edge strip
 
-Launch flags: `--hidden` starts in the tray only, `--settings` opens on the settings page, `--pinned` starts pinned, and `--dev` turns off the single-instance lock and the hand-off to the elevated task.
+Launch flags: `--hidden` starts in the tray only, `--settings` opens with the settings panel, `--pinned` starts pinned, and `--dev` turns off the single-instance lock and the hand-off to the elevated task.
 
 Both front ends share one single-instance lock, so a second launch of either opens the running copy's flyout.
 

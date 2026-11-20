@@ -224,20 +224,7 @@ button.icon.active { color: var(--accent); }
 /* Settings */
 
 .fly-setting { display: flex; align-items: center; justify-content: space-between; gap: 12px; min-height: 40px; margin: 0 8px; padding: 0 8px; border-radius: 6px; font-size: 13px; }
-button.fly-setting { width: calc(100% - 16px); border: 0; background: transparent; text-align: left; cursor: pointer; }
-button.fly-setting:hover { background: var(--card-hover); }
 .fly-setting.update .summary { flex: 1; min-width: 0; color: var(--muted); font-size: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.fly-setting .value { display: flex; align-items: center; gap: 4px; color: var(--muted); }
-.choice-back { display: flex; align-items: center; gap: 8px; width: calc(100% - 16px); height: 36px; margin: 8px 8px 4px; padding: 0 8px; border: 0; border-radius: 6px; background: transparent; font-size: 13px; font-weight: 600; text-align: left; cursor: pointer; }
-.choice-back:hover { background: var(--card-hover); }
-.choice { display: flex; align-items: flex-start; gap: 12px; width: calc(100% - 16px); margin: 0 8px; padding: 8px; border: 0; border-radius: 6px; background: transparent; text-align: left; cursor: pointer; }
-.choice:hover { background: var(--card-hover); }
-.choice.on { background: var(--accent-soft); }
-.choice .radio { margin-top: 2px; }
-.choice-text { display: grid; min-width: 0; }
-.choice-text .name { font-size: 13px; font-weight: 400; }
-.choice.on .choice-text .name { font-weight: 600; }
-.choice-text .about { color: var(--muted); font-size: 12px; }
 .transport { display: flex; gap: 6px; }
 
 .swatches { display: flex; gap: 6px; }
@@ -261,11 +248,35 @@ button.fly-setting:hover { background: var(--card-hover); }
 /* Flyout */
 
 body.flyout {
+  flex-direction: row;
   max-height: 640px;
   overflow: hidden;
   border: 1px solid var(--border);
   background: var(--bg);
 }
+
+/* Fixed width, so the measured height never depends on the window width at the time. */
+.flyout-column { display: flex; flex-direction: column; flex: none; width: 358px; }
+.flyout-column .flyout-middle { flex: 1; }
+
+/* Settings panel */
+
+.settings-panel { flex: none; width: 640px; border-right: 1px solid var(--border); background: var(--card); }
+.settings-panel[hidden] { display: none; }
+body[data-panel="right"] .settings-panel { order: 1; border-right: 0; border-left: 1px solid var(--border); }
+.panel-title { padding-left: 4px; font-size: 13px; font-weight: 600; }
+.panel-body { display: flex; align-items: flex-start; padding-bottom: 8px; }
+.panel-column { flex: 1; min-width: 0; }
+.panel-column .section-label { padding: 10px 16px 2px; }
+.panel-divider { align-self: stretch; width: 1px; margin: 12px 0; background: var(--border); }
+.mode { display: grid; gap: 6px; margin: 0 8px; padding: 6px 8px 8px; font-size: 13px; }
+.mode-about { height: 16px; color: var(--muted); font-size: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.segmented { display: flex; gap: 2px; padding: 2px; border-radius: 7px; background: var(--bg); }
+.segmented button { flex: 1; min-width: 0; height: 24px; padding: 0 4px; border: 0; border-radius: 5px; background: transparent; color: var(--muted); font-size: 12px; white-space: nowrap; cursor: pointer; }
+.segmented button:hover { color: var(--text); }
+.segmented button.on { background: var(--card-hover); color: var(--text); font-weight: 600; box-shadow: 0 1px 2px rgba(0, 0, 0, .25); }
+:root:not([data-theme="dark"]) .segmented { background: var(--track); }
+:root:not([data-theme="dark"]) .segmented button.on { background: var(--card); box-shadow: 0 1px 2px rgba(0, 0, 0, .12); }
 
 .flyout-volume { padding: 8px 8px 12px; border-top: 1px solid var(--border); background: var(--card); }
 .flyout-volume .slider-row { padding: 2px 8px 0; }

@@ -7,7 +7,7 @@ let page = location.hash === "#settings" ? "settings" : "apps";
 let pinned = params.get("pinned") === "true";
 let devicesOpen = false;
 let first = true;
-let lastHeight = 0;
+let lastSize = "";
 let latest = null;
 /** Every accent with its colors, from the core. */
 let accents = [];
@@ -84,7 +84,7 @@ function showLevel(node, level) {
 /** Reads live levels while the app list shows meters. */
 async function pollLevels() {
   const style = latest?.settings.levelMeters;
-  if (!style || style === "none" || page !== "apps" || devicesOpen || document.hidden) return;
+  if (!style || style === "none" || devicesOpen || document.hidden) return;
   const rows = [...document.querySelectorAll("[data-level-id]")];
   if (!rows.length) return;
   const values = await invoke("levels", { ids: rows.map((r) => r.dataset.levelId) });
@@ -159,7 +159,6 @@ function controls() {
       button("icon ghost small" + (page === "settings" ? " active" : ""), "Settings", icon("settings"), () => {
         page = page === "settings" ? "apps" : "settings";
         devicesOpen = false;
-        choice = null;
         rerender();
       }),
       button(
@@ -301,14 +300,14 @@ function swatches(current) {
   );
 }
 
-/** Settings with a page of choices: the setting's name, then each value, name and description. */
-const CHOICES = {
+/** Settings picked from a few modes: the setting's name, then each value, name and description. */
+const MODES = {
   dark: {
     title: "Theme",
     options: [
       [null, "System", "Follow Windows"],
-      [false, "Light", ""],
-      [true, "Dark", ""],
+      [false, "Light", "Always light"],
+      [true, "Dark", "Always dark"],
     ],
   },
   trayStyle: {
@@ -359,44 +358,26 @@ const CHOICES = {
     title: "Level meters",
     options: [
       ["none", "None", "No live levels"],
-      ["volume", "In volume", "The level moves inside the volume control"],
-      ["ring", "Icon ring", "A ring around the app icon lights up"],
-      ["bars", "Live bars", "Equalizer bars before the app name"],
-      ["line", "Underline", "A line along the bottom of the row"],
-      ["strip", "Edge strip", "A meter at the row's left edge"],
+      ["volume", "Volume", "The level moves inside the volume control"],
+      ["ring", "Ring", "A ring around the app icon lights up"],
+      ["bars", "Bars", "Equalizer bars before the app name"],
+      ["line", "Line", "A line along the bottom of the row"],
+      ["strip", "Strip", "A meter at the row's left edge"],
     ],
   },
 };
 
-/** The setting whose choices the settings page shows. */
-let choice = null;
-
-function openChoice(key) {
-  choice = key;
-  rerender();
-}
-
-/** A row showing a setting's current choice, which opens its page. */
-function nav(s, key) {
-  const current = CHOICES[key].options.find(([value]) => value === s[key]);
-  return button("fly-setting nav", null, [el("span", "", CHOICES[key].title), el("span", "value", current?.[1] ?? "", icon("chevronRight"))], () =>
-    openChoice(key),
+/** A setting's name, a segmented control of its modes, and a line about the current one. */
+function segmented(s, key) {
+  const { title, options } = MODES[key];
+  const current = options.find(([value]) => value === s[key]);
+  return el(
+    "div",
+    "mode",
+    el("span", "mode-title", title),
+    el("div", "segmented", ...options.map(([value, name]) => button(s[key] === value ? "on" : "", null, name, () => setting(key, value)))),
+    el("span", "mode-about", current?.[2] ?? ""),
   );
-}
-
-/** One setting's choices, each with a line about what it does. */
-function choicePage(s) {
-  const { title, options } = CHOICES[choice];
-  const back = button("choice-back", "Back to settings", [icon("chevronLeft"), title], () => openChoice(null));
-  return [
-    back,
-    ...options.map(([value, name, about]) => {
-      const on = s[choice] === value;
-      return button("choice" + (on ? " on" : ""), null, [el("span", "radio small" + (on ? " checked" : "")), el("span", "choice-text", el("span", "name", name), about ? el("span", "about", about) : null)], () =>
-        setting(choice, value),
-      );
-    }),
-  ];
 }
 
 /** The update status line with a button to check now. */
@@ -407,11 +388,17 @@ function updateRow(update) {
   return el("div", "fly-setting update", el("span", "summary", update.summary), check);
 }
 
-function settings(state) {
+/** Every setting at once, in two columns beside the flyout. */
+function settingsPanel(state) {
   const s = state.settings;
-  if (choice) return choicePage(s);
   const row = (title, control) => el("div", "fly-setting", el("span", "", title), control);
-  return [
+  const close = button("icon ghost small", "Close settings", icon("close"), () => {
+    page = "apps";
+    rerender();
+  });
+  const left = el(
+    "div",
+    "panel-column",
     el("div", "section-label", "General"),
     row("Start with Windows", toggle(s.autostart, (on) => setting("autostart", on))),
     row("Album art as app icon", toggle(s.albumArt, (on) => setting("albumArt", on))),
@@ -427,15 +414,24 @@ function settings(state) {
       ),
     ),
     el("div", "section-label", "Look"),
-    nav(s, "dark"),
     row("Accent color", swatches(s.accent)),
-    nav(s, "trayStyle"),
-    el("div", "section-label", "Tooltip and flyout"),
-    nav(s, "tooltip"),
-    nav(s, "mediaButtons"),
-    nav(s, "mediaControls"),
-    nav(s, "volumeBars"),
-    nav(s, "levelMeters"),
+    segmented(s, "dark"),
+    segmented(s, "trayStyle"),
+  );
+  const right = el(
+    "div",
+    "panel-column",
+    el("div", "section-label", "Tray tooltip"),
+    segmented(s, "tooltip"),
+    segmented(s, "mediaButtons"),
+    el("div", "section-label", "Flyout"),
+    segmented(s, "mediaControls"),
+    segmented(s, "volumeBars"),
+    segmented(s, "levelMeters"),
+  );
+  return [
+    el("header", "flyout-controls", el("span", "panel-title", "Settings"), close),
+    el("div", "panel-body", left, el("div", "panel-divider"), right),
   ];
 }
 
@@ -447,11 +443,13 @@ function render(state) {
   $("device").replaceChildren(deviceHeader(state));
   $("master").replaceChildren(volumes.sliderRow(MASTER, state.audio.volume, state.audio.muted));
 
+  const panel = page === "settings";
+  $("panel").hidden = !panel;
+  $("panel").replaceChildren(...(panel ? settingsPanel(state) : []));
+
   let middle;
   if (devicesOpen) {
     middle = devices(state);
-  } else if (page === "settings") {
-    middle = settings(state);
   } else {
     middle = [
       ...(state.settings.mediaControls === "banner" ? [nowPlayingView(state, "banner")] : []),
@@ -463,11 +461,15 @@ function render(state) {
   }
   $("middle").replaceChildren(...middle);
 
-  // The window fits the content, so report height changes to the host.
+  // The window fits the content, so report size changes to the host. It answers
+  // which side of the flyout has room for the panel.
   const height = Math.ceil(document.body.getBoundingClientRect().height);
-  if (height !== lastHeight) {
-    lastHeight = height;
-    invoke("flyout_size", { height });
+  const size = `${height}/${panel}`;
+  if (size !== lastSize) {
+    lastSize = size;
+    invoke("flyout_size", { height, panel }).then((left) => {
+      document.body.dataset.panel = left ? "left" : "right";
+    });
   }
   if (first) {
     first = false;
@@ -479,6 +481,5 @@ follow(volumes, render);
 window.__TAURI__.event.listen("page", (event) => {
   page = event.payload;
   devicesOpen = false;
-  choice = null;
   rerender();
 });

@@ -100,11 +100,13 @@ fn show_flyout(cx: &mut App, anchor: Anchor, page: Page, toggle: bool, pinned: b
     let scale = anchor.scale;
     // Starts behind the taskbar, unless Windows animations are off.
     let start = audio_bartender_core::slide_progress(std::time::Instant::now());
-    let (x, y) = anchor.place_sliding((flyout::WIDTH * scale) as i32, (height * scale) as i32, start);
+    let width = flyout::width(page);
+    let physical = |v: f32| (v * scale) as i32;
+    let (x, y) = anchor.place_sliding(physical(width), physical(width - flyout::WIDTH), physical(height), start);
     let options = WindowOptions {
         window_bounds: Some(WindowBounds::Windowed(Bounds {
             origin: point(px(x as f32 / scale), px(y as f32 / scale)),
-            size: size(px(flyout::WIDTH), px(height)),
+            size: size(px(width), px(height)),
         })),
         titlebar: None,
         kind: WindowKind::PopUp,
