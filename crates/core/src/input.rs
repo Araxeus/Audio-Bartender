@@ -5,7 +5,6 @@
 
 use std::sync::atomic::{AtomicBool, AtomicI32, AtomicIsize, AtomicU32, AtomicU64, Ordering::Relaxed};
 use std::sync::{Arc, Mutex, OnceLock};
-use std::time::{SystemTime, UNIX_EPOCH};
 
 use windows::Win32::Foundation::{ERROR_ALREADY_EXISTS, GetLastError, HWND, LPARAM, LRESULT, POINT, RECT, WPARAM};
 use windows::Win32::Graphics::Gdi::{
@@ -28,7 +27,7 @@ use windows::core::{BOOL, PCSTR, PCWSTR, PWSTR, w};
 
 use crate::tray_icon::{self, Look};
 use crate::tooltip;
-use crate::util::fill_wide;
+use crate::util::{fill_wide, now_ms};
 use crate::tooltip::Tip;
 use crate::{Accent, Anchor, Cmd, Event, MediaButtons, MediaKey, Page, Playback, Rect, Shared, State, TooltipStyle, TrayStyle, audio, card, volume};
 use windows::Win32::UI::Shell::ShellExecuteW;
@@ -219,10 +218,6 @@ pub fn spawn(shared: Arc<Shared>) {
 
 fn shared() -> &'static Shared {
     SHARED.get().expect("core started")
-}
-
-fn now_ms() -> u64 {
-    SystemTime::now().duration_since(UNIX_EPOCH).map(|d| d.as_millis() as u64).unwrap_or(0)
 }
 
 fn pump_messages() {

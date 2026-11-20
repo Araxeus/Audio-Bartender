@@ -16,6 +16,7 @@ mod config;
 mod icon;
 mod input;
 mod media;
+mod meters;
 mod names;
 mod tooltip;
 mod tray_icon;
@@ -170,13 +171,15 @@ pub enum TrayStyle {
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize), serde(rename_all = "camelCase"))]
 pub enum VolumeBars {
+    /// No volume on app rows.
+    None,
     /// A small bar that fills with the volume. Drag or scroll it; click to mute.
     #[default]
     Compact,
     /// A slider under every app, always visible.
     Always,
-    /// A percentage; clicking the row opens its slider.
-    OnClick,
+    /// A percentage that turns into a slider while the pointer is on the row.
+    OnHover,
 }
 
 /// The app's accent color.
@@ -284,10 +287,50 @@ pub enum TooltipStyle {
     Text,
 }
 
+/// How app rows show which apps are making sound.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize), serde(rename_all = "camelCase"))]
+pub enum LevelMeters {
+    None,
+    /// Inside the row's volume control.
+    Volume,
+    /// A ring around the app icon.
+    Ring,
+    /// Equalizer bars before the app name.
+    #[default]
+    Bars,
+    /// A line along the bottom of the row.
+    Line,
+    /// A strip at the row's left edge.
+    Strip,
+}
+
+impl LevelMeters {
+    pub const ALL: [LevelMeters; 6] =
+        [LevelMeters::None, LevelMeters::Volume, LevelMeters::Ring, LevelMeters::Bars, LevelMeters::Line, LevelMeters::Strip];
+
+    /// The config file name.
+    pub fn name(self) -> &'static str {
+        match self {
+            LevelMeters::None => "none",
+            LevelMeters::Volume => "volume",
+            LevelMeters::Ring => "ring",
+            LevelMeters::Bars => "bars",
+            LevelMeters::Line => "line",
+            LevelMeters::Strip => "strip",
+        }
+    }
+
+    pub fn from_name(name: &str) -> Option<LevelMeters> {
+        LevelMeters::ALL.into_iter().find(|m| m.name() == name)
+    }
+}
+
 /// Where the flyout puts previous, play/pause and next.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize), serde(rename_all = "camelCase"))]
 pub enum MediaControls {
+    None,
     /// A now playing card at the top.
     Banner,
     /// Under the selected app's row.
@@ -300,12 +343,13 @@ pub enum MediaControls {
 }
 
 impl MediaControls {
-    pub const ALL: [MediaControls; 4] =
-        [MediaControls::Banner, MediaControls::Row, MediaControls::Dock, MediaControls::Hover];
+    pub const ALL: [MediaControls; 5] =
+        [MediaControls::None, MediaControls::Banner, MediaControls::Row, MediaControls::Dock, MediaControls::Hover];
 
     /// The config file and front end name.
     pub fn name(self) -> &'static str {
         match self {
+            MediaControls::None => "none",
             MediaControls::Banner => "banner",
             MediaControls::Row => "row",
             MediaControls::Dock => "dock",
@@ -319,6 +363,7 @@ impl MediaControls {
 
     pub fn label(self) -> &'static str {
         match self {
+            MediaControls::None => "None",
             MediaControls::Banner => "Banner",
             MediaControls::Row => "Row",
             MediaControls::Dock => "Dock",
@@ -376,6 +421,7 @@ pub struct Settings {
     pub tooltip: TooltipStyle,
     pub media_buttons: MediaButtons,
     pub media_controls: MediaControls,
+    pub level_meters: LevelMeters,
     pub accent: Accent,
 }
 
@@ -390,6 +436,7 @@ impl Default for Settings {
             tooltip: TooltipStyle::NowPlaying,
             media_buttons: MediaButtons::Hover,
             media_controls: MediaControls::Hover,
+            level_meters: LevelMeters::Bars,
             accent: Accent::Blue,
         }
     }
@@ -407,6 +454,7 @@ pub enum Setting {
     Tooltip(TooltipStyle),
     MediaButtons(MediaButtons),
     MediaControls(MediaControls),
+    LevelMeters(LevelMeters),
     Accent(Accent),
 }
 
@@ -640,6 +688,12 @@ impl Core {
         util::com_init();
         volume::adjust(id, |level| level + delta);
         self.shared.send(Cmd::RefreshAudio { devices: false });
+    }
+
+    /// The live level of the app with target or mixer `id`, 0 to 1, already scaled
+    /// by its volume. Meters run only while a front end keeps asking.
+    pub fn level(&self, id: &str) -> f32 {
+        meters::level(id)
     }
 
     pub fn set_volume(&self, id: &str, level: f32) {

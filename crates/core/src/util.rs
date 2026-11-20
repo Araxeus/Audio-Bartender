@@ -27,6 +27,11 @@ pub fn log(line: impl AsRef<str>) {
 
 /// Joins COM on the calling thread if it hasn't yet. A thread that already chose an
 /// apartment keeps it, which is fine for the audio APIs.
+/// Milliseconds since the Unix epoch.
+pub(crate) fn now_ms() -> u64 {
+    std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_millis() as u64).unwrap_or(0)
+}
+
 pub fn com_init() {
     use windows::Win32::System::Com::{COINIT_MULTITHREADED, CoInitializeEx};
     unsafe {

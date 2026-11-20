@@ -204,6 +204,7 @@ impl Worker {
                     Setting::Tooltip(style) => s.tooltip = style,
                     Setting::MediaButtons(buttons) => s.media_buttons = buttons,
                     Setting::MediaControls(controls) => s.media_controls = controls,
+                    Setting::LevelMeters(meters) => s.level_meters = meters,
                     Setting::Accent(accent) => s.accent = accent,
                 }
                 self.config.save();

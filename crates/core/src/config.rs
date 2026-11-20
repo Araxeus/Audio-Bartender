@@ -5,7 +5,7 @@ use windows::Win32::System::Registry::{
 };
 use windows::core::{PCWSTR, w};
 
-use crate::{Accent, MediaButtons, MediaControls, Settings, TooltipStyle, TrayStyle, VolumeBars};
+use crate::{Accent, LevelMeters, MediaButtons, MediaControls, Settings, TooltipStyle, TrayStyle, VolumeBars};
 
 const RUN_KEY: PCWSTR = w!("Software\\Microsoft\\Windows\\CurrentVersion\\Run");
 const RUN_VALUE: PCWSTR = w!("MediaKeysSelector");
@@ -41,6 +41,7 @@ impl Config {
                 "theme" => s.dark = matches!(value, "dark" | "light").then(|| value == "dark"),
                 "album_art" => s.album_art = flag(value),
                 "tray_style" => s.tray_style = if value == "number" { TrayStyle::Number } else { TrayStyle::Ring },
+                "level_meters" => s.level_meters = LevelMeters::from_name(value).unwrap_or_default(),
                 "media_controls" => s.media_controls = MediaControls::from_name(value).unwrap_or_default(),
                 "media_buttons" => s.media_buttons = MediaButtons::from_name(value).unwrap_or_default(),
                 "accent" => s.accent = Accent::from_name(value).unwrap_or_default(),
@@ -53,8 +54,9 @@ impl Config {
                 }
                 "volume_bars" => {
                     s.volume_bars = match value {
+                        "none" => VolumeBars::None,
                         "always" => VolumeBars::Always,
-                        "click" => VolumeBars::OnClick,
+                        "hover" | "click" => VolumeBars::OnHover,
                         _ => VolumeBars::Compact,
                     }
                 }
@@ -74,15 +76,16 @@ impl Config {
             None => "",
         };
         let text = format!(
-            "target={}\ntarget_name={}\ntheme={theme}\nalbum_art={}\ntray_style={}\nvolume_bars={}\ntooltip={}\nmedia_buttons={}\nmedia_controls={}\naccent={}\n",
+            "target={}\ntarget_name={}\ntheme={theme}\nalbum_art={}\ntray_style={}\nvolume_bars={}\ntooltip={}\nmedia_buttons={}\nmedia_controls={}\nlevel_meters={}\naccent={}\n",
             self.target.as_deref().unwrap_or(""),
             self.target_name.as_deref().unwrap_or(""),
             s.album_art,
             if s.tray_style == TrayStyle::Number { "number" } else { "ring" },
             match s.volume_bars {
+                VolumeBars::None => "none",
                 VolumeBars::Compact => "compact",
                 VolumeBars::Always => "always",
-                VolumeBars::OnClick => "click",
+                VolumeBars::OnHover => "hover",
             },
             match s.tooltip {
                 TooltipStyle::NowPlaying => "now_playing",
@@ -91,6 +94,7 @@ impl Config {
             },
             s.media_buttons.name(),
             s.media_controls.name(),
+            s.level_meters.name(),
             s.accent.name(),
         );
         let _ = std::fs::write(path, text);

@@ -3,6 +3,7 @@
 
 use std::collections::HashMap;
 
+use windows::Win32::Media::Audio::Endpoints::IAudioMeterInformation;
 use windows::Win32::Media::Audio::{
     AudioSessionStateExpired, DEVICE_STATE_ACTIVE, IAudioSessionControl2, IAudioSessionManager2, ISimpleAudioVolume,
     eRender,
@@ -16,11 +17,17 @@ pub struct Session {
     /// Lowercased exe name of the process that owns the session.
     pub exe: String,
     volume: ISimpleAudioVolume,
+    meter: Option<IAudioMeterInformation>,
 }
 
 impl Session {
     pub fn level(&self) -> f32 {
         unsafe { self.volume.GetMasterVolume() }.unwrap_or(0.0)
+    }
+
+    /// The loudest sample since the last call, 0 to 1.
+    pub fn peak(&self) -> f32 {
+        self.meter.as_ref().and_then(|m| unsafe { m.GetPeakValue() }.ok()).unwrap_or(0.0)
     }
 
     pub fn muted(&self) -> bool {
@@ -64,7 +71,8 @@ pub fn sessions(procs: &[Process]) -> Vec<Session> {
                 }
                 let Some(exe) = exe_of.get(&pid) else { continue };
                 let Ok(volume) = control.cast::<ISimpleAudioVolume>() else { continue };
-                out.push(Session { exe: (*exe).to_owned(), volume });
+                let meter = control.cast::<IAudioMeterInformation>().ok();
+                out.push(Session { exe: (*exe).to_owned(), volume, meter });
             }
         }
     }
