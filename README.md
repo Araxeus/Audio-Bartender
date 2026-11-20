@@ -1,14 +1,14 @@
-# Media Keys Selector
+# Audio Bartender
 
-Picks which app receives the keyboard media keys (play/pause, next, previous, stop) on Windows 10/11, and replaces the Windows volume tray icon with a tray flyout that also controls per-app volume and output devices.
+A tray audio mixer for Windows 10/11. It replaces the Windows volume icon with a flyout for per-app volume, live level meters, output devices and media controls, and it picks which app receives the keyboard media keys (play/pause, next, previous, stop).
 
 ## Layout
 
 | Path | What |
 |---|---|
 | `crates/core` | Hooks, SMTC tracking, key forwarding, audio sessions, devices, tray icon, config |
-| `apps/gpui` | GPUI Kit front end → `mediakeys-gpui.exe` |
-| `apps/tauri` | Tauri 2 front end (vanilla HTML/CSS/JS in `ui/`) → `mediakeys-tauri.exe` |
+| `apps/gpui` | GPUI Kit front end → `audio_bartender_gpui.exe` |
+| `apps/tauri` | Tauri 2 front end (vanilla HTML/CSS/JS in `ui/`) → `audio_bartender_tauri.exe` |
 | `assets/icon.ico` | App icon, drawn by `scripts/make-icon.ps1` |
 
 ## Media keys
@@ -36,9 +36,9 @@ The flyout is the whole UI. Left-click the tray icon to open or close it; it als
 
 ## Settings
 
-Stored in `%APPDATA%\MediaKeysSelector\config.ini` and shared by both front ends:
+Stored in `%APPDATA%\AudioBartender\config.ini` and shared by both front ends:
 
-- Start with Windows (`HKCU\...\Run\MediaKeysSelector` with `--hidden`)
+- Start with Windows (`HKCU\...\Run\AudioBartender` with `--hidden`)
 - Album art as app icon (the track thumbnail the app reports to SMTC)
 - Theme: System, Light, Dark
 - Accent color: Blue (default), Cyan, Teal, Purple, Hot pink or Orange. The core owns the palette, so both front ends and the tooltip cards match
@@ -58,7 +58,7 @@ pwsh scripts/measure.ps1 -NoBuild
 pwsh scripts/side-by-side.ps1     # open both flyouts pinned, next to each other; Enter closes them
 ```
 
-Set `MEDIAKEYS_LOG=1` to log routing, forwarded keys and tray wheel steps to `%TEMP%\mediakeys.log`.
+Set `AUDIO_BARTENDER_LOG=1` to log routing, forwarded keys and tray wheel steps to `%TEMP%\audio_bartender.log`.
 
 ## Gotchas
 

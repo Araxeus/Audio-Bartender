@@ -1,6 +1,6 @@
 //! Runs the core without a GUI for a few seconds and prints a summary of each state.
 
-use mediakeys_core::{Core, Event};
+use audio_bartender_core::{Core, Event};
 
 fn main() {
     let _core = Core::start(|event| match event {

@@ -1,5 +1,5 @@
 [package]
-name = "mediakeys-tauri"
+name = "audio_bartender_tauri"
 version.workspace = true
 edition.workspace = true
 
@@ -7,7 +7,7 @@ edition.workspace = true
 tauri-build = { version = "2", features = [] }
 
 [dependencies]
-mediakeys-core = { workspace = true, features = ["serde"] }
+audio_bartender_core = { workspace = true, features = ["serde"] }
 tauri = { version = "2", features = [] }
 serde = "1"
 

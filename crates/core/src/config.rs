@@ -1,16 +1,23 @@
 use std::path::PathBuf;
 
 use windows::Win32::System::Registry::{
-    HKEY_CURRENT_USER, REG_SZ, RRF_RT_REG_SZ, RegDeleteKeyValueW, RegGetValueW, RegSetKeyValueW,
+    HKEY_CURRENT_USER, REG_BINARY, REG_SZ, RRF_RT_REG_BINARY, RRF_RT_REG_SZ, RegDeleteKeyValueW, RegGetValueW,
+    RegSetKeyValueW,
 };
 use windows::core::{PCWSTR, w};
 
 use crate::{Accent, LevelMeters, MediaButtons, MediaControls, Settings, TooltipStyle, TrayStyle, VolumeBars};
 
 const RUN_KEY: PCWSTR = w!("Software\\Microsoft\\Windows\\CurrentVersion\\Run");
-const RUN_VALUE: PCWSTR = w!("MediaKeysSelector");
+const RUN_VALUE: PCWSTR = w!("AudioBartender");
+/// Where Task Manager keeps its Startup tab switch for each Run entry.
+const APPROVED_KEY: PCWSTR = w!("Software\\Microsoft\\Windows\\CurrentVersion\\Explorer\\StartupApproved\\Run");
 
-/// The remembered target and settings, stored in `%APPDATA%\MediaKeysSelector\config.ini`.
+/// The app's name before it became Audio Bartender, for moving what it kept.
+const OLD_NAME: &str = "MediaKeysSelector";
+const OLD_RUN_VALUE: PCWSTR = w!("MediaKeysSelector");
+
+/// The remembered target and settings, stored in `%APPDATA%\AudioBartender\config.ini`.
 /// Autostart lives in the registry instead, so `settings.autostart` is ignored here.
 #[derive(Default)]
 pub struct Config {
@@ -21,7 +28,7 @@ pub struct Config {
 }
 
 fn path() -> Option<PathBuf> {
-    Some(PathBuf::from(std::env::var_os("APPDATA")?).join("MediaKeysSelector").join("config.ini"))
+    Some(PathBuf::from(std::env::var_os("APPDATA")?).join("AudioBartender").join("config.ini"))
 }
 
 fn flag(value: &str) -> bool {
@@ -30,6 +37,7 @@ fn flag(value: &str) -> bool {
 
 impl Config {
     pub fn load() -> Config {
+        migrate();
         let mut cfg = Config::default();
         let Some(text) = path().and_then(|p| std::fs::read_to_string(p).ok()) else { return cfg };
         let s = &mut cfg.settings;
@@ -98,6 +106,44 @@ impl Config {
             s.accent.name(),
         );
         let _ = std::fs::write(path, text);
+    }
+}
+
+/// Moves the settings folder and the Run entry from the old name. The old Run entry
+/// pointed at an exe that the rename replaced, so the new one points at this exe.
+/// Task Manager's switch for it carries over, so a disabled entry stays disabled.
+fn migrate() {
+    if let Some(appdata) = std::env::var_os("APPDATA").map(PathBuf::from) {
+        let (old, new) = (appdata.join(OLD_NAME), appdata.join("AudioBartender"));
+        if old.exists() && !new.exists() {
+            let _ = std::fs::rename(&old, &new);
+        }
+    }
+    unsafe {
+        let mut buf = [0u16; 1024];
+        let mut size = (buf.len() * 2) as u32;
+        let found =
+            RegGetValueW(HKEY_CURRENT_USER, RUN_KEY, OLD_RUN_VALUE, RRF_RT_REG_SZ, None, Some(buf.as_mut_ptr().cast()), Some(&mut size));
+        if found.is_err() {
+            return;
+        }
+        let _ = RegDeleteKeyValueW(HKEY_CURRENT_USER, RUN_KEY, OLD_RUN_VALUE);
+        set_autostart(true);
+        let mut approved = [0u8; 16];
+        let mut size = approved.len() as u32;
+        let found = RegGetValueW(
+            HKEY_CURRENT_USER,
+            APPROVED_KEY,
+            OLD_RUN_VALUE,
+            RRF_RT_REG_BINARY,
+            None,
+            Some(approved.as_mut_ptr().cast()),
+            Some(&mut size),
+        );
+        if found.is_ok() {
+            let _ = RegSetKeyValueW(HKEY_CURRENT_USER, APPROVED_KEY, RUN_VALUE, REG_BINARY.0, Some(approved.as_ptr().cast()), size);
+            let _ = RegDeleteKeyValueW(HKEY_CURRENT_USER, APPROVED_KEY, OLD_RUN_VALUE);
+        }
     }
 }
 

@@ -15,7 +15,7 @@ $dist = Join-Path $root 'dist'
 New-Item -ItemType Directory -Force $dist | Out-Null
 
 if (-not $NoBuild) {
-    cargo build --release --manifest-path (Join-Path $root 'Cargo.toml') -p mediakeys-gpui -p mediakeys-tauri
+    cargo build --release --manifest-path (Join-Path $root 'Cargo.toml') -p audio_bartender_gpui -p audio_bartender_tauri
     if ($LASTEXITCODE) { exit $LASTEXITCODE }
 }
 
@@ -130,9 +130,9 @@ function Save-Shot($rect, [string]$path) {
 }
 
 $results = foreach ($app in 'gpui', 'tauri') {
-    $exe = Join-Path $root "target/release/mediakeys-$app.exe"
-    try { Copy-Item $exe (Join-Path $dist "mediakeys-$app.exe") -Force }
-    catch { Write-Warning "dist/mediakeys-$app.exe is in use; not replaced" }
+    $exe = Join-Path $root "target/release/audio_bartender_$app.exe"
+    try { Copy-Item $exe (Join-Path $dist "audio_bartender_$app.exe") -Force }
+    catch { Write-Warning "dist/audio_bartender_$app.exe is in use; not replaced" }
 
     # Tray only: what the app costs while you're not looking at it.
     $p = Start-Process $exe -ArgumentList '--hidden' -PassThru

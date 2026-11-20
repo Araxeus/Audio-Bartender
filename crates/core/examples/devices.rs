@@ -2,7 +2,7 @@
 
 use std::time::Duration;
 
-use mediakeys_core::Core;
+use audio_bartender_core::Core;
 
 fn wait_default(core: &Core, id: &str) -> bool {
     for _ in 0..30 {

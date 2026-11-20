@@ -1,5 +1,5 @@
 [package]
-name = "mediakeys-core"
+name = "audio_bartender_core"
 version.workspace = true
 edition.workspace = true
 

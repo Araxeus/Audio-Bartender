@@ -15,7 +15,7 @@ use gpui_kit::component::theme::Theme;
 use gpui_kit::component::{ActiveTheme, Icon, Sizable, StyledExt};
 use gpui_kit::prelude::FluentBuilder;
 use gpui_kit::*;
-use mediakeys_core::{
+use audio_bartender_core::{
     Accent, Anchor, Core, IconPage, LevelMeters, MediaButtons, MediaControls, MediaKey, Page, Playback, Setting, Settings, State, Target, TooltipStyle, TrayStyle,
     VolumeBars,
 };
@@ -274,7 +274,7 @@ impl Flyout {
         // GPUI opens windows only where their center is on screen, so the window starts
         // hidden and appears once the first frame moves it behind the taskbar.
         if let Some(hwnd) = hwnd(window) {
-            mediakeys_core::set_cloaked(hwnd, true);
+            audio_bartender_core::set_cloaked(hwnd, true);
         }
         // Zero makes the first render size and place the window like every later one.
         let height = 0.;
@@ -481,7 +481,7 @@ impl Flyout {
     /// GPUI resizes downward from the top, so the window moves once the new size applies.
     fn fit(&mut self, state: &State, window: &mut Window) {
         if let Some(closing) = self.closing {
-            if mediakeys_core::slide_out_progress(closing) <= 0.0 {
+            if audio_bartender_core::slide_out_progress(closing) <= 0.0 {
                 window.remove_window();
                 return;
             }
@@ -489,7 +489,7 @@ impl Flyout {
             let Some(hwnd) = hwnd(window) else { return };
             let anchor = self.anchor;
             window.on_next_frame(move |_, _| {
-                mediakeys_core::place_window(hwnd, &anchor, mediakeys_core::slide_out_progress(closing));
+                audio_bartender_core::place_window(hwnd, &anchor, audio_bartender_core::slide_out_progress(closing));
             });
             return;
         }
@@ -505,7 +505,7 @@ impl Flyout {
             self.height = height;
             window.resize(size(px(WIDTH), px(height)));
         }
-        let progress = mediakeys_core::slide_progress(self.opened);
+        let progress = audio_bartender_core::slide_progress(self.opened);
         if progress < 1.0 {
             window.request_animation_frame();
         } else {
@@ -514,8 +514,8 @@ impl Flyout {
         let Some(hwnd) = hwnd(window) else { return };
         let (anchor, opened) = (self.anchor, self.opened);
         window.on_next_frame(move |_, _| {
-            mediakeys_core::place_window(hwnd, &anchor, mediakeys_core::slide_progress(opened));
-            mediakeys_core::set_cloaked(hwnd, false);
+            audio_bartender_core::place_window(hwnd, &anchor, audio_bartender_core::slide_progress(opened));
+            audio_bartender_core::set_cloaked(hwnd, false);
         });
     }
 
@@ -539,7 +539,7 @@ impl Flyout {
                     .gap_2()
                     .pl_1()
                     .child(ui::logo(px(18.), self.accent.colors(dark).gradient))
-                    .child(div().text_sm().font_semibold().child("Media Keys Selector")),
+                    .child(div().text_sm().font_semibold().child("Audio Bartender")),
             )
             .child(
                 h_flex()
@@ -961,7 +961,7 @@ impl Flyout {
             Switch::new(id).checked(on).on_click(move |on, _, _| core.set(make(*on))).into_any_element()
         };
         let page_button = |id: &'static str, label: &'static str, page: IconPage| {
-            Button::new(id).small().ghost().label(label).on_click(move |_, _, _| mediakeys_core::open_icon_page(page))
+            Button::new(id).small().ghost().label(label).on_click(move |_, _, _| audio_bartender_core::open_icon_page(page))
         };
         let nav = |choice: Choice| {
             h_flex()

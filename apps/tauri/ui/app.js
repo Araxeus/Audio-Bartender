@@ -144,7 +144,7 @@ function nowPlayingView(state, className) {
 function controls() {
   const dark = isDark();
   return [
-    el("div", "brand", logo("avatar brand-logo"), el("span", "", "Media Keys Selector")),
+    el("div", "brand", logo("avatar brand-logo"), el("span", "", "Audio Bartender")),
     el(
       "div",
       "transport",

@@ -1,6 +1,6 @@
 //! Writes tray icon previews to the given directory, on dark and light backgrounds.
 
-use mediakeys_core::{TrayStyle, preview_tray_icon};
+use audio_bartender_core::{TrayStyle, preview_tray_icon};
 
 fn main() {
     let dir = std::path::PathBuf::from(std::env::args().nth(1).expect("output directory"));

@@ -33,7 +33,7 @@ use crate::{Accent, Anchor, Cmd, Event, MediaButtons, MediaKey, Page, Playback, 
 use windows::Win32::UI::Shell::ShellExecuteW;
 use windows::Win32::UI::WindowsAndMessaging::SW_SHOWNORMAL;
 
-const CLASS: PCWSTR = w!("MediaKeysSelector.Tray");
+const CLASS: PCWSTR = w!("AudioBartender.Tray");
 const WM_TRAY: u32 = WM_APP + 1;
 const WM_SHOW: u32 = WM_APP + 2;
 const WM_REDRAW: u32 = WM_APP + 3;
@@ -196,7 +196,7 @@ pub fn claim_single_instance() -> bool {
         return true;
     }
     unsafe {
-        let mutex = CreateMutexW(None, true, w!("Local\\MediaKeysSelector.Instance"));
+        let mutex = CreateMutexW(None, true, w!("Local\\AudioBartender.Instance"));
         if mutex.is_ok() && GetLastError() != ERROR_ALREADY_EXISTS {
             return true;
         }
@@ -212,8 +212,8 @@ pub fn claim_single_instance() -> bool {
 
 pub fn spawn(shared: Arc<Shared>) {
     let _ = SHARED.set(shared);
-    std::thread::Builder::new().name("mediakeys-hook".into()).spawn(run_hook).expect("spawn hook thread");
-    std::thread::Builder::new().name("mediakeys-tray".into()).spawn(run_tray).expect("spawn tray thread");
+    std::thread::Builder::new().name("bartender-hook".into()).spawn(run_hook).expect("spawn hook thread");
+    std::thread::Builder::new().name("bartender-tray".into()).spawn(run_tray).expect("spawn tray thread");
 }
 
 fn shared() -> &'static Shared {
@@ -305,7 +305,7 @@ fn run_tray() {
         let Ok(hwnd) = CreateWindowExW(
             WINDOW_EX_STYLE::default(),
             CLASS,
-            w!("Media Keys Selector"),
+            w!("Audio Bartender"),
             WS_OVERLAPPED,
             0,
             0,
@@ -658,7 +658,7 @@ unsafe fn show_menu(hwnd: HWND) {
         let mut wheel = Vec::new();
 
         theme_menus(state.settings.dark);
-        add(MF_STRING, ID_OPEN, "Open Media Keys Selector");
+        add(MF_STRING, ID_OPEN, "Open Audio Bartender");
         add(MF_SEPARATOR, 0, "");
         let audio = &state.audio;
         add(MF_STRING, ID_MASTER, &volume_label("Volume", audio.volume, audio.muted));

@@ -7,7 +7,7 @@ version = "0.1.0"
 edition = "2024"
 
 [workspace.dependencies]
-mediakeys-core = { path = "crates/core" }
+audio_bartender_core = { path = "crates/core" }
 
 [profile.release]
 opt-level = "s"

@@ -1,7 +1,7 @@
 //! Prints the master volume, or sets it: `master [level 0..1]`.
 
 fn main() {
-    let core = mediakeys_core::Core::start(|_| {}).expect("another instance runs");
+    let core = audio_bartender_core::Core::start(|_| {}).expect("another instance runs");
     if let Some(level) = std::env::args().nth(1).and_then(|a| a.parse::<f32>().ok()) {
         core.set_master(level);
     }

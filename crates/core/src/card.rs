@@ -195,7 +195,7 @@ thread_local! {
 pub fn create() {
     unsafe {
         let Ok(instance) = GetModuleHandleW(None) else { return };
-        let class = w!("MediaKeysSelector.Card");
+        let class = w!("AudioBartender.Card");
         // Without a class cursor the pointer keeps whatever shape it last had.
         let wc = WNDCLASSW {
             lpfnWndProc: Some(wndproc),
@@ -1235,7 +1235,7 @@ mod tests {
     }
 
     /// Renders every card style with every button style into one PNG, for eyeballing:
-    /// `CARD_PREVIEW=out.png cargo test -p mediakeys-core card_preview -- --ignored`
+    /// `CARD_PREVIEW=out.png cargo test -p audio_bartender_core card_preview -- --ignored`
     #[test]
     #[ignore]
     fn card_preview() {

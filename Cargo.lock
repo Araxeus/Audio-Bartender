@@ -508,6 +508,37 @@ dependencies = [
 ]
 
 [[package]]
+name = "audio_bartender_core"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "windows 0.62.2",
+ "windows-core 0.62.2",
+ "windows-numerics 0.3.1",
+]
+
+[[package]]
+name = "audio_bartender_gpui"
+version = "0.1.0"
+dependencies = [
+ "audio_bartender_core",
+ "embed-resource",
+ "futures",
+ "gpui-kit",
+ "raw-window-handle",
+]
+
+[[package]]
+name = "audio_bartender_tauri"
+version = "0.1.0"
+dependencies = [
+ "audio_bartender_core",
+ "serde",
+ "tauri",
+ "tauri-build",
+]
+
+[[package]]
 name = "autocfg"
 version = "1.5.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4568,37 +4599,6 @@ checksum = "d89e7ee0cfbedfc4da3340218492196241d89eefb6dab27de5df917a6d2e78cf"
 dependencies = [
  "cfg-if",
  "digest 0.10.7",
-]
-
-[[package]]
-name = "mediakeys-core"
-version = "0.1.0"
-dependencies = [
- "serde",
- "windows 0.62.2",
- "windows-core 0.62.2",
- "windows-numerics 0.3.1",
-]
-
-[[package]]
-name = "mediakeys-gpui"
-version = "0.1.0"
-dependencies = [
- "embed-resource",
- "futures",
- "gpui-kit",
- "mediakeys-core",
- "raw-window-handle",
-]
-
-[[package]]
-name = "mediakeys-tauri"
-version = "0.1.0"
-dependencies = [
- "mediakeys-core",
- "serde",
- "tauri",
- "tauri-build",
 ]
 
 [[package]]

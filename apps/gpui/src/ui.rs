@@ -12,7 +12,7 @@ use gpui_kit::component::theme::Theme;
 use gpui_kit::component::{Icon, Sizable, StyledExt};
 use gpui_kit::prelude::FluentBuilder;
 use gpui_kit::*;
-use mediakeys_core::{AppIcon, Core, ImageKind};
+use audio_bartender_core::{AppIcon, Core, ImageKind};
 
 /// Volume change per wheel notch.
 pub const WHEEL_STEP: f32 = 0.02;

@@ -10,15 +10,15 @@ use windows::Win32::UI::WindowsAndMessaging::{
 };
 use windows::core::{BOOL, PWSTR};
 
-/// Appends a line to `%TEMP%\mediakeys.log` when `MEDIAKEYS_LOG` is set.
+/// Appends a line to `%TEMP%\audio_bartender.log` when `AUDIO_BARTENDER_LOG` is set.
 pub fn log(line: impl AsRef<str>) {
     use std::io::Write;
     use std::sync::OnceLock;
     static ENABLED: OnceLock<bool> = OnceLock::new();
-    if !*ENABLED.get_or_init(|| std::env::var_os("MEDIAKEYS_LOG").is_some()) {
+    if !*ENABLED.get_or_init(|| std::env::var_os("AUDIO_BARTENDER_LOG").is_some()) {
         return;
     }
-    let path = std::env::temp_dir().join("mediakeys.log");
+    let path = std::env::temp_dir().join("audio_bartender.log");
     if let Ok(mut file) = std::fs::OpenOptions::new().create(true).append(true).open(path) {
         let ms = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_millis() % 100_000).unwrap_or(0);
         let _ = writeln!(file, "{ms:>5} pid {} {}", std::process::id(), line.as_ref());

@@ -34,7 +34,7 @@ pub fn level(id: &str) -> f32 {
 fn want() {
     WANTED_MS.store(now_ms(), Relaxed);
     let thread = THREAD.get_or_init(|| {
-        std::thread::Builder::new().name("mediakeys-meters".into()).spawn(run).expect("spawn meter thread").thread().clone()
+        std::thread::Builder::new().name("bartender-meters".into()).spawn(run).expect("spawn meter thread").thread().clone()
     });
     thread.unpark();
 }
@@ -81,7 +81,7 @@ fn run() {
 #[cfg(test)]
 mod tests {
     /// Prints live levels for two seconds:
-    /// `cargo test -p mediakeys-core meters_probe -- --ignored --nocapture`
+    /// `cargo test -p audio_bartender_core meters_probe -- --ignored --nocapture`
     #[test]
     #[ignore]
     fn meters_probe() {

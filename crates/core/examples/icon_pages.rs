@@ -2,8 +2,8 @@
 
 fn main() {
     let page = match std::env::args().nth(1).as_deref() {
-        Some("hide") => mediakeys_core::IconPage::HideWindows,
-        _ => mediakeys_core::IconPage::ShowOurs,
+        Some("hide") => audio_bartender_core::IconPage::HideWindows,
+        _ => audio_bartender_core::IconPage::ShowOurs,
     };
-    mediakeys_core::open_icon_page(page);
+    audio_bartender_core::open_icon_page(page);
 }

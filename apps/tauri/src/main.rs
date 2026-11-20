@@ -4,7 +4,7 @@ use std::sync::Mutex;
 use std::sync::mpsc;
 use std::time::{Duration, Instant};
 
-use mediakeys_core::{Accent, Anchor, Core, Event, IconPage, MediaKey, Page, Setting, State};
+use audio_bartender_core::{Accent, Anchor, Core, Event, IconPage, MediaKey, Page, Setting, State};
 use tauri::{
     AppHandle, Emitter, LogicalSize, Manager, PhysicalPosition, RunEvent, Theme, WebviewUrl, WebviewWindow,
     WebviewWindowBuilder, WindowEvent,
@@ -107,7 +107,7 @@ fn set_device(core: tauri::State<Core>, id: String) {
 
 #[tauri::command]
 fn open_icon_page(page: IconPage) {
-    mediakeys_core::open_icon_page(page);
+    audio_bartender_core::open_icon_page(page);
 }
 
 #[tauri::command]
@@ -136,7 +136,7 @@ fn ready(window: WebviewWindow) {
 
 /// Shows the flyout, sliding it out from behind the taskbar.
 fn reveal(app: &AppHandle, window: &WebviewWindow) {
-    mediakeys_core::log("flyout reveal");
+    audio_bartender_core::log("flyout reveal");
     {
         let flyout = app.state::<Mutex<Flyout>>();
         let mut flyout = flyout.lock().unwrap();
@@ -152,7 +152,7 @@ fn reveal(app: &AppHandle, window: &WebviewWindow) {
             std::thread::sleep(Duration::from_millis(8));
             let shown_at = app.state::<Mutex<Flyout>>().lock().unwrap().shown_at;
             place_flyout(&app);
-            if shown_at.is_none_or(|at| mediakeys_core::slide_progress(at) >= 1.0) {
+            if shown_at.is_none_or(|at| audio_bartender_core::slide_progress(at) >= 1.0) {
                 break;
             }
         }
@@ -177,8 +177,8 @@ fn place_flyout(app: &AppHandle) {
         let flyout = app.state::<Mutex<Flyout>>();
         let flyout = flyout.lock().unwrap();
         let progress = match (flyout.closing_at, flyout.shown_at) {
-            (Some(at), _) => mediakeys_core::slide_out_progress(at),
-            (None, Some(at)) => mediakeys_core::slide_progress(at),
+            (Some(at), _) => audio_bartender_core::slide_out_progress(at),
+            (None, Some(at)) => audio_bartender_core::slide_progress(at),
             (None, None) => 1.0,
         };
         (flyout.anchor, flyout.height.unwrap_or(480.0), progress)
@@ -188,7 +188,7 @@ fn place_flyout(app: &AppHandle) {
     let _ = window.set_size(LogicalSize::new(FLYOUT_WIDTH, height));
     let (width, height) = ((FLYOUT_WIDTH * scale) as i32, (height * scale) as i32);
     match window.hwnd() {
-        Ok(hwnd) => mediakeys_core::place_window_sized(hwnd.0 as isize, &anchor, width, height, progress),
+        Ok(hwnd) => audio_bartender_core::place_window_sized(hwnd.0 as isize, &anchor, width, height, progress),
         Err(_) => {
             let (x, y) = anchor.place(width, height);
             let _ = window.set_position(PhysicalPosition::new(x, y));
@@ -198,7 +198,7 @@ fn place_flyout(app: &AppHandle) {
 
 /// Slides the flyout back behind the taskbar, then hides it.
 fn hide_flyout(app: &AppHandle) {
-    mediakeys_core::log("flyout hide");
+    audio_bartender_core::log("flyout hide");
     let start = Instant::now();
     {
         let flyout = app.state::<Mutex<Flyout>>();
@@ -217,7 +217,7 @@ fn hide_flyout(app: &AppHandle) {
                 return;
             }
             place_flyout(&sliding);
-            if mediakeys_core::slide_out_progress(start) <= 0.0 {
+            if audio_bartender_core::slide_out_progress(start) <= 0.0 {
                 break;
             }
             std::thread::sleep(Duration::from_millis(8));
@@ -290,7 +290,7 @@ fn show_flyout(app: &AppHandle, anchor: Anchor, page: Page, toggle: bool) {
     let url = format!("index.html?pinned={pinned}#{}", page_name(page));
     let built = WebviewWindowBuilder::new(app, FLYOUT, WebviewUrl::App(url.into()))
         .theme(theme(dark))
-        .title("Media Keys Selector")
+        .title("Audio Bartender")
         .decorations(false)
         .skip_taskbar(true)
         .always_on_top(true)
@@ -311,8 +311,8 @@ fn main() {
     }) else {
         return;
     };
-    let hidden = mediakeys_core::start_hidden();
-    let pinned = mediakeys_core::start_pinned();
+    let hidden = audio_bartender_core::start_hidden();
+    let pinned = audio_bartender_core::start_pinned();
 
     let app = tauri::Builder::default()
         // tao's raw keyboard input registration stops low-level hooks in this process.
@@ -342,7 +342,7 @@ fn main() {
         ])
         .on_window_event(|window, event| {
             if let WindowEvent::Focused(focused) = event {
-                mediakeys_core::log(format!("flyout focused {focused}"));
+                audio_bartender_core::log(format!("flyout focused {focused}"));
             }
             // Clicking anywhere else closes the flyout, like the Windows one. A new
             // webview gains and loses focus while still hidden, which must not count.
@@ -358,7 +358,7 @@ fn main() {
             std::thread::spawn(move || {
                 if !hidden {
                     let anchor = handle.state::<Core>().default_anchor();
-                    show_flyout(&handle, anchor, mediakeys_core::start_page(), false);
+                    show_flyout(&handle, anchor, audio_bartender_core::start_page(), false);
                 }
                 for event in rx {
                     match event {

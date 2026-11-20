@@ -1,7 +1,7 @@
 use gpui_kit::component::ActiveTheme;
 use gpui_kit::component::theme::{Theme, ThemeMode};
 use gpui_kit::*;
-use mediakeys_core::{Accent, AccentColors};
+use audio_bartender_core::{Accent, AccentColors};
 
 pub fn hex(color: u32) -> Hsla {
     rgb(color).into()

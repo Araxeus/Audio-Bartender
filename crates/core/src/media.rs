@@ -51,7 +51,7 @@ const MAX_ART_BYTES: u64 = 512 * 1024;
 
 pub fn spawn(shared: Arc<Shared>, rx: Receiver<Cmd>) {
     std::thread::Builder::new()
-        .name("mediakeys-media".into())
+        .name("bartender-media".into())
         .spawn(move || {
             crate::util::com_init();
             Worker::new(shared).run(rx);

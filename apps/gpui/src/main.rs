@@ -9,7 +9,7 @@ use std::time::{Duration, Instant};
 
 use futures::StreamExt;
 use gpui_kit::*;
-use mediakeys_core::{Anchor, Core, Event, Page, State};
+use audio_bartender_core::{Anchor, Core, Event, Page, State};
 
 use crate::flyout::Flyout;
 
@@ -79,7 +79,7 @@ fn show_flyout(cx: &mut App, anchor: Anchor, page: Page, toggle: bool, pinned: b
     let height = flyout::height(state.read(cx), page);
     let scale = anchor.scale;
     // Starts behind the taskbar, unless Windows animations are off.
-    let start = mediakeys_core::slide_progress(std::time::Instant::now());
+    let start = audio_bartender_core::slide_progress(std::time::Instant::now());
     let (x, y) = anchor.place_sliding((flyout::WIDTH * scale) as i32, (height * scale) as i32, start);
     let options = WindowOptions {
         window_bounds: Some(WindowBounds::Windowed(Bounds {
@@ -93,7 +93,7 @@ fn show_flyout(cx: &mut App, anchor: Anchor, page: Page, toggle: bool, pinned: b
         is_movable: false,
         is_resizable: false,
         is_minimizable: false,
-        app_id: Some("MediaKeysSelector".into()),
+        app_id: Some("AudioBartender".into()),
         ..Default::default()
     };
     let opened = gpui_kit::open_window(options, cx, |window, cx| {
@@ -118,8 +118,8 @@ fn main() {
     }) else {
         return;
     };
-    let hidden = mediakeys_core::start_hidden();
-    let pinned = mediakeys_core::start_pinned();
+    let hidden = audio_bartender_core::start_hidden();
+    let pinned = audio_bartender_core::start_pinned();
 
     gpui_kit::application().with_assets(AppAssets).run(move |cx| {
         gpui_kit::init(cx);
@@ -128,7 +128,7 @@ fn main() {
         let anchor = core.default_anchor();
         cx.set_global(Globals { core, state, flyout: None, flyout_closed: None });
         if !hidden {
-            show_flyout(cx, anchor, mediakeys_core::start_page(), false, pinned);
+            show_flyout(cx, anchor, audio_bartender_core::start_page(), false, pinned);
         }
 
         cx.spawn(async move |cx| {
