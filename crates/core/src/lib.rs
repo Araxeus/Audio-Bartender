@@ -289,13 +289,13 @@ pub enum TooltipStyle {
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize), serde(rename_all = "camelCase"))]
 pub enum MediaControls {
     /// A now playing card at the top.
-    #[default]
     Banner,
     /// Under the selected app's row.
     Row,
     /// A now playing line above the device volume.
     Dock,
     /// On each app's row while hovered, controlling that app.
+    #[default]
     Hover,
 }
 
@@ -333,11 +333,11 @@ impl MediaControls {
 pub enum MediaButtons {
     None,
     /// Shown on the art or the app line while the pointer is on the card.
+    #[default]
     Hover,
     /// Small buttons at the end of the status line.
     Inline,
     /// A capsule on the line between the track and the volume.
-    #[default]
     Capsule,
     /// A row under the track, or a dock beside the compact card.
     Player,
@@ -388,8 +388,8 @@ impl Default for Settings {
             tray_style: TrayStyle::Ring,
             volume_bars: VolumeBars::Compact,
             tooltip: TooltipStyle::NowPlaying,
-            media_buttons: MediaButtons::Capsule,
-            media_controls: MediaControls::Banner,
+            media_buttons: MediaButtons::Hover,
+            media_controls: MediaControls::Hover,
             accent: Accent::Blue,
         }
     }
