@@ -21,10 +21,12 @@ mod meters;
 mod names;
 mod tooltip;
 mod tray_icon;
+mod update;
 mod util;
 mod volume;
 
 /// Appends a line to `%TEMP%\audio_bartender.log` when `AUDIO_BARTENDER_LOG` is set.
+pub use update::{Flavor, UpdateState, UpdateStatus, set_flavor};
 pub use util::log;
 
 use std::sync::mpsc::{self, Sender};
@@ -419,6 +421,9 @@ impl MediaButtons {
 #[cfg_attr(feature = "serde", derive(Serialize), serde(rename_all = "camelCase"))]
 pub struct Settings {
     pub autostart: bool,
+    /// Install new releases from GitHub, checked once a day. On by default for installed
+    /// copies and off for portable ones.
+    pub auto_update: bool,
     /// Forced dark (`true`) or light (`false`) theme. `None` follows Windows.
     pub dark: Option<bool>,
     /// Show the current track's album art in place of the app icon.
@@ -436,6 +441,7 @@ impl Default for Settings {
     fn default() -> Settings {
         Settings {
             autostart: false,
+            auto_update: false,
             dark: None,
             album_art: false,
             tray_style: TrayStyle::Ring,
@@ -454,6 +460,7 @@ impl Default for Settings {
 #[cfg_attr(feature = "serde", derive(Deserialize), serde(rename_all = "camelCase"))]
 pub enum Setting {
     Autostart(bool),
+    AutoUpdate(bool),
     Dark(Option<bool>),
     AlbumArt(bool),
     TrayStyle(TrayStyle),
@@ -490,6 +497,7 @@ pub struct State {
     /// Chosen target id. `None` leaves media keys to Windows.
     pub selected: Option<String>,
     pub settings: Settings,
+    pub update: UpdateStatus,
 }
 
 impl State {
@@ -626,6 +634,10 @@ pub(crate) enum Cmd {
     Press(MediaKey),
     /// A key for one target, whether or not media keys go to it.
     PressFor(String, MediaKey),
+    /// Check for a newer release now, whatever the automatic setting says.
+    CheckUpdate,
+    /// A check finished at this time (ms since the epoch).
+    UpdateChecked(u64),
     Set(Setting),
 }
 
@@ -666,6 +678,7 @@ impl Core {
     /// `on_event` runs on core threads and must hand work off quickly.
     pub fn start(on_event: impl Fn(Event) + Send + Sync + 'static) -> Option<Core> {
         autostart::handle_helper_args();
+        update::clean_up();
         // A running copy shows its flyout instead, so check that before handing off.
         if !input::claim_single_instance() || autostart::hand_off() {
             return None;
@@ -689,6 +702,11 @@ impl Core {
     /// Sends a key to the routed target, or to Windows' current session in automatic mode.
     pub fn press(&self, key: MediaKey) {
         self.shared.send(Cmd::Press(key));
+    }
+
+    /// Checks GitHub for a newer release and installs it if there is one.
+    pub fn check_update(&self) {
+        self.shared.send(Cmd::CheckUpdate);
     }
 
     /// Sends a key to the target with `id`, leaving where media keys go unchanged.

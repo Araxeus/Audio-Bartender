@@ -6,7 +6,9 @@
 use std::sync::atomic::{AtomicBool, AtomicI32, AtomicIsize, AtomicU32, AtomicU64, Ordering::Relaxed};
 use std::sync::{Arc, Mutex, OnceLock};
 
-use windows::Win32::Foundation::{ERROR_ALREADY_EXISTS, GetLastError, HWND, LPARAM, LRESULT, POINT, RECT, WPARAM};
+use windows::Win32::Foundation::{
+    CloseHandle, ERROR_ALREADY_EXISTS, GetLastError, HWND, LPARAM, LRESULT, POINT, RECT, WPARAM,
+};
 use windows::Win32::Graphics::Gdi::InvalidateRect;
 use windows::Win32::Graphics::Gdi::{
     GetMonitorInfoW, MONITOR_DEFAULTTONEAREST, MONITOR_DEFAULTTOPRIMARY, MONITORINFO, MonitorFromPoint, MonitorFromRect,
@@ -210,10 +212,20 @@ pub fn claim_single_instance() -> bool {
     if crate::autostart::dev() {
         return true;
     }
+    // After a portable update the old copy is still on its way out, so wait for it.
+    let tries = if std::env::args().any(|a| a == crate::update::UPDATED_ARG) { 50 } else { 1 };
     unsafe {
-        let mutex = CreateMutexW(None, true, w!("Local\\AudioBartender.Instance"));
-        if mutex.is_ok() && GetLastError() != ERROR_ALREADY_EXISTS {
-            return true;
+        for attempt in 0..tries {
+            let mutex = CreateMutexW(None, true, w!("Local\\AudioBartender.Instance"));
+            if mutex.is_ok() && GetLastError() != ERROR_ALREADY_EXISTS {
+                return true;
+            }
+            if let Ok(mutex) = mutex {
+                let _ = CloseHandle(mutex);
+            }
+            if attempt + 1 < tries {
+                std::thread::sleep(std::time::Duration::from_millis(200));
+            }
         }
         if let Ok(hwnd) = FindWindowW(CLASS, None) {
             let mut pid = 0;

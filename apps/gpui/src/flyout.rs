@@ -17,7 +17,7 @@ use gpui_kit::component::scroll::ScrollableElement;
 use gpui_kit::component::switch::Switch;
 use gpui_kit::component::theme::Theme;
 use gpui_kit::component::tooltip::Tooltip;
-use gpui_kit::component::{ActiveTheme, Icon, Sizable, StyledExt};
+use gpui_kit::component::{ActiveTheme, Disableable, Icon, Sizable, StyledExt};
 use gpui_kit::prelude::FluentBuilder;
 use gpui_kit::*;
 use raw_window_handle::{HasWindowHandle, RawWindowHandle};
@@ -36,7 +36,7 @@ const TARGET_ROW: f32 = 58.;
 const MIXER_ROW: f32 = 35.;
 const SLIDER: f32 = 32.;
 const SETTING_ROW: f32 = 40.;
-const SETTINGS: usize = 11;
+const SETTINGS: usize = 13;
 /// How often live levels are read while the flyout is open.
 const METER_FRAME: Duration = Duration::from_millis(33);
 /// Time constant, in seconds, for shown levels to catch up with readings.
@@ -1047,6 +1047,33 @@ impl Flyout {
             Self::label("GENERAL", theme).into_any_element(),
             row("Start with Windows", switch("autostart", s.autostart, Setting::Autostart)),
             row("Album art as app icon", switch("album-art", s.album_art, Setting::AlbumArt)),
+            row("Automatic updates", switch("auto-update", s.auto_update, Setting::AutoUpdate)),
+            {
+                let core = self.core.clone();
+                h_flex()
+                    .mx_2()
+                    .px_2()
+                    .h(px(SETTING_ROW))
+                    .gap_3()
+                    .child(
+                        div()
+                            .flex_1()
+                            .min_w_0()
+                            .truncate()
+                            .text_xs()
+                            .text_color(theme.muted_foreground)
+                            .child(state.update.summary.clone()),
+                    )
+                    .child(
+                        Button::new("check-update")
+                            .small()
+                            .ghost()
+                            .label("Check now")
+                            .disabled(state.update.busy())
+                            .on_click(move |_, _, _| core.check_update()),
+                    )
+                    .into_any_element()
+            },
             row(
                 "Tray icons",
                 h_flex()

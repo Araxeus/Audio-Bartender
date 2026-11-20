@@ -22,6 +22,8 @@ pub struct Config {
     pub target: Option<String>,
     /// Display name of `target`, shown while its app is closed.
     pub target_name: Option<String>,
+    /// When the last update check finished, in ms since the epoch.
+    pub last_update_check: u64,
     pub settings: Settings,
 }
 
@@ -37,6 +39,7 @@ impl Config {
     pub fn load() -> Config {
         migrate();
         let mut cfg = Config::default();
+        cfg.settings.auto_update = crate::autostart::installed();
         let Some(text) = path().and_then(|p| std::fs::read_to_string(p).ok()) else { return cfg };
         let s = &mut cfg.settings;
         for line in text.lines() {
@@ -50,6 +53,8 @@ impl Config {
                 "level_meters" => s.level_meters = LevelMeters::from_name(value).unwrap_or_default(),
                 "media_controls" => s.media_controls = MediaControls::from_name(value).unwrap_or_default(),
                 "media_buttons" => s.media_buttons = MediaButtons::from_name(value).unwrap_or_default(),
+                "auto_update" => s.auto_update = flag(value),
+                "last_update_check" => cfg.last_update_check = value.parse().unwrap_or(0),
                 "accent" => s.accent = Accent::from_name(value).unwrap_or_default(),
                 "tooltip" => {
                     s.tooltip = match value {
@@ -82,7 +87,7 @@ impl Config {
             None => "",
         };
         let text = format!(
-            "target={}\ntarget_name={}\ntheme={theme}\nalbum_art={}\ntray_style={}\nvolume_bars={}\ntooltip={}\nmedia_buttons={}\nmedia_controls={}\nlevel_meters={}\naccent={}\n",
+            "target={}\ntarget_name={}\ntheme={theme}\nalbum_art={}\ntray_style={}\nvolume_bars={}\ntooltip={}\nmedia_buttons={}\nmedia_controls={}\nlevel_meters={}\nauto_update={}\nlast_update_check={}\naccent={}\n",
             self.target.as_deref().unwrap_or(""),
             self.target_name.as_deref().unwrap_or(""),
             s.album_art,
@@ -101,6 +106,8 @@ impl Config {
             s.media_buttons.name(),
             s.media_controls.name(),
             s.level_meters.name(),
+            s.auto_update,
+            self.last_update_check,
             s.accent.name(),
         );
         let _ = std::fs::write(path, text);

@@ -399,6 +399,14 @@ function choicePage(s) {
   ];
 }
 
+/** The update status line with a button to check now. */
+function updateRow(update) {
+  const busy = ["checking", "installing"].includes(update.state.state);
+  const check = button("small-button", null, "Check now", () => invoke("check_update"));
+  check.disabled = busy;
+  return el("div", "fly-setting update", el("span", "summary", update.summary), check);
+}
+
 function settings(state) {
   const s = state.settings;
   if (choice) return choicePage(s);
@@ -407,6 +415,8 @@ function settings(state) {
     el("div", "section-label", "General"),
     row("Start with Windows", toggle(s.autostart, (on) => setting("autostart", on))),
     row("Album art as app icon", toggle(s.albumArt, (on) => setting("albumArt", on))),
+    row("Automatic updates", toggle(s.autoUpdate, (on) => setting("autoUpdate", on))),
+    updateRow(state.update),
     row(
       "Tray icons",
       el(

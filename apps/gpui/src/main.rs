@@ -132,6 +132,7 @@ pub fn flyout_closed(cx: &mut App) {
 }
 
 fn main() {
+    audio_bartender_core::set_flavor(audio_bartender_core::Flavor::Native);
     let (tx, mut rx) = futures::channel::mpsc::unbounded();
     let Some(core) = Core::start(move |event| {
         let _ = tx.unbounded_send(event);

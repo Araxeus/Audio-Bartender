@@ -59,6 +59,11 @@ fn press_for(core: tauri::State<Core>, id: String, key: MediaKey) {
     core.press_for(&id, key);
 }
 
+#[tauri::command]
+fn check_update(core: tauri::State<Core>) {
+    core.check_update();
+}
+
 /// Live levels of the given app rows, 0 to 1.
 #[tauri::command]
 fn levels(core: tauri::State<Core>, ids: Vec<String>) -> Vec<f32> {
@@ -305,6 +310,7 @@ fn show_flyout(app: &AppHandle, anchor: Anchor, page: Page, toggle: bool) {
 }
 
 fn main() {
+    audio_bartender_core::set_flavor(audio_bartender_core::Flavor::Web);
     let (tx, rx) = mpsc::channel();
     let Some(core) = Core::start(move |event| {
         let _ = tx.send(event);
@@ -326,6 +332,7 @@ fn main() {
             press,
             press_for,
             levels,
+            check_update,
             set_setting,
             adjust_volume,
             set_volume,

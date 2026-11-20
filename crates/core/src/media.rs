@@ -121,6 +121,7 @@ impl Worker {
         self.devices = self.watcher.as_ref().map(|w| audio::devices(w.enumerator())).unwrap_or_default();
         self.refresh(true);
         loop {
+            crate::update::tick(self.config.settings.auto_update, self.config.last_update_check, &self.tx);
             // Busy event streams must not starve the periodic refresh.
             let wait = POLL.saturating_sub(self.last_refresh.elapsed());
             let first = match rx.recv_timeout(wait) {
@@ -182,6 +183,11 @@ impl Worker {
                 self.config.save();
                 self.refresh(false);
             }
+            Cmd::CheckUpdate => crate::update::check(self.tx.clone()),
+            Cmd::UpdateChecked(at) => {
+                self.config.last_update_check = at;
+                self.config.save();
+            }
             Cmd::Press(key) => {
                 let state = self.shared.state();
                 self.press(state.routed(), key);
@@ -196,6 +202,7 @@ impl Worker {
                 let s = &mut self.config.settings;
                 match setting {
                     Setting::Autostart(on) => crate::autostart::set(on),
+                    Setting::AutoUpdate(on) => s.auto_update = on,
                     Setting::Dark(dark) => s.dark = dark,
                     Setting::AlbumArt(on) => s.album_art = on,
                     Setting::TrayStyle(style) => s.tray_style = style,
@@ -353,6 +360,7 @@ impl Worker {
             audio: Audio { devices: self.devices.clone(), volume, muted },
             selected: self.config.target.clone(),
             settings,
+            update: crate::update::status(),
         };
         {
             let mut current = self.shared.state.lock().unwrap();

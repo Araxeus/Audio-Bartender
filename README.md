@@ -60,6 +60,7 @@ Stored in `%APPDATA%\AudioBartender\config.ini` and shared by both front ends. T
 
 - Start with Windows (see above)
 - Album art as app icon (the track thumbnail the app reports to SMTC)
+- Automatic updates: on for installed copies, off for portable ones. Once a day, the app asks GitHub for the latest release, checks the download against its published SHA-256 digest, and installs it. An installed copy runs the new setup silently, which asks for UAC on an all-users install unless the app already runs elevated. A portable copy swaps in the new exe and restarts. "Check now" works with the setting off.
 - Tray icons: opens the Windows pages for showing ours and hiding Windows' volume icon
 - Theme: System, Light, Dark
 - Accent color: Blue, Cyan (default), Teal, Purple, Hot pink or Orange. The core owns the palette, so both front ends and the tooltip cards match
