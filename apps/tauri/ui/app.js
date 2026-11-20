@@ -9,6 +9,12 @@ let devicesOpen = false;
 let first = true;
 let lastHeight = 0;
 let latest = null;
+/** Every accent with its colors, from the core. */
+let accents = [];
+invoke("accents").then((list) => {
+  accents = list;
+  rerender();
+});
 const volumes = new Volumes(() => {});
 
 function rerender() {
@@ -187,6 +193,22 @@ function toggle(on, onChange) {
   return label;
 }
 
+/** One color dot per accent; the chosen one gets a ring. */
+function swatches(current) {
+  const dark = isDark();
+  return el(
+    "div",
+    "swatches",
+    ...accents.map((accent) => {
+      const dot = button("swatch" + (current.name === accent.name ? " selected" : ""), accent.label, el("span"), () =>
+        setting("accent", accent.name),
+      );
+      dot.style.setProperty("--swatch", "#" + accent[dark ? "dark" : "light"].accent.toString(16).padStart(6, "0"));
+      return dot;
+    }),
+  );
+}
+
 function choices(options) {
   return el("div", "segmented", ...options.map(([label, selected, action]) => button(selected ? "selected" : "", null, label, action)));
 }
@@ -213,6 +235,7 @@ function settings(state) {
         ["Number", s.trayStyle === "number", () => setting("trayStyle", "number")],
       ]),
     ),
+    row("Accent color", swatches(s.accent)),
     row(
       "Tooltip",
       choices([

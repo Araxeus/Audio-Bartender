@@ -53,6 +53,8 @@ use crate::{Anchor, AppIcon, Playback, TooltipStyle};
 pub struct Content {
     pub style: TooltipStyle,
     pub dark: bool,
+    /// The accent color, `0xRRGGBB`.
+    pub accent: u32,
     pub device: Option<String>,
     pub level: f32,
     pub muted: bool,
@@ -87,7 +89,6 @@ struct Palette {
     border: u32,
     text: u32,
     muted: u32,
-    accent: u32,
     track: u32,
     playing: u32,
     danger: u32,
@@ -98,7 +99,6 @@ const DARK: Palette = Palette {
     border: 0x2f2f3d,
     text: 0xececf3,
     muted: 0x8e8ea3,
-    accent: 0x9d8cff,
     track: 0x33333f,
     playing: 0x4ade80,
     danger: 0xf87171,
@@ -109,7 +109,6 @@ const LIGHT: Palette = Palette {
     border: 0xe4e4ea,
     text: 0x1b1b22,
     muted: 0x6b6b78,
-    accent: 0x6d5ef5,
     track: 0xdcdce4,
     playing: 0x16a34a,
     danger: 0xdc2626,
@@ -535,11 +534,11 @@ impl Painter {
             TooltipStyle::Compact => {
                 self.volume(content, p, x, y, right);
                 let line = y + 36.;
-                self.avatar(&content.media, p, x, line, 18.);
+                self.avatar(&content.media, content.accent, x, line, 18.);
                 self.status(&content.media, p, x + 26., line, right, true, false, t);
             }
             _ => {
-                self.avatar(&content.media, p, x, y, ART);
+                self.avatar(&content.media, content.accent, x, y, ART);
                 self.now_playing(&content.media, p, x + ART + 12., y, right, t);
                 let divider = y + ART + 12.;
                 self.fill(rounded(rect(card.left, divider, card.right, divider + 1.), 0.), p.border, 1.);
@@ -560,7 +559,7 @@ impl Painter {
         let bar = y + 26.;
         self.fill(rounded(rect(x, bar, right, bar + 4.), 2.), p.track, 1.);
         let fill = x + (right - x) * content.level.clamp(0., 1.);
-        let fill_color = if content.muted { p.muted } else { p.accent };
+        let fill_color = if content.muted { p.muted } else { content.accent };
         if fill > x {
             self.fill(rounded(rect(x, bar, fill.max(x + 4.), bar + 4.), 2.), fill_color, 1.);
         }
@@ -638,11 +637,11 @@ impl Painter {
 
     /// The app's art or icon, else its initial on a colored square, or the
     /// automatic tile.
-    fn avatar(&mut self, media: &Media, p: &Palette, x: f32, y: f32, size: f32) {
+    fn avatar(&mut self, media: &Media, accent: u32, x: f32, y: f32, size: f32) {
         let r = rect(x, y, x + size, y + size);
         let radius = (size * 0.12).max(4.);
         let Some(app) = &media.app else {
-            self.fill(rounded(r, radius), p.accent, 1.);
+            self.fill(rounded(r, radius), accent, 1.);
             let format = if size > 30. { &self.formats.tile_glyph } else { &self.formats.small_glyph };
             self.text(GLYPH_MUSIC, format, r, 0xffffff);
             return;

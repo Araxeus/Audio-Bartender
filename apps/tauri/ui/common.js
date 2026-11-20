@@ -108,8 +108,21 @@ export function isDark() {
   return current?.settings.dark ?? systemDark.matches;
 }
 
+const hex = (rgb) => "#" + rgb.toString(16).padStart(6, "0");
+const rgba = (rgb, alpha) => `rgba(${rgb >> 16}, ${(rgb >> 8) & 255}, ${rgb & 255}, ${alpha})`;
+
 function applyTheme() {
-  document.documentElement.dataset.theme = isDark() ? "dark" : "light";
+  const dark = isDark();
+  const root = document.documentElement;
+  root.dataset.theme = dark ? "dark" : "light";
+  // The core owns the accent palette; the page only maps it onto CSS variables.
+  const colors = current?.settings.accent[dark ? "dark" : "light"];
+  if (!colors) return;
+  root.style.setProperty("--accent", hex(colors.accent));
+  root.style.setProperty("--accent-soft", rgba(colors.accent, dark ? 0.13 : 0.1));
+  root.style.setProperty("--glow", dark ? rgba(colors.accent, 0.1) : "transparent");
+  root.style.setProperty("--logo-from", hex(colors.gradient[0]));
+  root.style.setProperty("--logo-to", hex(colors.gradient[1]));
 }
 
 /**

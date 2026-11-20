@@ -5,7 +5,7 @@ use windows::Win32::System::Registry::{
 };
 use windows::core::{PCWSTR, w};
 
-use crate::{Settings, TooltipStyle, TrayStyle, VolumeBars};
+use crate::{Accent, Settings, TooltipStyle, TrayStyle, VolumeBars};
 
 const RUN_KEY: PCWSTR = w!("Software\\Microsoft\\Windows\\CurrentVersion\\Run");
 const RUN_VALUE: PCWSTR = w!("MediaKeysSelector");
@@ -41,6 +41,7 @@ impl Config {
                 "theme" => s.dark = matches!(value, "dark" | "light").then(|| value == "dark"),
                 "album_art" => s.album_art = flag(value),
                 "tray_style" => s.tray_style = if value == "number" { TrayStyle::Number } else { TrayStyle::Ring },
+                "accent" => s.accent = Accent::from_name(value).unwrap_or_default(),
                 "tooltip" => {
                     s.tooltip = match value {
                         "compact" => TooltipStyle::Compact,
@@ -71,7 +72,7 @@ impl Config {
             None => "",
         };
         let text = format!(
-            "target={}\ntarget_name={}\ntheme={theme}\nalbum_art={}\ntray_style={}\nvolume_bars={}\ntooltip={}\n",
+            "target={}\ntarget_name={}\ntheme={theme}\nalbum_art={}\ntray_style={}\nvolume_bars={}\ntooltip={}\naccent={}\n",
             self.target.as_deref().unwrap_or(""),
             self.target_name.as_deref().unwrap_or(""),
             s.album_art,
@@ -86,6 +87,7 @@ impl Config {
                 TooltipStyle::Compact => "compact",
                 TooltipStyle::Text => "text",
             },
+            s.accent.name(),
         );
         let _ = std::fs::write(path, text);
     }

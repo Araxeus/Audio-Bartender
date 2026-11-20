@@ -176,6 +176,98 @@ pub enum VolumeBars {
     OnClick,
 }
 
+/// The app's accent color.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+#[cfg_attr(feature = "serde", derive(Deserialize), serde(rename_all = "camelCase"))]
+pub enum Accent {
+    #[default]
+    Blue,
+    Cyan,
+    Teal,
+    Purple,
+    Pink,
+    Orange,
+}
+
+/// One accent's colors for a light or dark theme, as `0xRRGGBB`.
+#[derive(Clone, Copy, Debug, PartialEq)]
+#[cfg_attr(feature = "serde", derive(Serialize))]
+pub struct AccentColors {
+    pub accent: u32,
+    /// A lighter shade for hovered buttons.
+    pub hover: u32,
+    /// The logo's gradient, from top left to bottom right.
+    pub gradient: [u32; 2],
+}
+
+impl Accent {
+    pub const ALL: [Accent; 6] = [Accent::Blue, Accent::Cyan, Accent::Teal, Accent::Purple, Accent::Pink, Accent::Orange];
+
+    /// The config file and front end name.
+    pub fn name(self) -> &'static str {
+        match self {
+            Accent::Blue => "blue",
+            Accent::Cyan => "cyan",
+            Accent::Teal => "teal",
+            Accent::Purple => "purple",
+            Accent::Pink => "pink",
+            Accent::Orange => "orange",
+        }
+    }
+
+    pub fn from_name(name: &str) -> Option<Accent> {
+        Accent::ALL.into_iter().find(|a| a.name() == name)
+    }
+
+    pub fn label(self) -> &'static str {
+        match self {
+            Accent::Blue => "Blue",
+            Accent::Cyan => "Cyan",
+            Accent::Teal => "Teal",
+            Accent::Purple => "Purple",
+            Accent::Pink => "Hot pink",
+            Accent::Orange => "Orange",
+        }
+    }
+
+    /// Light themes use a deeper shade, so white text on it stays readable.
+    pub fn colors(self, dark: bool) -> AccentColors {
+        let (light, dark_accent, gradient) = match self {
+            Accent::Blue => (0x2563eb, 0x3b82f6, [0x3b82f6, 0x06b6d4]),
+            Accent::Cyan => (0x0891b2, 0x06b6d4, [0x22d3ee, 0x3b82f6]),
+            Accent::Teal => (0x0d9488, 0x14b8a6, [0x2dd4bf, 0x0ea5e9]),
+            Accent::Purple => (0x6d5ef5, 0x9d8cff, [0x6366f1, 0xa855f7]),
+            Accent::Pink => (0xdb2777, 0xf0469c, [0xf472b6, 0xa855f7]),
+            Accent::Orange => (0xea580c, 0xf97316, [0xfb923c, 0xec4899]),
+        };
+        let accent = if dark { dark_accent } else { light };
+        AccentColors { accent, hover: mix(accent, 0xffffff, 0.15), gradient }
+    }
+}
+
+/// `a` moved `t` of the way towards `b`, per channel.
+fn mix(a: u32, b: u32, t: f32) -> u32 {
+    let channel = |shift: u32| {
+        let (x, y) = (((a >> shift) & 0xff) as f32, ((b >> shift) & 0xff) as f32);
+        ((x + (y - x) * t).round() as u32) << shift
+    };
+    channel(16) | channel(8) | channel(0)
+}
+
+/// Front ends get the name and both themes' colors, so the palette lives in one place.
+#[cfg(feature = "serde")]
+impl Serialize for Accent {
+    fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        use serde::ser::SerializeStruct;
+        let mut s = serializer.serialize_struct("Accent", 4)?;
+        s.serialize_field("name", self.name())?;
+        s.serialize_field("label", self.label())?;
+        s.serialize_field("light", &self.colors(false))?;
+        s.serialize_field("dark", &self.colors(true))?;
+        s.end()
+    }
+}
+
 /// What the tray icon's tooltip looks like.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize), serde(rename_all = "camelCase"))]
@@ -201,6 +293,7 @@ pub struct Settings {
     pub tray_style: TrayStyle,
     pub volume_bars: VolumeBars,
     pub tooltip: TooltipStyle,
+    pub accent: Accent,
 }
 
 impl Default for Settings {
@@ -212,6 +305,7 @@ impl Default for Settings {
             tray_style: TrayStyle::Ring,
             volume_bars: VolumeBars::Compact,
             tooltip: TooltipStyle::NowPlaying,
+            accent: Accent::Blue,
         }
     }
 }
@@ -226,6 +320,7 @@ pub enum Setting {
     TrayStyle(TrayStyle),
     VolumeBars(VolumeBars),
     Tooltip(TooltipStyle),
+    Accent(Accent),
 }
 
 /// Windows pages for arranging tray icons. Windows lets only the user move icons,

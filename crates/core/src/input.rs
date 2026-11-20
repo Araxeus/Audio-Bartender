@@ -30,7 +30,7 @@ use crate::tray_icon::{self, Look};
 use crate::tooltip;
 use crate::util::fill_wide;
 use crate::tooltip::Tip;
-use crate::{Anchor, Cmd, Event, MediaKey, Page, Playback, Rect, Shared, State, TooltipStyle, TrayStyle, audio, card, volume};
+use crate::{Accent, Anchor, Cmd, Event, MediaKey, Page, Playback, Rect, Shared, State, TooltipStyle, TrayStyle, audio, card, volume};
 use windows::Win32::UI::Shell::ShellExecuteW;
 use windows::Win32::UI::WindowsAndMessaging::SW_SHOWNORMAL;
 
@@ -83,6 +83,7 @@ static TRAY_STATE: Mutex<TrayState> = Mutex::new(TrayState {
     muted: false,
     style: TrayStyle::Ring,
     tooltip: TooltipStyle::NowPlaying,
+    accent: Accent::Blue,
     dark: None,
     device: None,
     media: card::Media { app: None, playback: Playback::Unknown, running: false, track: None, icon: None },
@@ -93,6 +94,7 @@ struct TrayState {
     muted: bool,
     style: TrayStyle,
     tooltip: TooltipStyle,
+    accent: Accent,
     dark: Option<bool>,
     device: Option<String>,
     media: card::Media,
@@ -123,14 +125,18 @@ impl TrayState {
     fn tip(&self) -> Tip {
         match self.tooltip {
             TooltipStyle::Text => Tip::Text(self.text()),
-            style => Tip::Card(card::Content {
-                style,
-                dark: self.dark.unwrap_or_else(|| !card::apps_light()),
-                device: self.device.clone(),
-                level: self.level,
-                muted: self.muted,
-                media: self.media.clone(),
-            }),
+            style => {
+                let dark = self.dark.unwrap_or_else(|| !card::apps_light());
+                Tip::Card(card::Content {
+                    style,
+                    dark,
+                    accent: self.accent.colors(dark).accent,
+                    device: self.device.clone(),
+                    level: self.level,
+                    muted: self.muted,
+                    media: self.media.clone(),
+                })
+            }
         }
     }
 }
@@ -210,6 +216,7 @@ pub fn update_tray(state: &State) {
         tray.muted = audio.muted;
         tray.style = state.settings.tray_style;
         tray.tooltip = state.settings.tooltip;
+        tray.accent = state.settings.accent;
         tray.dark = state.settings.dark;
         tray.device = audio.device().map(|d| d.name.clone());
         let selected = state.selected.as_deref().and_then(|id| state.targets.iter().find(|t| t.id == id));

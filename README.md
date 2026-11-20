@@ -41,6 +41,7 @@ Stored in `%APPDATA%\MediaKeysSelector\config.ini` and shared by both front ends
 - Start with Windows (`HKCU\...\Run\MediaKeysSelector` with `--hidden`)
 - Album art as app icon (the track thumbnail the app reports to SMTC)
 - Theme: System, Light, Dark
+- Accent color: Blue (default), Cyan, Teal, Purple, Hot pink or Orange. The core owns the palette, so both front ends and the tooltip cards match
 - Tray icon: Ring or Number
 - Tooltip: Now playing (a card with the media key app's track and art, the device and the volume), Compact (device, volume and media key app) or Text (the plain Windows tooltip)
 - Volume bars: Compact (a small bar to drag or scroll; click to mute), Always (a slider under every app) or On click (a percentage; click the card for its slider)

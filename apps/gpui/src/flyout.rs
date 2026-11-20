@@ -9,12 +9,14 @@ use gpui_kit::assets::IconName;
 use gpui_kit::base::{h_flex, v_flex};
 use gpui_kit::component::button::{Button, ButtonVariants};
 use gpui_kit::component::switch::Switch;
+use gpui_kit::component::tooltip::Tooltip;
 use gpui_kit::component::theme::Theme;
 use gpui_kit::component::{ActiveTheme, Icon, Sizable, StyledExt};
 use gpui_kit::prelude::FluentBuilder;
 use gpui_kit::*;
 use mediakeys_core::{
-    Anchor, Core, IconPage, MediaKey, Page, Playback, Setting, State, Target, TooltipStyle, TrayStyle, VolumeBars,
+    Accent, Anchor, Core, IconPage, MediaKey, Page, Playback, Setting, State, Target, TooltipStyle, TrayStyle,
+    VolumeBars,
 };
 use raw_window_handle::{HasWindowHandle, RawWindowHandle};
 
@@ -32,7 +34,7 @@ const TARGET_ROW: f32 = 58.;
 const MIXER_ROW: f32 = 35.;
 const SLIDER: f32 = 32.;
 const SETTING_ROW: f32 = 50.;
-const SETTINGS: usize = 7;
+const SETTINGS: usize = 8;
 
 /// Estimated height that fits `page` with the given state.
 pub fn height(state: &State, page: Page) -> f32 {
@@ -99,6 +101,7 @@ pub struct Flyout {
     /// Stays open when it loses focus.
     pinned: bool,
     dark: Option<bool>,
+    accent: Accent,
     height: f32,
     measured: Measured,
     /// When the window opened, for sliding it out from behind the taskbar.
@@ -120,8 +123,8 @@ impl Flyout {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) -> Self {
-        let dark = state.read(cx).settings.dark;
-        theme::apply(window, cx, dark);
+        let (dark, accent) = (state.read(cx).settings.dark, state.read(cx).settings.accent);
+        theme::apply(window, cx, dark, accent);
         // GPUI opens windows only where their center is on screen, so the window starts
         // hidden and appears once the first frame moves it behind the taskbar.
         if let Some(hwnd) = hwnd(window) {
@@ -131,14 +134,14 @@ impl Flyout {
         let height = 0.;
         let _subscriptions = vec![
             cx.observe_in(&state, window, |this: &mut Self, state, window, cx| {
-                let dark = state.read(cx).settings.dark;
-                if dark != this.dark {
-                    this.dark = dark;
-                    theme::apply(window, cx, dark);
+                let (dark, accent) = (state.read(cx).settings.dark, state.read(cx).settings.accent);
+                if (dark, accent) != (this.dark, this.accent) {
+                    (this.dark, this.accent) = (dark, accent);
+                    theme::apply(window, cx, dark, accent);
                 }
                 cx.notify();
             }),
-            cx.observe_window_appearance(window, |this, window, cx| theme::apply(window, cx, this.dark)),
+            cx.observe_window_appearance(window, |this, window, cx| theme::apply(window, cx, this.dark, this.accent)),
             // Clicking anywhere else closes the flyout, like the Windows one.
             cx.observe_window_activation(window, |this, window, cx| {
                 if !window.is_window_active() && !this.pinned {
@@ -156,6 +159,7 @@ impl Flyout {
             devices_open: false,
             pinned,
             dark,
+            accent,
             height,
             measured: Measured::default(),
             opened: Instant::now(),
@@ -435,7 +439,10 @@ impl Flyout {
                         .gap_3()
                         .px_2()
                         .py_2()
-                        .child(ui::logo(px(28.)).child(Icon::new(IconName::Sparkles).small().text_color(white())))
+                        .child(
+                            ui::logo(px(28.), self.accent.colors(theme.is_dark()).gradient)
+                                .child(Icon::new(IconName::Sparkles).small().text_color(white())),
+                        )
                         .child(
                             v_flex()
                                 .flex_1()
@@ -536,6 +543,30 @@ impl Flyout {
         rows
     }
 
+    /// One color dot per accent; the chosen one gets a ring.
+    fn swatches(&self, current: Accent, theme: &Theme) -> AnyElement {
+        let dark = theme.is_dark();
+        h_flex()
+            .gap(px(6.))
+            .children(Accent::ALL.into_iter().map(|accent| {
+                let core = self.core.clone();
+                let selected = accent == current;
+                let fill: Hsla = rgb(accent.colors(dark).accent).into();
+                div()
+                    .id(SharedString::from(format!("accent-{}", accent.name())))
+                    .size(px(22.))
+                    .p(px(2.))
+                    .rounded_full()
+                    .cursor_pointer()
+                    .border_2()
+                    .border_color(if selected { fill } else { transparent_black() })
+                    .child(div().size_full().rounded_full().bg(fill))
+                    .tooltip(move |window, cx| Tooltip::new(accent.label()).build(window, cx))
+                    .on_click(move |_, _, _| core.set(Setting::Accent(accent)))
+            }))
+            .into_any_element()
+    }
+
     fn settings(&self, state: &State, theme: &Theme) -> Vec<AnyElement> {
         let s = state.settings.clone();
         let row = |title: &'static str, control: AnyElement| {
@@ -591,6 +622,7 @@ impl Flyout {
                     ))
                     .into_any_element(),
             ),
+            row("Accent color", self.swatches(s.accent, theme)),
             row(
                 "Tooltip",
                 h_flex()

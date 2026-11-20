@@ -1,6 +1,7 @@
 use gpui_kit::component::ActiveTheme;
 use gpui_kit::component::theme::{Theme, ThemeMode};
 use gpui_kit::*;
+use mediakeys_core::{Accent, AccentColors};
 
 pub fn hex(color: u32) -> Hsla {
     rgb(color).into()
@@ -10,14 +11,14 @@ pub fn hex(color: u32) -> Hsla {
 pub const DARK_FOOTER: u32 = 0x0f0f14;
 
 /// Applies light or dark mode with the app palette, which matches the Tauri front end.
-pub fn apply(window: &mut Window, cx: &mut App, dark: Option<bool>) {
+pub fn apply(window: &mut Window, cx: &mut App, dark: Option<bool>, accent: Accent) {
     match dark {
         Some(dark) => Theme::change(if dark { ThemeMode::Dark } else { ThemeMode::Light }, Some(window), cx),
         None => Theme::sync_system_appearance(Some(window), cx),
     }
     let dark = cx.theme().is_dark();
     Theme::update(cx, |t| {
-        let (accent, hover) = if dark { (0x9d8cff, 0xb0a3ff) } else { (0x6d5ef5, 0x7f72f7) };
+        let AccentColors { accent, hover, .. } = accent.colors(dark);
         t.primary = hex(accent);
         t.primary_hover = hex(hover);
         t.primary_active = hex(accent);

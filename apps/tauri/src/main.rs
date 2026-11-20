@@ -4,7 +4,7 @@ use std::sync::Mutex;
 use std::sync::mpsc;
 use std::time::{Duration, Instant};
 
-use mediakeys_core::{Anchor, Core, Event, IconPage, MediaKey, Page, Setting, State};
+use mediakeys_core::{Accent, Anchor, Core, Event, IconPage, MediaKey, Page, Setting, State};
 use tauri::{
     AppHandle, Emitter, LogicalSize, Manager, PhysicalPosition, RunEvent, Theme, WebviewUrl, WebviewWindow,
     WebviewWindowBuilder, WindowEvent,
@@ -35,6 +35,12 @@ struct Flyout {
 #[tauri::command]
 fn state(core: tauri::State<Core>) -> State {
     core.state()
+}
+
+/// Every accent color, for the settings picker.
+#[tauri::command]
+fn accents() -> Vec<Accent> {
+    Accent::ALL.to_vec()
 }
 
 #[tauri::command]
@@ -293,6 +299,7 @@ fn main() {
         .manage(Mutex::new(Flyout { pinned, ..Flyout::default() }))
         .invoke_handler(tauri::generate_handler![
             state,
+            accents,
             select,
             press,
             set_setting,

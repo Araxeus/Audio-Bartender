@@ -46,7 +46,7 @@ pub fn image(icon: &AppIcon) -> Arc<Image> {
     Arc::new(Image::from_bytes(format, icon.data.to_vec()))
 }
 
-pub fn logo(size: Pixels) -> Div {
+pub fn logo(size: Pixels, [from, to]: [u32; 2]) -> Div {
     div()
         .flex_none()
         .size(size)
@@ -54,7 +54,7 @@ pub fn logo(size: Pixels) -> Div {
         .flex()
         .items_center()
         .justify_center()
-        .bg(linear_gradient(135., linear_color_stop(rgb(0x6366f1), 0.), linear_color_stop(rgb(0xa855f7), 1.)))
+        .bg(linear_gradient(135., linear_color_stop(rgb(from), 0.), linear_color_stop(rgb(to), 1.)))
 }
 
 /// The app's icon (or album art), else its first letter on a colored square.
