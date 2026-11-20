@@ -612,8 +612,10 @@ unsafe fn set_icon(hwnd: HWND, action: NOTIFY_ICON_MESSAGE) {
     identify(&mut data);
     tooltip::update(&tip);
     unsafe {
-        if action == NIM_ADD && USE_GUID.load(Relaxed) {
-            // Clears an icon a crashed copy left behind, which would block the GUID.
+        // Clears an icon a crashed copy left behind, which would block the GUID. Only the
+        // copy holding the single-instance lock may do this: with `--dev` another live copy
+        // of this exe can own the GUID, and deleting would take its icon away.
+        if action == NIM_ADD && USE_GUID.load(Relaxed) && !crate::autostart::dev() {
             let _ = Shell_NotifyIconW(NIM_DELETE, &data);
         }
         let added = Shell_NotifyIconW(action, &data).as_bool();
