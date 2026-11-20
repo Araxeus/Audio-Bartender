@@ -133,7 +133,10 @@ export class Volumes {
     else invoke("toggle_mute", { id });
   }
 
-  /** Scrolling over `node` changes `id`'s volume and reveals its slider. */
+  /**
+   * Scrolling over `node` changes `id`'s volume. The wheel scrolls the list
+   * everywhere else, so only volume controls get this.
+   */
   wheel(node, id) {
     node.addEventListener(
       "wheel",
@@ -142,32 +145,75 @@ export class Volumes {
         event.stopPropagation();
         // One mouse notch is about 100 px; touchpads send smaller steps.
         const delta = (-event.deltaY / 100) * WHEEL_STEP;
-        if (id === MASTER) {
-          invoke("adjust_master", { delta });
-        } else {
-          invoke("adjust_volume", { id, delta });
-          if (this.expanded !== id) {
-            this.expanded = id;
-            this.rerender();
-          }
-        }
+        if (id === MASTER) invoke("adjust_master", { delta });
+        else invoke("adjust_volume", { id, delta });
       },
       { passive: false },
     );
   }
 
-  /** The "80%" pill on an app row. Clicking it reveals or hides the slider. */
+  /** Opens `id`'s slider, closing any other, or closes it. */
+  toggle(id) {
+    this.expanded = this.expanded === id ? null : id;
+    this.rerender();
+  }
+
+  /** The "80%" on an app row whose slider opens on click. */
   pill(id, level, muted) {
-    const open = this.expanded === id;
-    return button(
-      "pill" + (open ? " open" : ""),
-      "Volume",
-      [icon(volumeIcon(level, muted)), muted ? "Muted" : `${Math.round(level * 100)}%`],
-      () => {
-        this.expanded = open ? null : id;
+    const node = el("span", "pill" + (this.expanded === id ? " open" : ""), icon(volumeIcon(level, muted)), muted ? "Muted" : `${Math.round(level * 100)}%`);
+    this.wheel(node, id);
+    return node;
+  }
+
+  /**
+   * A small bar that fills with the volume. Dragging sets it, the wheel nudges
+   * it, and a click without dragging toggles mute.
+   */
+  bar(id, level, muted) {
+    const node = el("span", "bar" + (muted ? " muted" : ""), icon(volumeIcon(level, muted)), muted ? "Muted" : `${Math.round(level * 100)}%`);
+    node.style.setProperty("--fill", `${Math.round(level * 100)}%`);
+    node.title = "Drag or scroll to change, click to mute";
+    this.wheel(node, id);
+
+    let start = null;
+    const levelAt = (event) => {
+      const rect = node.getBoundingClientRect();
+      const x = Math.min(1, Math.max(0, (event.clientX - rect.left) / rect.width));
+      return Math.round(x * 50) / 50;
+    };
+    node.addEventListener("pointerdown", (event) => {
+      if (event.button !== 0) return;
+      start = { x: event.clientX, dragging: false };
+      node.setPointerCapture(event.pointerId);
+      event.stopPropagation();
+    });
+    node.addEventListener("pointermove", (event) => {
+      if (!start) return;
+      if (!start.dragging && Math.abs(event.clientX - start.x) <= 2) return;
+      if (!start.dragging) {
+        start.dragging = true;
+        this.dragging = true;
+      }
+      const value = levelAt(event);
+      node.style.setProperty("--fill", `${value * 100}%`);
+      node.lastChild.textContent = `${Math.round(value * 100)}%`;
+      invoke("set_volume", { id, level: value });
+    });
+    const end = () => {
+      if (!start) return;
+      const clicked = !start.dragging;
+      start = null;
+      if (clicked) {
+        this.toggleMute(id);
+      } else {
+        this.dragging = false;
         this.rerender();
-      },
-    );
+      }
+    };
+    node.addEventListener("pointerup", end);
+    node.addEventListener("pointercancel", end);
+    node.addEventListener("click", (event) => event.stopPropagation());
+    return node;
   }
 
   /** Mute button, slider and value, for the master volume or a revealed app row. */

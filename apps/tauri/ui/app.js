@@ -15,15 +15,33 @@ function rerender() {
   if (latest) render(latest);
 }
 
-function radio(checked) {
-  return el("span", "radio small" + (checked ? " checked" : ""));
+/** The only control that picks where media keys go. */
+function radio(checked, id) {
+  return button("radio-hit", checked ? null : "Send media keys here", el("span", "radio small" + (checked ? " checked" : "")), () =>
+    invoke("select", { id }),
+  );
 }
 
-function row(id, checked, ...children) {
-  const node = el("div", "fly-row" + (checked ? " checked" : ""));
-  if (id !== undefined) node.addEventListener("click", () => invoke("select", { id }));
+function row(checked, clickable, ...children) {
+  const node = el("div", "fly-row" + (checked ? " checked" : "") + (clickable ? " clickable" : ""));
   node.append(el("div", "fly-row-main", ...children));
   return node;
+}
+
+/** The row's volume control for the chosen style, beside the name. */
+function volumeControl(bars, id, level, muted) {
+  if (bars === "onClick") return volumes.pill(id, level, muted);
+  if (bars === "compact") return volumes.bar(id, level, muted);
+  return null;
+}
+
+/** Makes `node` open its slider on click, and appends the slider while open. */
+function expandable(node, id, level, muted) {
+  node.addEventListener("click", () => volumes.toggle(id));
+  if (volumes.expanded !== id) return;
+  const slider = volumes.sliderRow(id, level, muted);
+  slider.addEventListener("click", (event) => event.stopPropagation());
+  node.append(slider);
 }
 
 function controls() {
@@ -97,29 +115,36 @@ function detail(t) {
 }
 
 function targets(state) {
+  const bars = state.settings.volumeBars;
+  const automatic = state.selected === null;
   const rows = [
     row(
-      null,
-      state.selected === null,
+      automatic,
+      false,
       logo("avatar small"),
       el("div", "text", el("div", "name small", "Automatic"), el("div", "detail", "Windows decides")),
-      radio(state.selected === null),
+      radio(automatic, null),
     ),
   ];
   for (const t of state.targets) {
     const checked = state.selected === t.id;
+    const hasVolume = t.volume != null;
     const node = row(
-      t.id,
       checked,
+      hasVolume && bars === "onClick",
       avatar(t.icon, t.name, t.running),
       el("div", "text" + (t.running ? "" : " offline"), el("div", "name small", t.name), detail(t)),
-      t.volume != null ? volumes.pill(t.id, t.volume, t.muted) : null,
-      radio(checked),
+      hasVolume ? volumeControl(bars, t.id, t.volume, t.muted) : null,
+      radio(checked, t.id),
     );
     node.querySelector(".avatar").classList.add("small");
-    if (t.volume != null) {
-      volumes.wheel(node, t.id);
-      if (volumes.expanded === t.id) node.append(volumes.sliderRow(t.id, t.volume, t.muted));
+    if (hasVolume && bars === "always") {
+      // Under the name, clear of the avatar.
+      const slider = volumes.sliderRow(t.id, t.volume, t.muted);
+      slider.classList.add("inline");
+      node.append(slider);
+    } else if (hasVolume && bars === "onClick") {
+      expandable(node, t.id, t.volume, t.muted);
     }
     rows.push(node);
   }
@@ -127,12 +152,19 @@ function targets(state) {
 }
 
 function mixer(state) {
+  const bars = state.settings.volumeBars;
   return state.mixer.map((app) => {
-    const node = row(undefined, false, avatar(app.icon, app.name), el("div", "text", el("div", "name small", app.name)), volumes.pill(app.id, app.volume, app.muted));
+    const icon = avatar(app.icon, app.name);
+    icon.classList.add("tiny");
+    let node;
+    if (bars === "always") {
+      node = row(false, false, icon, el("div", "mixer-name", app.name), volumes.sliderRow(app.id, app.volume, app.muted));
+      node.classList.add("always");
+    } else {
+      node = row(false, bars === "onClick", icon, el("div", "text", el("div", "name small", app.name)), volumeControl(bars, app.id, app.volume, app.muted));
+      if (bars === "onClick") expandable(node, app.id, app.volume, app.muted);
+    }
     node.classList.add("mixer");
-    node.querySelector(".avatar").classList.add("tiny");
-    volumes.wheel(node, app.id);
-    if (volumes.expanded === app.id) node.append(volumes.sliderRow(app.id, app.volume, app.muted));
     return node;
   });
 }
@@ -171,6 +203,14 @@ function settings(state) {
       choices([
         ["Ring", s.trayStyle === "ring", () => setting("trayStyle", "ring")],
         ["Number", s.trayStyle === "number", () => setting("trayStyle", "number")],
+      ]),
+    ),
+    row(
+      "Volume bars",
+      choices([
+        ["Always", s.volumeBars === "always", () => setting("volumeBars", "always")],
+        ["On click", s.volumeBars === "onClick", () => setting("volumeBars", "onClick")],
+        ["Compact", s.volumeBars === "compact", () => setting("volumeBars", "compact")],
       ]),
     ),
     row(

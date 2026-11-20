@@ -191,6 +191,7 @@ impl Worker {
                     Setting::Dark(dark) => s.dark = dark,
                     Setting::AlbumArt(on) => s.album_art = on,
                     Setting::TrayStyle(style) => s.tray_style = style,
+                    Setting::VolumeBars(bars) => s.volume_bars = bars,
                 }
                 self.config.save();
                 self.refresh(false);

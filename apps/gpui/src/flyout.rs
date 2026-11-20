@@ -1,6 +1,8 @@
 //! The whole UI: media key target and per-app volume, settings, output device and
 //! master volume, opened next to the tray icon.
 
+use std::cell::Cell;
+use std::rc::Rc;
 use std::time::Duration;
 
 use gpui_kit::assets::IconName;
@@ -11,7 +13,7 @@ use gpui_kit::component::theme::Theme;
 use gpui_kit::component::{ActiveTheme, Icon, Sizable, StyledExt};
 use gpui_kit::prelude::FluentBuilder;
 use gpui_kit::*;
-use mediakeys_core::{Anchor, Core, IconPage, MediaKey, Page, Playback, Setting, State, Target, TrayStyle};
+use mediakeys_core::{Anchor, Core, IconPage, MediaKey, Page, Playback, Setting, State, Target, TrayStyle, VolumeBars};
 use raw_window_handle::{HasWindowHandle, RawWindowHandle};
 
 use crate::theme::{self, DARK_FOOTER, hex};
@@ -20,33 +22,63 @@ use crate::ui::{self, Volumes};
 pub const WIDTH: f32 = 360.;
 const MAX_HEIGHT: f32 = 640.;
 
-// Row heights for sizing the window to its content.
+// Estimated heights, for sizing the window before its content is measured.
 const CONTROLS: f32 = 45.;
 const VOLUME: f32 = 92.;
 const LABEL: f32 = 34.;
 const TARGET_ROW: f32 = 58.;
 const MIXER_ROW: f32 = 35.;
-const SLIDER: f32 = 40.;
+const SLIDER: f32 = 32.;
 const SETTING_ROW: f32 = 50.;
-const DEVICE_ROW: f32 = 36.;
-const SETTINGS: usize = 5;
+const SETTINGS: usize = 6;
 
-/// Height that fits `page` with the given state, before any slider is revealed.
+/// Estimated height that fits `page` with the given state.
 pub fn height(state: &State, page: Page) -> f32 {
-    content_height(state, page, false, false)
-}
-
-fn content_height(state: &State, page: Page, devices_open: bool, slider: bool) -> f32 {
-    let middle = if devices_open {
-        8. + DEVICE_ROW * state.audio.devices.len() as f32
-    } else if page == Page::Settings {
+    let middle = if page == Page::Settings {
         LABEL + SETTING_ROW * SETTINGS as f32
     } else {
-        let targets = LABEL + TARGET_ROW * (1 + state.targets.len()) as f32;
+        let always = state.settings.volume_bars == VolumeBars::Always;
+        let sliders = if always { state.targets.iter().filter(|t| t.volume.is_some()).count() } else { 0 };
+        let targets = LABEL + TARGET_ROW * (1 + state.targets.len()) as f32 + SLIDER * sliders as f32;
         let mixer = if state.mixer.is_empty() { 0. } else { LABEL + MIXER_ROW * state.mixer.len() as f32 };
-        targets + mixer + if slider { SLIDER } else { 0. }
+        targets + mixer
     };
     (CONTROLS + middle + VOLUME + 12.).min(MAX_HEIGHT)
+}
+
+/// The laid-out heights of the flyout's three parts, zero until first measured.
+#[derive(Default)]
+struct Measured {
+    controls: Rc<Cell<f32>>,
+    middle: Rc<Cell<f32>>,
+    volume: Rc<Cell<f32>>,
+}
+
+impl Measured {
+    fn total(&self) -> Option<f32> {
+        let parts = [self.controls.get(), self.middle.get(), self.volume.get()];
+        // The window border adds a pixel above and below.
+        parts.iter().all(|h| *h > 0.).then(|| parts.iter().sum::<f32>() + 2.)
+    }
+}
+
+/// Fills its parent and records the parent's height, redrawing `view` when it changes.
+fn measure(cell: &Rc<Cell<f32>>, view: EntityId) -> impl IntoElement + use<> {
+    let cell = cell.clone();
+    canvas(
+        move |bounds, _, cx| {
+            let height = f32::from(bounds.size.height);
+            if (cell.get() - height).abs() > 0.5 {
+                cell.set(height);
+                cx.notify(view);
+            }
+        },
+        |_, _, _, _| {},
+    )
+    .absolute()
+    .top_0()
+    .left_0()
+    .size_full()
 }
 
 pub struct Flyout {
@@ -60,6 +92,7 @@ pub struct Flyout {
     pinned: bool,
     dark: Option<bool>,
     height: f32,
+    measured: Measured,
     _subscriptions: Vec<Subscription>,
 }
 
@@ -96,7 +129,19 @@ impl Flyout {
             }),
         ];
         let volumes = Volumes::new(core.clone(), cx);
-        Flyout { core, state, anchor, volumes, page, devices_open: false, pinned, dark, height, _subscriptions }
+        Flyout {
+            core,
+            state,
+            anchor,
+            volumes,
+            page,
+            devices_open: false,
+            pinned,
+            dark,
+            height,
+            measured: Measured::default(),
+            _subscriptions,
+        }
     }
 
     pub fn open_page(&mut self, page: Page, cx: &mut Context<Self>) {
@@ -108,8 +153,10 @@ impl Flyout {
     /// Resizes the window to its content, keeping the bottom against the taskbar.
     /// GPUI resizes downward from the top, so the window moves once the new size applies.
     fn fit(&mut self, state: &State, window: &mut Window) {
-        let slider = self.volumes.expanded().is_some() && self.page == Page::Apps;
-        let height = content_height(state, self.page, self.devices_open, slider);
+        let height = match self.measured.total() {
+            Some(total) => total.ceil().min(MAX_HEIGHT),
+            None => height(state, self.page),
+        };
         if height == self.height {
             return;
         }
@@ -270,35 +317,49 @@ impl Flyout {
             .when_some(target.track.clone(), |d, track| d.child(div().truncate().child(format!("· {track}"))))
     }
 
-    fn radio(theme: &Theme, checked: bool) -> Div {
+    /// The only control that picks where media keys go.
+    fn radio(id: &str, theme: &Theme, checked: bool, core: &Core, target: Option<String>) -> Stateful<Div> {
+        let core = core.clone();
+        let hover = theme.secondary_hover;
         div()
+            .id(SharedString::from(format!("radio-{id}")))
             .flex_none()
-            .size(px(16.))
+            .p(px(6.))
+            .m(px(-6.))
             .rounded_full()
-            .border_color(if checked { theme.primary } else { theme.muted_foreground })
-            .map(|d| if checked { d.border(px(4.5)) } else { d.border(px(1.5)) })
+            .cursor_pointer()
+            .hover(move |s| s.bg(hover))
+            .child(
+                div()
+                    .size(px(16.))
+                    .rounded_full()
+                    .border_color(if checked { theme.primary } else { theme.muted_foreground })
+                    .map(|d| if checked { d.border(px(4.5)) } else { d.border(px(1.5)) }),
+            )
+            .on_click(move |_, _, cx| {
+                core.select(target.clone());
+                cx.stop_propagation();
+            })
     }
 
-    fn row(theme: &Theme, id: SharedString, checked: bool) -> Stateful<Div> {
+    fn row(theme: &Theme, id: SharedString, checked: bool, clickable: bool) -> Stateful<Div> {
         let hover = theme.secondary_hover;
         v_flex()
             .id(id)
             .mx_2()
             .rounded(theme.radius)
-            .cursor_pointer()
             .when(checked, |d| d.bg(theme.primary.opacity(0.13)))
-            .when(!checked, |d| d.hover(move |s| s.bg(hover)))
+            .when(clickable, |d| d.cursor_pointer().when(!checked, |d| d.hover(move |s| s.bg(hover))))
     }
 
     fn targets(&mut self, state: &State, window: &mut Window, cx: &mut Context<Self>) -> Vec<AnyElement> {
         let theme = cx.theme().clone();
+        let bars = state.settings.volume_bars;
         let mut rows = Vec::new();
 
-        let core = self.core.clone();
         let automatic = state.selected.is_none();
         rows.push(
-            Self::row(&theme, "automatic".into(), automatic)
-                .on_click(move |_, _, _| core.select(None))
+            Self::row(&theme, "automatic".into(), automatic, false)
                 .child(
                     h_flex()
                         .gap_3()
@@ -311,7 +372,7 @@ impl Flyout {
                                 .child(div().text_sm().font_semibold().child("Automatic"))
                                 .child(div().text_xs().text_color(theme.muted_foreground).child("Windows decides")),
                         )
-                        .child(Self::radio(&theme, automatic)),
+                        .child(Self::radio("automatic", &theme, automatic, &self.core, None)),
                 )
                 .into_any_element(),
         );
@@ -321,13 +382,17 @@ impl Flyout {
             let expanded = self.volumes.expanded().as_deref() == Some(target.id.as_str());
             let slider = target
                 .volume
-                .filter(|_| expanded)
+                .filter(|_| bars == VolumeBars::Always || (bars == VolumeBars::OnClick && expanded))
                 .map(|level| self.volumes.slider_row(&target.id, level, target.muted, window, cx));
-            let (core, id) = (self.core.clone(), target.id.clone());
+            let clickable = bars == VolumeBars::OnClick && target.volume.is_some();
+            let volume = target.volume.and_then(|level| match bars {
+                VolumeBars::Always => None,
+                VolumeBars::OnClick => Some(self.volumes.pill(&target.id, level, target.muted, &theme).into_any_element()),
+                VolumeBars::Compact => Some(self.volumes.bar(&target.id, level, target.muted, &theme).into_any_element()),
+            });
             rows.push(
-                Self::row(&theme, target.id.clone().into(), checked)
-                    .on_click(move |_, _, _| core.select(Some(id.clone())))
-                    .when(target.volume.is_some(), |d| d.on_scroll(self.volumes.on_wheel(&target.id)))
+                Self::row(&theme, target.id.clone().into(), checked, clickable)
+                    .when(clickable, |d| d.on_click(self.volumes.on_toggle(&target.id)))
                     .child(
                         h_flex()
                             .gap_3()
@@ -342,12 +407,14 @@ impl Flyout {
                                     .child(div().text_sm().font_semibold().truncate().child(target.name.clone()))
                                     .child(Self::detail(target, &theme)),
                             )
-                            .when_some(target.volume, |d, level| {
-                                d.child(self.volumes.pill(&target.id, level, target.muted, &theme))
-                            })
-                            .child(Self::radio(&theme, checked)),
+                            .children(volume)
+                            .child(Self::radio(&target.id, &theme, checked, &self.core, Some(target.id.clone()))),
                     )
-                    .when_some(slider, |d, slider| d.child(div().px_2().pb_2().child(slider)))
+                    .when_some(slider, |d, slider| {
+                        // Under the name, clear of the avatar.
+                        let indent = if bars == VolumeBars::Always { px(38.) } else { px(8.) };
+                        d.child(div().pl(indent).pr_2().pb_1p5().mt(px(-4.)).child(slider))
+                    })
                     .into_any_element(),
             );
         }
@@ -356,26 +423,38 @@ impl Flyout {
 
     fn mixer(&mut self, state: &State, window: &mut Window, cx: &mut Context<Self>) -> Vec<AnyElement> {
         let theme = cx.theme().clone();
+        let bars = state.settings.volume_bars;
         let mut rows = Vec::new();
         for app in &state.mixer {
             let expanded = self.volumes.expanded().as_deref() == Some(app.id.as_str());
-            let slider = expanded.then(|| self.volumes.slider_row(&app.id, app.volume, app.muted, window, cx));
-            rows.push(
-                Self::row(&theme, app.id.clone().into(), false)
-                    .cursor_default()
-                    .on_scroll(self.volumes.on_wheel(&app.id))
-                    .child(
-                        h_flex()
-                            .gap_3()
-                            .px_2()
-                            .py_1p5()
-                            .child(ui::avatar(app.icon.as_ref(), &app.name, true, px(22.), &theme))
-                            .child(div().flex_1().min_w_0().truncate().text_sm().child(app.name.clone()))
-                            .child(self.volumes.pill(&app.id, app.volume, app.muted, &theme)),
-                    )
-                    .when_some(slider, |d, slider| d.child(div().px_2().pb_2().child(slider)))
-                    .into_any_element(),
-            );
+            let name = div().text_sm().truncate().child(app.name.clone());
+            let main = h_flex()
+                .gap_3()
+                .px_2()
+                .child(ui::avatar(app.icon.as_ref(), &app.name, true, px(22.), &theme));
+            let row = Self::row(&theme, app.id.clone().into(), false, bars == VolumeBars::OnClick);
+            let row = match bars {
+                VolumeBars::Always => {
+                    let slider = self.volumes.slider_row(&app.id, app.volume, app.muted, window, cx);
+                    row.child(main.py_0p5().child(name.w(px(96.)).flex_none()).child(div().flex_1().child(slider)))
+                }
+                VolumeBars::Compact => row.child(
+                    main.py_1()
+                        .child(name.flex_1().min_w_0())
+                        .child(self.volumes.bar(&app.id, app.volume, app.muted, &theme)),
+                ),
+                VolumeBars::OnClick => {
+                    let slider = expanded.then(|| self.volumes.slider_row(&app.id, app.volume, app.muted, window, cx));
+                    row.on_click(self.volumes.on_toggle(&app.id))
+                        .child(
+                            main.py_1p5()
+                                .child(name.flex_1().min_w_0())
+                                .child(self.volumes.pill(&app.id, app.volume, app.muted, &theme)),
+                        )
+                        .when_some(slider, |d, slider| d.child(div().px_2().pb_2().child(slider)))
+                }
+            };
+            rows.push(row.into_any_element());
         }
         rows
     }
@@ -436,6 +515,25 @@ impl Flyout {
                     .into_any_element(),
             ),
             row(
+                "Volume bars",
+                h_flex()
+                    .gap_1()
+                    .child(choice("bars-always", "Always", s.volume_bars == VolumeBars::Always, Setting::VolumeBars(VolumeBars::Always)))
+                    .child(choice(
+                        "bars-click",
+                        "On click",
+                        s.volume_bars == VolumeBars::OnClick,
+                        Setting::VolumeBars(VolumeBars::OnClick),
+                    ))
+                    .child(choice(
+                        "bars-compact",
+                        "Compact",
+                        s.volume_bars == VolumeBars::Compact,
+                        Setting::VolumeBars(VolumeBars::Compact),
+                    ))
+                    .into_any_element(),
+            ),
+            row(
                 "Tray icons",
                 h_flex()
                     .gap_1()
@@ -451,6 +549,7 @@ impl Render for Flyout {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let state = self.state.read(cx).clone();
         let theme = cx.theme().clone();
+        let view = cx.entity_id();
         self.fit(&state, window);
 
         let controls = self.controls(&theme, cx);
@@ -476,8 +575,12 @@ impl Render for Flyout {
             .text_color(theme.foreground)
             .border_1()
             .border_color(theme.border)
-            .child(controls)
-            .child(div().id("middle").flex_1().overflow_y_scroll().pb_2().children(middle))
+            .child(controls.relative().child(measure(&self.measured.controls, view)))
+            .child(
+                div().id("middle").flex_1().min_h_0().overflow_y_scroll().child(
+                    v_flex().relative().pb_2().children(middle).child(measure(&self.measured.middle, view)),
+                ),
+            )
             // Volume sits at the bottom, next to the tray icon the user just clicked.
             .child(
                 v_flex()
@@ -488,8 +591,10 @@ impl Render for Flyout {
                     .bg(theme.background)
                     .border_t_1()
                     .border_color(theme.border)
+                    .relative()
                     .child(device_header)
-                    .child(div().px_2().child(master)),
+                    .child(div().px_2().child(master))
+                    .child(measure(&self.measured.volume, view)),
             )
     }
 }

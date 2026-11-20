@@ -102,6 +102,8 @@ button.icon.active { color: var(--accent); }
 .detail { color: var(--muted); font-size: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .detail .playing, .detail.playing { color: var(--playing); }
 
+.radio-hit { flex: none; display: grid; place-items: center; margin: -6px; padding: 6px; border: 0; border-radius: 50%; background: transparent; cursor: pointer; }
+.radio-hit:hover { background: var(--card-hover); }
 .radio { flex: none; width: 18px; height: 18px; border: 1.5px solid var(--muted); border-radius: 50%; transition: border .12s; }
 .radio.checked { border: 5px solid var(--accent); }
 .radio.small { width: 16px; height: 16px; }
@@ -134,9 +136,32 @@ button.icon.active { color: var(--accent); }
   cursor: pointer;
 }
 
-.pill:hover { background: var(--card-hover); color: var(--text); }
+.pill { cursor: inherit; }
 .pill.open { color: var(--accent); }
-.pill .icon-glyph svg { width: 14px; height: 14px; }
+.pill .icon-glyph svg, .bar .icon-glyph svg { width: 14px; height: 14px; }
+
+.bar {
+  --fill: 50%;
+  --bar-fill: color-mix(in srgb, var(--accent) 30%, transparent);
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  width: 84px;
+  height: 22px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: linear-gradient(to right, var(--bar-fill) var(--fill), var(--card) var(--fill));
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+  cursor: ew-resize;
+  user-select: none;
+  touch-action: none;
+}
+
+.bar:hover { border-color: var(--accent); }
+.bar.muted { --bar-fill: var(--track); color: var(--danger); }
 
 .slider-row { display: flex; align-items: center; gap: 8px; }
 .slider-row .value { width: 30px; text-align: right; color: var(--muted); font-size: 13px; font-variant-numeric: tabular-nums; }
@@ -260,12 +285,16 @@ body.flyout {
 .device.current { color: var(--accent); }
 .device .check { width: 16px; display: grid; place-items: center; }
 
-.fly-row { margin: 0 8px; border-radius: 6px; cursor: pointer; }
-.fly-row:hover { background: var(--card-hover); }
+.fly-row { margin: 0 8px; border-radius: 6px; }
+.fly-row.clickable { cursor: pointer; }
+.fly-row.clickable:not(.checked):hover { background: var(--card-hover); }
 .fly-row.checked { background: var(--accent-soft); }
-.fly-row.mixer { cursor: default; }
 .fly-row.mixer .fly-row-main { padding-top: 5px; padding-bottom: 5px; }
 .fly-row > .slider-row { padding: 0 8px 8px; }
+.fly-row > .slider-row.inline { margin-top: -6px; padding: 0 8px 6px 38px; }
+.fly-row.mixer .fly-row-main > .mixer-name { flex: none; width: 96px; font-size: 13px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.fly-row-main > .slider-row { flex: 1; min-width: 0; }
+.fly-row.mixer.always .fly-row-main { padding-top: 1px; padding-bottom: 1px; }
 .fly-row-main { display: flex; align-items: center; gap: 12px; padding: 8px; }
 
 .flyout-controls {

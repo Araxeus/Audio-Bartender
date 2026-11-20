@@ -21,6 +21,9 @@ pub const WHEEL_STEP: f32 = 0.02;
 /// Slider id of the master volume.
 pub const MASTER: &str = "master";
 
+/// Width of the compact volume bar.
+pub const BAR_WIDTH: f32 = 84.;
+
 /// While the user drags a slider, incoming state must not move it back.
 const DRAG_GRACE: Duration = Duration::from_millis(600);
 
@@ -144,9 +147,10 @@ impl Volumes {
         slider
     }
 
-    /// Wheel handler that changes `id`'s volume and reveals its slider.
+    /// Wheel handler that changes `id`'s volume. The wheel scrolls the list
+    /// everywhere else, so only volume controls get this.
     pub fn on_wheel(&self, id: &str) -> impl Fn(&ScrollEvent, &mut Window, &mut App) + 'static + use<> {
-        let (core, expanded, view, id) = (self.core.clone(), self.expanded.clone(), self.view.clone(), id.to_owned());
+        let (core, id) = (self.core.clone(), id.to_owned());
         move |event, _, cx| {
             // Windows reports three lines per wheel notch by default.
             let notches = match event.delta {
@@ -157,21 +161,26 @@ impl Volumes {
                 core.adjust_master(notches * WHEEL_STEP);
             } else {
                 core.adjust_volume(&id, notches * WHEEL_STEP);
-                if expanded.borrow().as_deref() != Some(id.as_str()) {
-                    *expanded.borrow_mut() = Some(id.clone());
-                    notify(&view, cx);
-                }
             }
             cx.stop_propagation();
         }
     }
 
-    /// The "80%" pill on an app row. Clicking it reveals or hides the slider.
-    pub fn pill(&self, id: &str, level: f32, muted: bool, theme: &Theme) -> Stateful<Div> {
-        let (expanded, view, key) = (self.expanded.clone(), self.view.clone(), id.to_owned());
+    /// Click handler that opens `id`'s slider, closing any other, or closes it.
+    pub fn on_toggle(&self, id: &str) -> impl Fn(&ClickEvent, &mut Window, &mut App) + 'static + use<> {
+        let (expanded, view, id) = (self.expanded.clone(), self.view.clone(), id.to_owned());
+        move |_, _, cx| {
+            let mut current = expanded.borrow_mut();
+            *current = if current.as_deref() == Some(id.as_str()) { None } else { Some(id.clone()) };
+            drop(current);
+            notify(&view, cx);
+        }
+    }
+
+    /// The "80%" on an app row whose slider opens on click.
+    pub fn pill(&self, id: &str, level: f32, muted: bool, theme: &Theme) -> Div {
         let open = self.expanded.borrow().as_deref() == Some(id);
         h_flex()
-            .id(SharedString::from(format!("pill-{id}")))
             .flex_none()
             .min_w(px(52.))
             .justify_end()
@@ -181,15 +190,58 @@ impl Volumes {
             .rounded(theme.radius)
             .text_xs()
             .text_color(if open { theme.primary } else { theme.muted_foreground })
-            .hover(|s| s.bg(theme.secondary_hover))
             .child(Icon::new(volume_icon(level, muted)).xsmall())
             .child(if muted { "Muted".to_owned() } else { format!("{}%", (level * 100.0).round()) })
+            .on_scroll(self.on_wheel(id))
+    }
+
+    /// A small bar that fills with the volume. Dragging sets it, the wheel nudges
+    /// it, and a click without dragging toggles mute.
+    pub fn bar(&self, id: &str, level: f32, muted: bool, theme: &Theme) -> Stateful<Div> {
+        let fill = if muted { theme.muted_foreground.opacity(0.25) } else { theme.primary.opacity(0.3) };
+        let (core, key) = (self.core.clone(), id.to_owned());
+        let (mute_core, mute_key) = (self.core.clone(), id.to_owned());
+        h_flex()
+            .id(SharedString::from(format!("bar-{id}")))
+            .relative()
+            .flex_none()
+            .w(px(BAR_WIDTH))
+            .h(px(22.))
+            .overflow_hidden()
+            .rounded(theme.radius)
+            .bg(theme.secondary)
+            .border_1()
+            .border_color(theme.border)
+            .cursor_ew_resize()
+            .hover(|s| s.border_color(theme.primary.opacity(0.6)))
+            .child(div().absolute().top_0().bottom_0().left_0().w(relative(level.clamp(0.0, 1.0))).bg(fill))
+            .child(
+                h_flex()
+                    .relative()
+                    .size_full()
+                    .justify_center()
+                    .gap_1()
+                    .text_xs()
+                    .text_color(if muted { theme.danger } else { theme.foreground })
+                    .child(Icon::new(volume_icon(level, muted)).xsmall())
+                    .child(if muted { "Muted".to_owned() } else { format!("{}%", (level * 100.0).round()) }),
+            )
+            .on_scroll(self.on_wheel(id))
             .on_click(move |_, _, cx| {
-                let mut current = expanded.borrow_mut();
-                *current = if current.as_deref() == Some(key.as_str()) { None } else { Some(key.clone()) };
-                drop(current);
-                notify(&view, cx);
+                mute_core.toggle_mute(&mute_key);
                 cx.stop_propagation();
+            })
+            .on_drag(DragBar(id.to_owned()), |drag, _, _, cx| {
+                cx.stop_propagation();
+                cx.new(|_| drag.clone())
+            })
+            .on_drag_move(move |event: &DragMoveEvent<DragBar>, _, cx| {
+                if event.drag(cx).0 != key {
+                    return;
+                }
+                let bounds = event.bounds;
+                let x = f32::from(event.event.position.x - bounds.left()) / f32::from(bounds.size.width);
+                core.set_volume(&key, (x.clamp(0.0, 1.0) * 50.0).round() / 50.0);
             })
     }
 
@@ -234,6 +286,16 @@ impl Volumes {
                     .text_color(theme.muted_foreground)
                     .child(format!("{}", (level * 100.0).round())),
             )
+    }
+}
+
+/// The compact bar being dragged.
+#[derive(Clone)]
+struct DragBar(String);
+
+impl Render for DragBar {
+    fn render(&mut self, _: &mut Window, _: &mut Context<Self>) -> impl IntoElement {
+        Empty
     }
 }
 

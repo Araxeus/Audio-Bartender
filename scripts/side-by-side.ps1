@@ -2,8 +2,9 @@
 #
 #   pwsh scripts/side-by-side.ps1
 #   pwsh scripts/side-by-side.ps1 -Shots dist   # also save a screenshot of each window
+#   pwsh scripts/side-by-side.ps1 -Flags --pinned,--settings   # open on the settings page
 
-param([string]$Shots)
+param([string]$Shots, [string[]]$Flags = @('--pinned'))
 
 $root = Split-Path $PSScriptRoot -Parent
 Add-Type -AssemblyName System.Drawing, System.Windows.Forms
@@ -41,7 +42,7 @@ $area = [System.Windows.Forms.Screen]::PrimaryScreen.WorkingArea
 $procs = @()
 $x = $area.Right - 2 * 400
 foreach ($app in 'gpui', 'tauri') {
-    $p = Start-Process (Join-Path $root "target/release/mediakeys-$app.exe") -ArgumentList '--pinned' -PassThru
+    $p = Start-Process (Join-Path $root "target/release/mediakeys-$app.exe") -ArgumentList $Flags -PassThru
     $hwnd = [IntPtr]::Zero
     $deadline = (Get-Date).AddSeconds(15)
     while ($hwnd -eq [IntPtr]::Zero -and (Get-Date) -lt $deadline) { Start-Sleep -Milliseconds 50; $hwnd = [S]::FindMain([uint32]$p.Id) }

@@ -155,6 +155,19 @@ pub enum TrayStyle {
     Number,
 }
 
+/// How app rows show their volume.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize), serde(rename_all = "camelCase"))]
+pub enum VolumeBars {
+    /// A slider under every app, always visible.
+    #[default]
+    Always,
+    /// A percentage; clicking the row opens its slider.
+    OnClick,
+    /// A small bar that fills with the volume. Drag or scroll it; click to mute.
+    Compact,
+}
+
 /// Preferences shared by both front ends, stored in `config.ini`.
 #[derive(Clone, Debug, PartialEq)]
 #[cfg_attr(feature = "serde", derive(Serialize), serde(rename_all = "camelCase"))]
@@ -165,6 +178,7 @@ pub struct Settings {
     /// Show the current track's album art in place of the app icon.
     pub album_art: bool,
     pub tray_style: TrayStyle,
+    pub volume_bars: VolumeBars,
 }
 
 impl Default for Settings {
@@ -174,6 +188,7 @@ impl Default for Settings {
             dark: None,
             album_art: false,
             tray_style: TrayStyle::Ring,
+            volume_bars: VolumeBars::Always,
         }
     }
 }
@@ -186,6 +201,7 @@ pub enum Setting {
     Dark(Option<bool>),
     AlbumArt(bool),
     TrayStyle(TrayStyle),
+    VolumeBars(VolumeBars),
 }
 
 /// Windows pages for arranging tray icons. Windows lets only the user move icons,
