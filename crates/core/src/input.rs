@@ -29,7 +29,8 @@ use windows::core::{BOOL, PCSTR, PCWSTR, PWSTR, w};
 use crate::tray_icon::{self, Look};
 use crate::tooltip;
 use crate::util::fill_wide;
-use crate::{Anchor, Cmd, Event, MediaKey, Page, Rect, Shared, State, TrayStyle, audio, volume};
+use crate::tooltip::Tip;
+use crate::{Anchor, Cmd, Event, MediaKey, Page, Playback, Rect, Shared, State, TooltipStyle, TrayStyle, audio, card, volume};
 use windows::Win32::UI::Shell::ShellExecuteW;
 use windows::Win32::UI::WindowsAndMessaging::SW_SHOWNORMAL;
 
@@ -81,25 +82,56 @@ static TRAY_STATE: Mutex<TrayState> = Mutex::new(TrayState {
     level: 0.0,
     muted: false,
     style: TrayStyle::Ring,
-    device: String::new(),
-    keys: String::new(),
+    tooltip: TooltipStyle::NowPlaying,
+    dark: None,
+    device: None,
+    media: card::Media { app: None, playback: Playback::Unknown, running: false, track: None, icon: None },
 });
 
 struct TrayState {
     level: f32,
     muted: bool,
     style: TrayStyle,
-    /// " · Speakers", or empty without a device.
-    device: String,
-    /// "Media keys → Spotify".
-    keys: String,
+    tooltip: TooltipStyle,
+    dark: Option<bool>,
+    device: Option<String>,
+    media: card::Media,
 }
 
 impl TrayState {
+    /// The plain tooltip text, which also goes to the shell for accessibility.
+    fn text(&self) -> String {
+        let volume = if self.muted { "Muted".to_owned() } else { format!("{}%", (self.level * 100.0).round()) };
+        let device = self.device.as_deref().unwrap_or("Volume");
+        let keys = self.media.app.as_deref().unwrap_or("Automatic");
+        let mut text = format!("{device}: {volume}\nMedia keys: {keys}");
+        if self.media.running
+            && let Some(track) = &self.media.track
+        {
+            let state = match self.media.playback {
+                Playback::Playing => "Playing",
+                Playback::Paused => "Paused",
+                Playback::Stopped => "Stopped",
+                Playback::Unknown => "Idle",
+            };
+            text.push_str(&format!("\n{state} · {track}"));
+        }
+        text
+    }
+
     /// Built on every redraw, so a wheel step shows its new volume right away.
-    fn tip(&self) -> String {
-        let volume = if self.muted { "Muted".to_owned() } else { format!("Volume {}%", (self.level * 100.0).round()) };
-        format!("{volume}{}\n{}", self.device, self.keys)
+    fn tip(&self) -> Tip {
+        match self.tooltip {
+            TooltipStyle::Text => Tip::Text(self.text()),
+            style => Tip::Card(card::Content {
+                style,
+                dark: self.dark.unwrap_or_else(|| !card::apps_light()),
+                device: self.device.clone(),
+                level: self.level,
+                muted: self.muted,
+                media: self.media.clone(),
+            }),
+        }
     }
 }
 
@@ -169,8 +201,7 @@ fn run_hook() {
 
 /// Called by the worker after each state change: updates key capture, icon and tooltip.
 pub fn update_tray(state: &State) {
-    let routed = state.routed().map(|t| t.name.clone());
-    ROUTING.store(routed.is_some(), Relaxed);
+    ROUTING.store(state.routed().is_some(), Relaxed);
 
     let audio = &state.audio;
     {
@@ -178,8 +209,20 @@ pub fn update_tray(state: &State) {
         tray.level = audio.volume;
         tray.muted = audio.muted;
         tray.style = state.settings.tray_style;
-        tray.device = audio.device().map(|d| format!(" · {}", d.name)).unwrap_or_default();
-        tray.keys = routed.map(|name| format!("Media keys → {name}")).unwrap_or_else(|| "Media keys → Automatic".into());
+        tray.tooltip = state.settings.tooltip;
+        tray.dark = state.settings.dark;
+        tray.device = audio.device().map(|d| d.name.clone());
+        let selected = state.selected.as_deref().and_then(|id| state.targets.iter().find(|t| t.id == id));
+        tray.media = match selected {
+            Some(t) => card::Media {
+                app: Some(t.name.clone()),
+                playback: t.playback,
+                running: t.running,
+                track: t.track.clone(),
+                icon: t.icon.clone(),
+            },
+            None => card::Media::default(),
+        };
     }
     post(WM_REDRAW, 0);
 }
@@ -234,6 +277,7 @@ fn run_tray() {
         };
         TRAY.store(hwnd.0 as isize, Relaxed);
         tooltip::create(hwnd);
+        card::create();
         allow_dark_menus(hwnd);
         set_icon(hwnd, NIM_ADD);
     }
@@ -436,7 +480,7 @@ fn anchor(hwnd: HWND) -> Option<Anchor> {
 }
 
 /// The anchor for an icon rectangle: its monitor's work area and scale.
-fn anchor_for(icon: RECT) -> Anchor {
+pub(crate) fn anchor_for(icon: RECT) -> Anchor {
     unsafe {
         let monitor = MonitorFromRect(&icon, MONITOR_DEFAULTTONEAREST);
         let mut info = MONITORINFO { cbSize: size_of::<MONITORINFO>() as u32, ..Default::default() };
@@ -455,8 +499,9 @@ unsafe fn set_icon(hwnd: HWND, action: NOTIFY_ICON_MESSAGE) {
         let tray = TRAY_STATE.lock().unwrap();
         let look =
             Look { level: tray.level, muted: tray.muted, style: tray.style, light_taskbar: tray_icon::light_taskbar() };
-        (look, tray.tip())
+        (look, (tray.text(), tray.tip()))
     };
+    let (text, tip) = tip;
     let size = unsafe { GetSystemMetrics(SM_CXSMICON) };
     let Some(icon) = tray_icon::render(&look, size) else { return };
 
@@ -470,7 +515,7 @@ unsafe fn set_icon(hwnd: HWND, action: NOTIFY_ICON_MESSAGE) {
         hIcon: icon,
         ..Default::default()
     };
-    fill_wide(&mut data.szTip, if tip.is_empty() { "Media Keys Selector" } else { &tip });
+    fill_wide(&mut data.szTip, &text);
     tooltip::update(&tip);
     unsafe {
         let _ = Shell_NotifyIconW(action, &data);

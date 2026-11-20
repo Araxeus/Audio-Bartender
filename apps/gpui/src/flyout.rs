@@ -13,7 +13,9 @@ use gpui_kit::component::theme::Theme;
 use gpui_kit::component::{ActiveTheme, Icon, Sizable, StyledExt};
 use gpui_kit::prelude::FluentBuilder;
 use gpui_kit::*;
-use mediakeys_core::{Anchor, Core, IconPage, MediaKey, Page, Playback, Setting, State, Target, TrayStyle, VolumeBars};
+use mediakeys_core::{
+    Anchor, Core, IconPage, MediaKey, Page, Playback, Setting, State, Target, TooltipStyle, TrayStyle, VolumeBars,
+};
 use raw_window_handle::{HasWindowHandle, RawWindowHandle};
 
 use crate::theme::{self, DARK_FOOTER, hex};
@@ -30,7 +32,7 @@ const TARGET_ROW: f32 = 58.;
 const MIXER_ROW: f32 = 35.;
 const SLIDER: f32 = 32.;
 const SETTING_ROW: f32 = 50.;
-const SETTINGS: usize = 6;
+const SETTINGS: usize = 7;
 
 /// Estimated height that fits `page` with the given state.
 pub fn height(state: &State, page: Page) -> f32 {
@@ -587,6 +589,20 @@ impl Flyout {
                         s.tray_style == TrayStyle::Number,
                         Setting::TrayStyle(TrayStyle::Number),
                     ))
+                    .into_any_element(),
+            ),
+            row(
+                "Tooltip",
+                h_flex()
+                    .gap_1()
+                    .child(choice(
+                        "tip-now-playing",
+                        "Now playing",
+                        s.tooltip == TooltipStyle::NowPlaying,
+                        Setting::Tooltip(TooltipStyle::NowPlaying),
+                    ))
+                    .child(choice("tip-compact", "Compact", s.tooltip == TooltipStyle::Compact, Setting::Tooltip(TooltipStyle::Compact)))
+                    .child(choice("tip-text", "Text", s.tooltip == TooltipStyle::Text, Setting::Tooltip(TooltipStyle::Text)))
                     .into_any_element(),
             ),
             row(

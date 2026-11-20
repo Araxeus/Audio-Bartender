@@ -9,6 +9,7 @@ serde = ["dep:serde"]
 [dependencies]
 serde = { version = "1", features = ["derive"], optional = true }
 windows-core = "0.62"
+windows-numerics = "0.3"
 
 [dependencies.windows]
 version = "0.62"
@@ -19,7 +20,12 @@ features = [
     "Storage_Streams",
     "Win32_Devices_FunctionDiscovery",
     "Win32_Foundation",
+    "Win32_Graphics_Direct2D",
+    "Win32_Graphics_Direct2D_Common",
+    "Win32_Graphics_DirectWrite",
     "Win32_Graphics_Dwm",
+    "Win32_Graphics_Dxgi_Common",
+    "Win32_Graphics_Imaging",
     "Win32_Graphics_Gdi",
     "Win32_Media_Audio",
     "Win32_Media_Audio_Endpoints",

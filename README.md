@@ -42,6 +42,7 @@ Stored in `%APPDATA%\MediaKeysSelector\config.ini` and shared by both front ends
 - Album art as app icon (the track thumbnail the app reports to SMTC)
 - Theme: System, Light, Dark
 - Tray icon: Ring or Number
+- Tooltip: Now playing (a card with the media key app's track and art, the device and the volume), Compact (device, volume and media key app) or Text (the plain Windows tooltip)
 - Volume bars: Compact (a small bar to drag or scroll; click to mute), Always (a slider under every app) or On click (a percentage; click the card for its slider)
 
 Launch flags: `--hidden` starts in the tray only, `--settings` opens on the settings page, `--pinned` starts pinned (handy for comparing both front ends side by side).

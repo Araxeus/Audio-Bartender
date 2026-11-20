@@ -214,6 +214,14 @@ function settings(state) {
       ]),
     ),
     row(
+      "Tooltip",
+      choices([
+        ["Now playing", s.tooltip === "nowPlaying", () => setting("tooltip", "nowPlaying")],
+        ["Compact", s.tooltip === "compact", () => setting("tooltip", "compact")],
+        ["Text", s.tooltip === "text", () => setting("tooltip", "text")],
+      ]),
+    ),
+    row(
       "Volume bars",
       choices([
         ["Compact", s.volumeBars === "compact", () => setting("volumeBars", "compact")],

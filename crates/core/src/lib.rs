@@ -11,6 +11,7 @@
 //! the whole UI.
 
 mod audio;
+mod card;
 mod config;
 mod icon;
 mod input;
@@ -175,6 +176,19 @@ pub enum VolumeBars {
     OnClick,
 }
 
+/// What the tray icon's tooltip looks like.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize), serde(rename_all = "camelCase"))]
+pub enum TooltipStyle {
+    /// A card with the media key app's track and art, the device and the volume.
+    #[default]
+    NowPlaying,
+    /// A small card with the device, the volume and the media key app.
+    Compact,
+    /// The plain Windows tooltip.
+    Text,
+}
+
 /// Preferences shared by both front ends, stored in `config.ini`.
 #[derive(Clone, Debug, PartialEq)]
 #[cfg_attr(feature = "serde", derive(Serialize), serde(rename_all = "camelCase"))]
@@ -186,6 +200,7 @@ pub struct Settings {
     pub album_art: bool,
     pub tray_style: TrayStyle,
     pub volume_bars: VolumeBars,
+    pub tooltip: TooltipStyle,
 }
 
 impl Default for Settings {
@@ -196,6 +211,7 @@ impl Default for Settings {
             album_art: false,
             tray_style: TrayStyle::Ring,
             volume_bars: VolumeBars::Compact,
+            tooltip: TooltipStyle::NowPlaying,
         }
     }
 }
@@ -209,6 +225,7 @@ pub enum Setting {
     AlbumArt(bool),
     TrayStyle(TrayStyle),
     VolumeBars(VolumeBars),
+    Tooltip(TooltipStyle),
 }
 
 /// Windows pages for arranging tray icons. Windows lets only the user move icons,

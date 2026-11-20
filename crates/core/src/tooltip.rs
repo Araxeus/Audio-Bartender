@@ -1,7 +1,8 @@
 //! The tray icon's own tooltip. The shell's tooltip keeps its text while it shows,
 //! so a wheel step over the icon would leave a stale volume on screen. With
 //! `NOTIFYICON_VERSION_4` and no `NIF_SHOWTIP`, the shell instead says when to show
-//! and hide a tooltip, and this one updates live.
+//! and hide a tooltip, and this one updates live. It is either a plain tooltip
+//! control or a card drawn by [`crate::card`].
 
 use std::sync::atomic::{AtomicBool, AtomicI32, AtomicIsize, Ordering::Relaxed};
 
@@ -16,7 +17,14 @@ use windows::Win32::UI::WindowsAndMessaging::{
 use windows::Win32::Foundation::POINT;
 use windows::core::PWSTR;
 
+use crate::card;
 use crate::util::wide;
+
+/// What the tooltip shows.
+pub enum Tip {
+    Text(String),
+    Card(card::Content),
+}
 
 static TOOLTIP: AtomicIsize = AtomicIsize::new(0);
 static OWNER: AtomicIsize = AtomicIsize::new(0);
@@ -73,13 +81,31 @@ fn handles() -> Option<(HWND, HWND)> {
     (!tooltip.is_invalid()).then_some((tooltip, owner))
 }
 
-/// Shows `text` above `icon`, or updates it if it already shows.
-pub fn show(text: &str, icon: RECT) {
-    let Some((tooltip, owner)) = handles() else { return };
+/// Shows `tip` by `icon`, or updates it if it already shows.
+pub fn show(tip: &Tip, icon: RECT) {
     for (slot, value) in ICON.iter().zip([icon.left, icon.top, icon.right, icon.bottom]) {
         slot.store(value, Relaxed);
     }
     VISIBLE.store(true, Relaxed);
+    match tip {
+        Tip::Text(text) => {
+            card::hide();
+            show_text(text);
+        }
+        Tip::Card(content) => {
+            hide_text();
+            card::show(content, crate::input::anchor_for(icon));
+        }
+    }
+}
+
+fn icon() -> RECT {
+    let [left, top, right, bottom] = ICON.each_ref().map(|v| v.load(Relaxed));
+    RECT { left, top, right, bottom }
+}
+
+fn show_text(text: &str) {
+    let Some((tooltip, owner)) = handles() else { return };
     unsafe {
         set_text(tooltip, owner, text);
         let mut empty = wide("");
@@ -119,20 +145,21 @@ pub fn visible() -> bool {
     VISIBLE.load(Relaxed)
 }
 
-/// Replaces the text if the tooltip is showing.
-pub fn update(text: &str) {
-    let Some((tooltip, owner)) = handles() else { return };
+/// Redraws the tooltip if it is showing.
+pub fn update(tip: &Tip) {
     if VISIBLE.load(Relaxed) {
-        unsafe {
-            set_text(tooltip, owner, text);
-            place(tooltip);
-        }
+        show(tip, icon());
     }
 }
 
 pub fn hide() {
-    let Some((tooltip, owner)) = handles() else { return };
     VISIBLE.store(false, Relaxed);
+    hide_text();
+    card::hide();
+}
+
+fn hide_text() {
+    let Some((tooltip, owner)) = handles() else { return };
     let mut empty = wide("");
     let info = tool(owner, &mut empty);
     unsafe {
