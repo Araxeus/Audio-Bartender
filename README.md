@@ -62,7 +62,7 @@ Stored in `%APPDATA%\AudioBartender\config.ini` and shared by both front ends. T
 - Album art as app icon (the track thumbnail the app reports to SMTC)
 - Tray icons: opens the Windows pages for showing ours and hiding Windows' volume icon
 - Theme: System, Light, Dark
-- Accent color: Blue (default), Cyan, Teal, Purple, Hot pink or Orange. The core owns the palette, so both front ends and the tooltip cards match
+- Accent color: Blue, Cyan (default), Teal, Purple, Hot pink or Orange. The core owns the palette, so both front ends and the tooltip cards match
 - Tray icon: Ring or Number
 - Tooltip: Now playing, Compact or Text
 - Tooltip buttons: None, Hover (default), Inline, Capsule or Player. Cards with buttons stay open while hovered and change the volume on scroll

@@ -186,8 +186,8 @@ pub enum VolumeBars {
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 #[cfg_attr(feature = "serde", derive(Deserialize), serde(rename_all = "camelCase"))]
 pub enum Accent {
-    #[default]
     Blue,
+    #[default]
     Cyan,
     Teal,
     Purple,
@@ -444,7 +444,7 @@ impl Default for Settings {
             media_buttons: MediaButtons::Hover,
             media_controls: MediaControls::Hover,
             level_meters: LevelMeters::Bars,
-            accent: Accent::Blue,
+            accent: Accent::Cyan,
         }
     }
 }

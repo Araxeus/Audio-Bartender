@@ -33,15 +33,15 @@ foreach ($scale in 1, 1.5, 2) {
     # Finish panel: a deep gradient with the icon and the name.
     $w = [int][math]::Round(164 * $scale); $h = [int][math]::Round(314 * $scale)
     $bmp, $g = New-Canvas $w $h
-    $bg = New-Object System.Drawing.Drawing2D.LinearGradientBrush (New-Object System.Drawing.Point 0, 0), (New-Object System.Drawing.Point $w, $h), ([System.Drawing.Color]::FromArgb(255, 24, 24, 40)), ([System.Drawing.Color]::FromArgb(255, 49, 30, 88))
+    $bg = New-Object System.Drawing.Drawing2D.LinearGradientBrush (New-Object System.Drawing.Point 0, 0), (New-Object System.Drawing.Point $w, $h), ([System.Drawing.Color]::FromArgb(255, 10, 20, 30)), ([System.Drawing.Color]::FromArgb(255, 12, 58, 74))
     $g.FillRectangle($bg, 0, 0, $w, $h)
     # A soft glow behind the icon.
     $glow = New-Object System.Drawing.Drawing2D.GraphicsPath
     $gs = [int]($w * 0.95); $gx = [int](($w - $gs) / 2); $gy = [int]($h * 0.36 - $gs / 2)
     $glow.AddEllipse($gx, $gy, $gs, $gs)
     $gb = New-Object System.Drawing.Drawing2D.PathGradientBrush $glow
-    $gb.CenterColor = [System.Drawing.Color]::FromArgb(110, 139, 92, 246)
-    $gb.SurroundColors = @([System.Drawing.Color]::FromArgb(0, 139, 92, 246))
+    $gb.CenterColor = [System.Drawing.Color]::FromArgb(110, 6, 182, 212)
+    $gb.SurroundColors = @([System.Drawing.Color]::FromArgb(0, 6, 182, 212))
     $g.FillPath($gb, $glow)
     $is = [int]($w * 0.5)
     $g.DrawImage($icon, [int](($w - $is) / 2), [int]($h * 0.36 - $is / 2), $is, $is)

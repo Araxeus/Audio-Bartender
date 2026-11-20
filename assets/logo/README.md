@@ -10,7 +10,7 @@ Three bottles on the back bar, their heights reading like a mixer's level meters
 | `icon-small.svg` | App icon, 32 px and below: chunkier bottles that stay apart |
 | `icon-flat.svg` | App icon without the gradient, for print and one-colour work |
 | `glyph.svg`, `glyph-small.svg` | The bottles alone in `currentColor`, for UI on an accent tile |
-| `glyph-black.svg`, `glyph-white.svg`, `glyph-indigo.svg` | The bottles alone in one colour |
+| `glyph-black.svg`, `glyph-white.svg`, `glyph-cyan.svg` | The bottles alone in one colour |
 | `lockup-horizontal.svg`, `lockup-horizontal-white.svg` | Icon and name side by side, on light and dark |
 | `lockup-stacked.svg` | Icon above the name |
 | `wordmark.svg` | The name alone |
@@ -21,9 +21,9 @@ Three bottles on the back bar, their heights reading like a mixer's level meters
 
 | Name | HEX | RGB | Use |
 |---|---|---|---|
-| Indigo | `#6366F1` | 99 102 241 | Tile gradient start |
-| Violet | `#7C3AED` | 124 58 237 | Tile gradient end |
-| Deep indigo | `#4F46E5` | 79 70 229 | Flat tile, one-colour glyph |
+| Cyan | `#06B6D4` | 6 182 212 | Tile gradient start |
+| Deep teal | `#0E7490` | 14 116 144 | Tile gradient end |
+| Teal | `#0891B2` | 8 145 178 | Flat tile, one-colour glyph |
 | Ink | `#1C1B22` | 28 27 34 | Wordmark on light |
 | White | `#FFFFFF` | 255 255 255 | Bottles, wordmark on dark |
 

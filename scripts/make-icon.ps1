@@ -37,7 +37,7 @@ function New-IconPng([int]$s) {
     $tile.AddArc($m, $m, $r, $r, 180, 90); $tile.AddArc($e - $r, $m, $r, $r, 270, 90)
     $tile.AddArc($e - $r, $e - $r, $r, $r, 0, 90); $tile.AddArc($m, $e - $r, $r, $r, 90, 90)
     $tile.CloseFigure()
-    $brush = New-Object System.Drawing.Drawing2D.LinearGradientBrush (New-Object System.Drawing.PointF $m, $m), (New-Object System.Drawing.PointF $e, $e), ([System.Drawing.Color]::FromArgb(255, 0x63, 0x66, 0xF1)), ([System.Drawing.Color]::FromArgb(255, 0x7C, 0x3A, 0xED))
+    $brush = New-Object System.Drawing.Drawing2D.LinearGradientBrush (New-Object System.Drawing.PointF $m, $m), (New-Object System.Drawing.PointF $e, $e), ([System.Drawing.Color]::FromArgb(255, 0x06, 0xB6, 0xD4)), ([System.Drawing.Color]::FromArgb(255, 0x0E, 0x74, 0x90))
     $g.FillPath($brush, $tile)
 
     $bottles = New-Object System.Drawing.Drawing2D.GraphicsPath

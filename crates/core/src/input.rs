@@ -90,7 +90,7 @@ static TRAY_STATE: Mutex<TrayState> = Mutex::new(TrayState {
     style: TrayStyle::Ring,
     tooltip: TooltipStyle::NowPlaying,
     buttons: MediaButtons::Hover,
-    accent: Accent::Blue,
+    accent: Accent::Cyan,
     dark: None,
     device: None,
     media: card::Media { app: None, playback: Playback::Unknown, running: false, track: None, icon: None },
