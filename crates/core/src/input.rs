@@ -30,7 +30,7 @@ use crate::tray_icon::{self, Look};
 use crate::tooltip;
 use crate::util::fill_wide;
 use crate::tooltip::Tip;
-use crate::{Accent, Anchor, Cmd, Event, MediaKey, Page, Playback, Rect, Shared, State, TooltipStyle, TrayStyle, audio, card, volume};
+use crate::{Accent, Anchor, Cmd, Event, MediaButtons, MediaKey, Page, Playback, Rect, Shared, State, TooltipStyle, TrayStyle, audio, card, volume};
 use windows::Win32::UI::Shell::ShellExecuteW;
 use windows::Win32::UI::WindowsAndMessaging::SW_SHOWNORMAL;
 
@@ -43,6 +43,10 @@ const WM_MENU_WHEEL: u32 = WM_APP + 5;
 
 /// Polls the pointer while our tooltip outlives the shell's hover.
 const TIMER_TOOLTIP: usize = 1;
+
+/// How long a card with buttons stays while the pointer is on neither it nor the
+/// icon, so the pointer can cross the taskbar to reach it.
+const CARD_GRACE_MS: u64 = 300;
 
 const ID_OPEN: usize = 1;
 const ID_AUTOMATIC: usize = 2;
@@ -83,6 +87,7 @@ static TRAY_STATE: Mutex<TrayState> = Mutex::new(TrayState {
     muted: false,
     style: TrayStyle::Ring,
     tooltip: TooltipStyle::NowPlaying,
+    buttons: MediaButtons::Capsule,
     accent: Accent::Blue,
     dark: None,
     device: None,
@@ -94,6 +99,7 @@ struct TrayState {
     muted: bool,
     style: TrayStyle,
     tooltip: TooltipStyle,
+    buttons: MediaButtons,
     accent: Accent,
     dark: Option<bool>,
     device: Option<String>,
@@ -129,6 +135,7 @@ impl TrayState {
                 let dark = self.dark.unwrap_or_else(|| !card::apps_light());
                 Tip::Card(card::Content {
                     style,
+                    buttons: self.buttons,
                     dark,
                     accent: self.accent.colors(dark).accent,
                     device: self.device.clone(),
@@ -139,6 +146,39 @@ impl TrayState {
             }
         }
     }
+}
+
+/// When the pointer left both the icon and the card, or zero while it is on one.
+static AWAY_MS: AtomicU64 = AtomicU64::new(0);
+
+/// True while the tooltip should stay: the pointer is on the icon, on a card with
+/// buttons, or has been off both for less than the grace period.
+fn keep_tooltip() -> bool {
+    if tooltip::pointer_on_icon() {
+        AWAY_MS.store(0, Relaxed);
+        return true;
+    }
+    if !card::interactive() {
+        return false;
+    }
+    if card::pointer_on_card() {
+        AWAY_MS.store(0, Relaxed);
+        return true;
+    }
+    let now = now_ms();
+    let away = match AWAY_MS.load(Relaxed) {
+        0 => {
+            AWAY_MS.store(now, Relaxed);
+            now
+        }
+        at => at,
+    };
+    now - away < CARD_GRACE_MS
+}
+
+/// Sends a media key from a card button.
+pub(crate) fn press(key: MediaKey) {
+    shared().send(Cmd::Press(key));
 }
 
 /// The icon's screen rectangle as last reported by the shell, for the mouse hook.
@@ -216,6 +256,7 @@ pub fn update_tray(state: &State) {
         tray.muted = audio.muted;
         tray.style = state.settings.tray_style;
         tray.tooltip = state.settings.tooltip;
+        tray.buttons = state.settings.media_buttons;
         tray.accent = state.settings.accent;
         tray.dark = state.settings.dark;
         tray.device = audio.device().map(|d| d.name.clone());
@@ -347,7 +388,8 @@ unsafe extern "system" fn mouse_hook(code: i32, wparam: WPARAM, lparam: LPARAM) 
         let [l, t, r, b] = ICON_RECT.each_ref().map(|v| v.load(Relaxed));
         let (x, y) = (event.pt.x, event.pt.y);
         let fresh = now_ms().saturating_sub(LAST_HOVER_MS.load(Relaxed)) < HOVER_TRUST_MS;
-        if fresh && x >= l && x < r && y >= t && y < b {
+        let on_icon = fresh && x >= l && x < r && y >= t && y < b;
+        if on_icon || card::contains(event.pt) {
             post(WM_WHEEL, delta as u16 as usize);
             return LRESULT(1);
         }
@@ -365,11 +407,13 @@ unsafe extern "system" fn wndproc(hwnd: HWND, msg: u32, wparam: WPARAM, lparam: 
                 tooltip::show(&tip, icon_rect(hwnd).unwrap_or_else(|| cursor_rect()));
             }
             // Redrawing the icon also makes the shell close the tooltip, so while the
-            // pointer stays on the icon, keep it and watch for the pointer to leave.
+            // pointer stays on the icon, or heads for a card with buttons, keep it and
+            // watch for the pointer to leave.
             NIN_POPUPCLOSE => {
-                if tooltip::pointer_on_icon() {
+                if tooltip::pointer_on_icon() || card::interactive() {
+                    AWAY_MS.store(0, Relaxed);
                     unsafe {
-                        SetTimer(Some(hwnd), TIMER_TOOLTIP, 150, None);
+                        SetTimer(Some(hwnd), TIMER_TOOLTIP, 100, None);
                     }
                 } else {
                     tooltip::hide();
@@ -406,11 +450,12 @@ unsafe extern "system" fn wndproc(hwnd: HWND, msg: u32, wparam: WPARAM, lparam: 
         }
         WM_MENU_WHEEL => unsafe { menu_wheel(lparam.0 as u32, wparam.0 as u16 as i16) },
         WM_TIMER if wparam.0 == TIMER_TOOLTIP => {
-            if !tooltip::visible() || !tooltip::pointer_on_icon() {
-                tooltip::hide();
-                unsafe {
-                    let _ = KillTimer(Some(hwnd), TIMER_TOOLTIP);
-                }
+            if tooltip::visible() && keep_tooltip() {
+                return LRESULT(0);
+            }
+            tooltip::hide();
+            unsafe {
+                let _ = KillTimer(Some(hwnd), TIMER_TOOLTIP);
             }
         }
         WM_SHOW => show(Page::Apps),

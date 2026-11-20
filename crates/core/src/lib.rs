@@ -249,7 +249,7 @@ impl Accent {
 }
 
 /// `a` moved `t` of the way towards `b`, per channel.
-fn mix(a: u32, b: u32, t: f32) -> u32 {
+pub(crate) fn mix(a: u32, b: u32, t: f32) -> u32 {
     let channel = |shift: u32| {
         let (x, y) = (((a >> shift) & 0xff) as f32, ((b >> shift) & 0xff) as f32);
         ((x + (y - x) * t).round() as u32) << shift
@@ -284,6 +284,41 @@ pub enum TooltipStyle {
     Text,
 }
 
+/// Media buttons on the tooltip cards. Each choice has a look on both cards.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize), serde(rename_all = "camelCase"))]
+pub enum MediaButtons {
+    None,
+    /// Shown on the art or the app line while the pointer is on the card.
+    Hover,
+    /// Small buttons at the end of the status line.
+    Inline,
+    /// A capsule on the line between the track and the volume.
+    #[default]
+    Capsule,
+    /// A row under the track, or a dock beside the compact card.
+    Player,
+}
+
+impl MediaButtons {
+    /// The config file name.
+    pub fn name(self) -> &'static str {
+        match self {
+            MediaButtons::None => "none",
+            MediaButtons::Hover => "hover",
+            MediaButtons::Inline => "inline",
+            MediaButtons::Capsule => "capsule",
+            MediaButtons::Player => "player",
+        }
+    }
+
+    pub fn from_name(name: &str) -> Option<MediaButtons> {
+        [MediaButtons::None, MediaButtons::Hover, MediaButtons::Inline, MediaButtons::Capsule, MediaButtons::Player]
+            .into_iter()
+            .find(|b| b.name() == name)
+    }
+}
+
 /// Preferences shared by both front ends, stored in `config.ini`.
 #[derive(Clone, Debug, PartialEq)]
 #[cfg_attr(feature = "serde", derive(Serialize), serde(rename_all = "camelCase"))]
@@ -296,6 +331,7 @@ pub struct Settings {
     pub tray_style: TrayStyle,
     pub volume_bars: VolumeBars,
     pub tooltip: TooltipStyle,
+    pub media_buttons: MediaButtons,
     pub accent: Accent,
 }
 
@@ -308,6 +344,7 @@ impl Default for Settings {
             tray_style: TrayStyle::Ring,
             volume_bars: VolumeBars::Compact,
             tooltip: TooltipStyle::NowPlaying,
+            media_buttons: MediaButtons::Capsule,
             accent: Accent::Blue,
         }
     }
@@ -323,6 +360,7 @@ pub enum Setting {
     TrayStyle(TrayStyle),
     VolumeBars(VolumeBars),
     Tooltip(TooltipStyle),
+    MediaButtons(MediaButtons),
     Accent(Accent),
 }
 

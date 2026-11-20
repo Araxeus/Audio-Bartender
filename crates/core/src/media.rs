@@ -193,6 +193,7 @@ impl Worker {
                     Setting::TrayStyle(style) => s.tray_style = style,
                     Setting::VolumeBars(bars) => s.volume_bars = bars,
                     Setting::Tooltip(style) => s.tooltip = style,
+                    Setting::MediaButtons(buttons) => s.media_buttons = buttons,
                     Setting::Accent(accent) => s.accent = accent,
                 }
                 self.config.save();
