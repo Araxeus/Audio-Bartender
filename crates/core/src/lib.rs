@@ -296,11 +296,11 @@ pub enum TooltipStyle {
 pub enum LevelMeters {
     None,
     /// Inside the row's volume control.
+    #[default]
     Volume,
     /// A ring around the app icon.
     Ring,
     /// Equalizer bars before the app name.
-    #[default]
     Bars,
     /// A line along the bottom of the row.
     Line,
@@ -449,7 +449,7 @@ impl Default for Settings {
             tooltip: TooltipStyle::NowPlaying,
             media_buttons: MediaButtons::Hover,
             media_controls: MediaControls::Hover,
-            level_meters: LevelMeters::Bars,
+            level_meters: LevelMeters::Volume,
             accent: Accent::Cyan,
         }
     }
