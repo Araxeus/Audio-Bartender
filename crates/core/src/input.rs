@@ -17,13 +17,13 @@ use windows::Win32::UI::Input::KeyboardAndMouse::{
     VIRTUAL_KEY, VK_MEDIA_NEXT_TRACK, VK_MEDIA_PLAY_PAUSE, VK_MEDIA_PREV_TRACK, VK_MEDIA_STOP,
 };
 use windows::Win32::UI::Shell::{
-    NIF_ICON, NIF_MESSAGE, NIF_TIP, NIN_POPUPCLOSE, NIN_POPUPOPEN, NIM_ADD, NIM_DELETE, NIM_MODIFY, NIM_SETVERSION,
+    NIF_GUID, NIF_ICON, NIF_MESSAGE, NIF_TIP, NIN_POPUPCLOSE, NIN_POPUPOPEN, NIM_ADD, NIM_DELETE, NIM_MODIFY, NIM_SETVERSION,
     NOTIFYICON_VERSION_4, NOTIFY_ICON_MESSAGE, NOTIFYICONDATAW,
     NOTIFYICONIDENTIFIER, Shell_NotifyIconGetRect, Shell_NotifyIconW,
 };
 use windows::Win32::UI::WindowsAndMessaging::*;
 use windows::Win32::Graphics::Gdi::InvalidateRect;
-use windows::core::{BOOL, PCSTR, PCWSTR, PWSTR, w};
+use windows::core::{BOOL, GUID, PCSTR, PCWSTR, PWSTR, w};
 
 use crate::tray_icon::{self, Look};
 use crate::tooltip;
@@ -273,7 +273,8 @@ pub fn update_tray(state: &State) {
 pub fn remove_tray() {
     let hwnd = HWND(TRAY.load(Relaxed) as _);
     if !hwnd.is_invalid() {
-        let data = NOTIFYICONDATAW { cbSize: size_of::<NOTIFYICONDATAW>() as u32, hWnd: hwnd, ..Default::default() };
+        let mut data = NOTIFYICONDATAW { cbSize: size_of::<NOTIFYICONDATAW>() as u32, hWnd: hwnd, ..Default::default() };
+        identify(&mut data);
         unsafe {
             let _ = Shell_NotifyIconW(NIM_DELETE, &data);
         }
@@ -465,8 +466,7 @@ unsafe extern "system" fn wndproc(hwnd: HWND, msg: u32, wparam: WPARAM, lparam: 
 /// The icon's rectangle, if the pointer is on it. For an icon hidden in the overflow
 /// area the shell reports the overflow button instead, which must not count.
 fn icon_rect(hwnd: HWND) -> Option<RECT> {
-    let id = NOTIFYICONIDENTIFIER { cbSize: size_of::<NOTIFYICONIDENTIFIER>() as u32, hWnd: hwnd, ..Default::default() };
-    let rect = unsafe { Shell_NotifyIconGetRect(&id).ok()? };
+    let rect = unsafe { Shell_NotifyIconGetRect(&identifier(hwnd)).ok()? };
     let mut at = POINT::default();
     unsafe { GetCursorPos(&mut at).ok()? };
     let inside = at.x >= rect.left && at.x < rect.right && at.y >= rect.top && at.y < rect.bottom;
@@ -498,8 +498,7 @@ fn show(page: Page) {
 /// bottom-right corner of the primary screen.
 pub fn default_anchor() -> Anchor {
     let hwnd = HWND(TRAY.load(Relaxed) as _);
-    let id = NOTIFYICONIDENTIFIER { cbSize: size_of::<NOTIFYICONIDENTIFIER>() as u32, hWnd: hwnd, ..Default::default() };
-    let icon = unsafe { Shell_NotifyIconGetRect(&id) }.unwrap_or_else(|_| {
+    let icon = unsafe { Shell_NotifyIconGetRect(&identifier(hwnd)) }.unwrap_or_else(|_| {
         let work = unsafe {
             let monitor = MonitorFromPoint(POINT::default(), MONITOR_DEFAULTTOPRIMARY);
             let mut info = MONITORINFO { cbSize: size_of::<MONITORINFO>() as u32, ..Default::default() };
@@ -539,6 +538,36 @@ pub(crate) fn anchor_for(icon: RECT) -> Anchor {
     }
 }
 
+/// False once the shell refused the GUID, so the icon falls back to the window and
+/// number identity rather than not showing.
+static USE_GUID: AtomicBool = AtomicBool::new(true);
+
+/// The tray icon's fixed identity, which lets Windows remember where the user put it
+/// across restarts. It comes from the exe's path, because Windows binds a GUID to one
+/// path: each copy, and each front end, gets its own.
+fn icon_guid() -> GUID {
+    static ID: OnceLock<GUID> = OnceLock::new();
+    *ID.get_or_init(|| {
+        let name = std::env::current_exe().map(|p| p.to_string_lossy().to_lowercase()).unwrap_or_default();
+        // FNV-1a, so the same path always gives the same GUID.
+        let hash = name.bytes().fold(0xcbf2_9ce4_8422_2325u64, |h, b| (h ^ b as u64).wrapping_mul(0x0100_0000_01b3));
+        GUID::from_u128(0x5f3a_9c1e_7b42_4d08_0000_0000_0000_0000 | hash as u128)
+    })
+}
+
+/// Marks `data` with the fixed identity while the shell accepts it.
+fn identify(data: &mut NOTIFYICONDATAW) {
+    if USE_GUID.load(Relaxed) {
+        data.uFlags |= NIF_GUID;
+        data.guidItem = icon_guid();
+    }
+}
+
+fn identifier(hwnd: HWND) -> NOTIFYICONIDENTIFIER {
+    let guid = if USE_GUID.load(Relaxed) { icon_guid() } else { GUID::zeroed() };
+    NOTIFYICONIDENTIFIER { cbSize: size_of::<NOTIFYICONIDENTIFIER>() as u32, hWnd: hwnd, guidItem: guid, ..Default::default() }
+}
+
 /// Draws the current volume and pushes it to the shell with `action`.
 unsafe fn set_icon(hwnd: HWND, action: NOTIFY_ICON_MESSAGE) {
     static CURRENT: AtomicIsize = AtomicIsize::new(0);
@@ -563,9 +592,23 @@ unsafe fn set_icon(hwnd: HWND, action: NOTIFY_ICON_MESSAGE) {
         ..Default::default()
     };
     fill_wide(&mut data.szTip, &text);
+    identify(&mut data);
     tooltip::update(&tip);
     unsafe {
-        let _ = Shell_NotifyIconW(action, &data);
+        if action == NIM_ADD && USE_GUID.load(Relaxed) {
+            // Clears an icon a crashed copy left behind, which would block the GUID.
+            let _ = Shell_NotifyIconW(NIM_DELETE, &data);
+        }
+        let added = Shell_NotifyIconW(action, &data).as_bool();
+        if action == NIM_ADD {
+            crate::util::log(format!("tray icon added: {added}, with GUID: {}", USE_GUID.load(Relaxed)));
+        }
+        if action == NIM_ADD && !added && USE_GUID.swap(false, Relaxed) {
+            crate::util::log("tray GUID refused, using the window identity");
+            data.uFlags &= !NIF_GUID;
+            data.guidItem = GUID::zeroed();
+            let _ = Shell_NotifyIconW(NIM_ADD, &data);
+        }
         if action == NIM_ADD {
             // Version 4 sends the hover events that drive our own tooltip.
             data.Anonymous.uVersion = NOTIFYICON_VERSION_4;
