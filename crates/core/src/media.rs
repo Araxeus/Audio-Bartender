@@ -183,7 +183,16 @@ impl Worker {
                 self.config.save();
                 self.refresh(false);
             }
-            Cmd::Press(key) => self.press(key),
+            Cmd::Press(key) => {
+                let state = self.shared.state();
+                self.press(state.routed(), key);
+            }
+            Cmd::PressFor(id, key) => {
+                let state = self.shared.state();
+                if let Some(target) = state.targets.iter().find(|t| t.id == id && t.running) {
+                    self.press(Some(target), key);
+                }
+            }
             Cmd::Set(setting) => {
                 let s = &mut self.config.settings;
                 match setting {
@@ -194,6 +203,7 @@ impl Worker {
                     Setting::VolumeBars(bars) => s.volume_bars = bars,
                     Setting::Tooltip(style) => s.tooltip = style,
                     Setting::MediaButtons(buttons) => s.media_buttons = buttons,
+                    Setting::MediaControls(controls) => s.media_controls = controls,
                     Setting::Accent(accent) => s.accent = accent,
                 }
                 self.config.save();
@@ -387,11 +397,10 @@ impl Worker {
         }
     }
 
-    /// Sends `key` to the routed target, or to Windows' current session in automatic mode.
-    fn press(&mut self, key: MediaKey) {
-        let state = self.shared.state();
-        crate::util::log(format!("press {key:?} -> {:?}", state.routed().map(|t| &t.id)));
-        match state.routed() {
+    /// Sends `key` to `target`, or to Windows' current session without one.
+    fn press(&mut self, target: Option<&Target>, key: MediaKey) {
+        crate::util::log(format!("press {key:?} -> {:?}", target.map(|t| &t.id)));
+        match target {
             Some(target) if target.via_window => press_window(&target.id["exe:".len()..], key),
             Some(target) => {
                 let aumid = &target.id["smtc:".len()..];

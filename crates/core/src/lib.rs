@@ -284,6 +284,49 @@ pub enum TooltipStyle {
     Text,
 }
 
+/// Where the flyout puts previous, play/pause and next.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize), serde(rename_all = "camelCase"))]
+pub enum MediaControls {
+    /// A now playing card at the top.
+    #[default]
+    Banner,
+    /// Under the selected app's row.
+    Row,
+    /// A now playing line above the device volume.
+    Dock,
+    /// On each app's row while hovered, controlling that app.
+    Hover,
+}
+
+impl MediaControls {
+    pub const ALL: [MediaControls; 4] =
+        [MediaControls::Banner, MediaControls::Row, MediaControls::Dock, MediaControls::Hover];
+
+    /// The config file and front end name.
+    pub fn name(self) -> &'static str {
+        match self {
+            MediaControls::Banner => "banner",
+            MediaControls::Row => "row",
+            MediaControls::Dock => "dock",
+            MediaControls::Hover => "hover",
+        }
+    }
+
+    pub fn from_name(name: &str) -> Option<MediaControls> {
+        MediaControls::ALL.into_iter().find(|c| c.name() == name)
+    }
+
+    pub fn label(self) -> &'static str {
+        match self {
+            MediaControls::Banner => "Banner",
+            MediaControls::Row => "Row",
+            MediaControls::Dock => "Dock",
+            MediaControls::Hover => "Hover",
+        }
+    }
+}
+
 /// Media buttons on the tooltip cards. Each choice has a look on both cards.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize), serde(rename_all = "camelCase"))]
@@ -332,6 +375,7 @@ pub struct Settings {
     pub volume_bars: VolumeBars,
     pub tooltip: TooltipStyle,
     pub media_buttons: MediaButtons,
+    pub media_controls: MediaControls,
     pub accent: Accent,
 }
 
@@ -345,6 +389,7 @@ impl Default for Settings {
             volume_bars: VolumeBars::Compact,
             tooltip: TooltipStyle::NowPlaying,
             media_buttons: MediaButtons::Capsule,
+            media_controls: MediaControls::Banner,
             accent: Accent::Blue,
         }
     }
@@ -361,6 +406,7 @@ pub enum Setting {
     VolumeBars(VolumeBars),
     Tooltip(TooltipStyle),
     MediaButtons(MediaButtons),
+    MediaControls(MediaControls),
     Accent(Accent),
 }
 
@@ -515,6 +561,8 @@ pub(crate) enum Cmd {
     RefreshAudio { devices: bool },
     Select(Option<String>),
     Press(MediaKey),
+    /// A key for one target, whether or not media keys go to it.
+    PressFor(String, MediaKey),
     Set(Setting),
 }
 
@@ -576,6 +624,11 @@ impl Core {
     /// Sends a key to the routed target, or to Windows' current session in automatic mode.
     pub fn press(&self, key: MediaKey) {
         self.shared.send(Cmd::Press(key));
+    }
+
+    /// Sends a key to the target with `id`, leaving where media keys go unchanged.
+    pub fn press_for(&self, id: &str, key: MediaKey) {
+        self.shared.send(Cmd::PressFor(id.to_owned(), key));
     }
 
     pub fn set(&self, setting: Setting) {
