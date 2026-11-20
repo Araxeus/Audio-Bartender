@@ -144,27 +144,26 @@ pub fn windows_11() -> bool {
     })
 }
 
-/// Moves this app's tray icon out of the overflow on Windows 11. Explorer keeps each
-/// icon's place in a key under `NotifyIconSettings`, named for nothing we know, so this
-/// finds ours by its executable and sets `IsPromoted`, as dragging the icon does.
-/// Returns false when no key names this executable yet.
-pub fn promote_tray_icon() -> bool {
+const ICON_SETTINGS: &str = "Control Panel\\NotifyIconSettings";
+
+/// The Windows 11 keys that keep this app's tray icon place, one per copy of the exe
+/// Explorer has seen. Explorer names them for nothing we know, so this finds ours by
+/// the executable's file name. The path may start with a known folder's GUID.
+fn our_icon_keys() -> Vec<Vec<u16>> {
     use windows::Win32::System::Registry::{
-        HKEY, HKEY_CURRENT_USER, KEY_READ, REG_DWORD, RRF_RT_REG_SZ, RegCloseKey, RegEnumKeyExW, RegGetValueW,
-        RegOpenKeyExW, RegSetKeyValueW,
+        HKEY, HKEY_CURRENT_USER, KEY_READ, RRF_RT_REG_SZ, RegCloseKey, RegEnumKeyExW, RegGetValueW, RegOpenKeyExW,
     };
-    const ROOT: &str = "Control Panel\\NotifyIconSettings";
     let Some(exe) =
         std::env::current_exe().ok().and_then(|p| p.file_name().map(|n| n.to_string_lossy().to_lowercase()))
     else {
-        return false;
+        return Vec::new();
     };
-    let root = wide(ROOT);
-    let mut promoted = false;
+    let root = wide(ICON_SETTINGS);
+    let mut keys = Vec::new();
     unsafe {
         let mut key = HKEY::default();
         if RegOpenKeyExW(HKEY_CURRENT_USER, windows::core::PCWSTR(root.as_ptr()), None, KEY_READ, &mut key).is_err() {
-            return false;
+            return keys;
         }
         for index in 0.. {
             let mut name = [0u16; 64];
@@ -182,7 +181,7 @@ pub fn promote_tray_icon() -> bool {
             if listed.is_err() {
                 break;
             }
-            let sub = wide(&format!("{ROOT}\\{}", from_wide(&name)));
+            let sub = wide(&format!("{ICON_SETTINGS}\\{}", from_wide(&name)));
             let mut path = [0u16; 1024];
             let mut size = (path.len() * 2) as u32;
             let found = RegGetValueW(
@@ -194,25 +193,60 @@ pub fn promote_tray_icon() -> bool {
                 Some(path.as_mut_ptr().cast()),
                 Some(&mut size),
             );
-            // The path may start with a known folder's GUID, so match the file name.
-            let path = from_wide(&path).to_lowercase();
-            if found.is_ok() && path.rsplit('\\').next() == Some(exe.as_str()) {
-                let one = 1u32;
-                let set = RegSetKeyValueW(
-                    HKEY_CURRENT_USER,
-                    windows::core::PCWSTR(sub.as_ptr()),
-                    windows::core::w!("IsPromoted"),
-                    REG_DWORD.0,
-                    Some((&one as *const u32).cast()),
-                    4,
-                );
-                promoted |= set.is_ok();
+            if found.is_ok() && from_wide(&path).to_lowercase().rsplit('\\').next() == Some(exe.as_str()) {
+                keys.push(sub);
             }
         }
         let _ = RegCloseKey(key);
     }
-    crate::log(format!("tray icon promoted: {promoted}"));
-    promoted
+    keys
+}
+
+/// On Windows 11, whether this app's tray icon shows on the taskbar. Dragging an icon
+/// out of the overflow sets `IsPromoted` on its key, and a missing value means hidden.
+pub fn tray_icon_promoted() -> Option<bool> {
+    use windows::Win32::System::Registry::{HKEY_CURRENT_USER, RRF_RT_REG_DWORD, RegGetValueW};
+    let keys = our_icon_keys();
+    if keys.is_empty() {
+        return None;
+    }
+    Some(keys.iter().any(|key| {
+        let (mut value, mut size) = (0u32, 4u32);
+        let found = unsafe {
+            RegGetValueW(
+                HKEY_CURRENT_USER,
+                windows::core::PCWSTR(key.as_ptr()),
+                windows::core::w!("IsPromoted"),
+                RRF_RT_REG_DWORD,
+                None,
+                Some((&mut value as *mut u32).cast()),
+                Some(&mut size),
+            )
+        };
+        found.is_ok() && value == 1
+    }))
+}
+
+/// On Windows 11, shows or hides this app's tray icon on the taskbar, as dragging it
+/// does. Returns false when Explorer has no key for it yet.
+pub fn set_tray_icon_promoted(show: bool) -> bool {
+    use windows::Win32::System::Registry::{HKEY_CURRENT_USER, REG_DWORD, RegSetKeyValueW};
+    let value = u32::from(show);
+    let set = our_icon_keys().iter().fold(false, |set, key| {
+        let done = unsafe {
+            RegSetKeyValueW(
+                HKEY_CURRENT_USER,
+                windows::core::PCWSTR(key.as_ptr()),
+                windows::core::w!("IsPromoted"),
+                REG_DWORD.0,
+                Some((&value as *const u32).cast()),
+                4,
+            )
+        };
+        set | done.is_ok()
+    });
+    crate::log(format!("tray icon promoted {show}: {set}"));
+    set
 }
 
 /// Puts a topmost window above the other topmost windows, such as a flyout that

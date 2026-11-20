@@ -366,6 +366,7 @@ impl Worker {
             selected: self.config.target.clone(),
             settings,
             update: crate::update::status(),
+            icon_on_taskbar: crate::input::icon_on_taskbar(),
         };
         {
             let mut current = self.shared.state.lock().unwrap();

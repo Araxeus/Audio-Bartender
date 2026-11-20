@@ -17,8 +17,9 @@ const PANEL_WIDTH: f64 = 640.0;
 
 /// Each part is a rounded card with a shadow, `MARGIN` inside its box so the shadow
 /// fits in the window region. Toward the taskbar the margin is [`edge`], so the cards
-/// float on Windows 11 and sit flush against the taskbar on Windows 10.
-const MARGIN: f64 = 12.0;
+/// float `FLOAT` clear of it on Windows 11 and sit flush against it on Windows 10.
+const MARGIN: f64 = 8.0;
+const FLOAT: f64 = 12.0;
 /// How far the panel's box overlaps the flyout's, leaving 8 px between the cards.
 const OVERLAP: f64 = 2.0 * MARGIN - 8.0;
 
@@ -26,11 +27,11 @@ const OVERLAP: f64 = 2.0 * MARGIN - 8.0;
 const PANEL_PART: f64 = PANEL_WIDTH + 2.0 * MARGIN - OVERLAP;
 /// The window's fixed size. Its region shows only the flyout and the open panel.
 const FRAME_WIDTH: f64 = FLYOUT_WIDTH + 2.0 * MARGIN + PANEL_PART;
-const FRAME_HEIGHT: f64 = 640.0 + 2.0 * MARGIN;
+const FRAME_HEIGHT: f64 = 640.0 + MARGIN + FLOAT;
 
 /// The margin on the taskbar side of each card.
 fn edge(anchor: &Anchor) -> f64 {
-    if anchor.floats() { MARGIN } else { 0.0 }
+    if anchor.floats() { FLOAT } else { 0.0 }
 }
 
 /// A tray click that lands right after the flyout closed is the click that closed it.
@@ -136,6 +137,11 @@ fn set_device(core: tauri::State<Core>, id: String) {
 #[tauri::command]
 fn open_icon_page(page: IconPage) {
     audio_bartender_core::open_icon_page(page);
+}
+
+#[tauri::command]
+fn set_icon_on_taskbar(core: tauri::State<Core>, show: bool) {
+    core.set_icon_on_taskbar(show);
 }
 
 #[tauri::command]
@@ -404,6 +410,7 @@ fn main() {
             toggle_master_mute,
             set_device,
             open_icon_page,
+            set_icon_on_taskbar,
             quit,
             set_pinned,
             flyout_size,

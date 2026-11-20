@@ -31,8 +31,9 @@ const MAX_HEIGHT: f32 = 640.;
 
 /// Each part is a rounded card with a shadow, `MARGIN` inside its box so the shadow
 /// fits in the window region. Toward the taskbar the margin is [`edge`], so the cards
-/// float on Windows 11 and sit flush against the taskbar on Windows 10.
-const MARGIN: f32 = 12.;
+/// float `FLOAT` clear of it on Windows 11 and sit flush against it on Windows 10.
+const MARGIN: f32 = 8.;
+const FLOAT: f32 = 12.;
 const RADIUS: f32 = 8.;
 /// How far the panel's box overlaps the flyout's, leaving 8 px between the cards.
 const OVERLAP: f32 = 2. * MARGIN - 8.;
@@ -40,11 +41,11 @@ const OVERLAP: f32 = 2. * MARGIN - 8.;
 const PANEL_PART: f32 = PANEL + 2. * MARGIN - OVERLAP;
 /// The window's fixed size. Its region shows only the flyout and the open panel.
 pub const FRAME_WIDTH: f32 = WIDTH + 2. * MARGIN + PANEL_PART;
-pub const FRAME_HEIGHT: f32 = MAX_HEIGHT + 2. * MARGIN;
+pub const FRAME_HEIGHT: f32 = MAX_HEIGHT + MARGIN + FLOAT;
 
 /// The margin on the taskbar side of each card.
 fn edge(anchor: &Anchor) -> f32 {
-    if anchor.floats() { MARGIN } else { 0. }
+    if anchor.floats() { FLOAT } else { 0. }
 }
 
 /// The window in physical pixels, with the flyout `height` tall.
@@ -62,9 +63,9 @@ pub fn frame(anchor: &Anchor, height: f32) -> audio_bartender_core::Frame {
 fn card(element: Div, dark: bool) -> Div {
     element.rounded(px(RADIUS)).shadow(vec![BoxShadow {
         color: black().opacity(if dark { 0.45 } else { 0.18 }),
-        offset: point(px(0.), px(4.)),
-        blur_radius: px(10.),
-        spread_radius: px(-2.),
+        offset: point(px(0.), px(2.)),
+        blur_radius: px(6.),
+        spread_radius: px(-1.),
         inset: false,
     }])
 }
@@ -1082,8 +1083,7 @@ impl Flyout {
 
     /// A switch drawn like the Tauri one: an outlined track when off, filled with the
     /// accent when on.
-    fn switch(&self, id: &'static str, on: bool, make: fn(bool) -> Setting, theme: &Theme) -> AnyElement {
-        let core = self.core.clone();
+    fn switch(id: &'static str, on: bool, theme: &Theme, toggle: impl Fn(bool) + 'static) -> AnyElement {
         let (accent, muted) = (theme.primary, theme.muted_foreground);
         div()
             .id(id)
@@ -1105,8 +1105,14 @@ impl Flyout {
                     .rounded_full()
                     .bg(if on { white() } else { muted }),
             )
-            .on_click(move |_, _, _| core.set(make(!on)))
+            .on_click(move |_, _, _| toggle(!on))
             .into_any_element()
+    }
+
+    /// A switch for a setting.
+    fn setting_switch(&self, id: &'static str, on: bool, make: fn(bool) -> Setting, theme: &Theme) -> AnyElement {
+        let core = self.core.clone();
+        Self::switch(id, on, theme, move |on| core.set(make(on)))
     }
 
     /// A small bordered button, for actions inside a settings row.
@@ -1208,9 +1214,42 @@ impl Flyout {
                 .child(control)
                 .into_any_element()
         };
-        let page_button = |id: &'static str, label: &'static str, page: IconPage| {
-            Self::small_button(id, label, theme).on_click(move |_, _, _| audio_bartender_core::open_icon_page(page))
+        // Windows 11 moves our icon at once. Windows 10 shows where it is and opens the
+        // page to change it, and the page that hides the Windows volume icon.
+        let icon_row = if audio_bartender_core::windows_11() {
+            let core = self.core.clone();
+            let on = state.icon_on_taskbar.unwrap_or(false);
+            row(
+                "Show icon on the taskbar",
+                Self::switch("icon-on-taskbar", on, theme, move |on| core.set_icon_on_taskbar(on)),
+            )
+        } else {
+            let core = self.core.clone();
+            let place = match state.icon_on_taskbar {
+                Some(true) => "On the taskbar",
+                Some(false) => "In the overflow",
+                None => "",
+            };
+            row(
+                "Our tray icon",
+                h_flex()
+                    .gap_2()
+                    .child(div().text_size(px(12.)).text_color(theme.muted_foreground).child(place))
+                    .child(
+                        Self::small_button("icon-place", "Change", theme)
+                            .on_click(move |_, _, _| core.set_icon_on_taskbar(true)),
+                    )
+                    .into_any_element(),
+            )
         };
+        let volume_row = (!audio_bartender_core::windows_11()).then(|| {
+            row(
+                "Windows volume icon",
+                Self::small_button("hide-windows", "Hide", theme)
+                    .on_click(|_, _, _| audio_bartender_core::open_icon_page(IconPage::HideWindows))
+                    .into_any_element(),
+            )
+        });
         let update = {
             let core = self.core.clone();
             let busy = state.update.busy();
@@ -1239,18 +1278,18 @@ impl Flyout {
             .flex_1()
             .min_w_0()
             .child(Self::panel_label("GENERAL", theme))
-            .child(row("Start with Windows", self.switch("autostart", s.autostart, Setting::Autostart, theme)))
-            .child(row("Album art as app icon", self.switch("album-art", s.album_art, Setting::AlbumArt, theme)))
-            .child(row("Automatic updates", self.switch("auto-update", s.auto_update, Setting::AutoUpdate, theme)))
-            .child(update)
+            .child(row("Start with Windows", self.setting_switch("autostart", s.autostart, Setting::Autostart, theme)))
             .child(row(
-                "Tray icons",
-                h_flex()
-                    .gap_1()
-                    .child(page_button("show-ours", "Show ours", IconPage::ShowOurs))
-                    .child(page_button("hide-windows", "Hide Windows'", IconPage::HideWindows))
-                    .into_any_element(),
+                "Album art as app icon",
+                self.setting_switch("album-art", s.album_art, Setting::AlbumArt, theme),
             ))
+            .child(row(
+                "Automatic updates",
+                self.setting_switch("auto-update", s.auto_update, Setting::AutoUpdate, theme),
+            ))
+            .child(update)
+            .child(icon_row)
+            .children(volume_row)
             .child(Self::panel_label("LOOK", theme))
             .child(row("Accent color", self.swatches(s.accent, theme)))
             .child(self.segmented(Mode::Theme, s, theme))

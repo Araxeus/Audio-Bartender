@@ -5,6 +5,7 @@ const params = new URLSearchParams(location.search);
 
 let page = location.hash === "#settings" ? "settings" : "apps";
 let pinned = params.get("pinned") === "true";
+const windows11 = params.get("win11") === "true";
 document.body.classList.toggle("floats", params.get("floats") !== "false");
 document.body.dataset.down = params.get("down") === "true";
 let devicesOpen = false;
@@ -392,6 +393,23 @@ function updateRow(update) {
   return el("div", "fly-setting update", el("span", "summary", update.summary), check);
 }
 
+/**
+ * Windows 11 moves our icon at once. Windows 10 shows where it is and opens the page
+ * to change it, and the page that hides the Windows volume icon.
+ */
+function iconRows(onTaskbar) {
+  const row = (title, control) => el("div", "fly-setting", el("span", "", title), control);
+  if (windows11) return [row("Show icon on the taskbar", toggle(onTaskbar === true, (show) => invoke("set_icon_on_taskbar", { show })))];
+  const place = onTaskbar == null ? "" : onTaskbar ? "On the taskbar" : "In the overflow";
+  return [
+    row(
+      "Our tray icon",
+      el("div", "buttons", el("span", "place", place), button("small-button", null, "Change", () => invoke("set_icon_on_taskbar", { show: true }))),
+    ),
+    row("Windows volume icon", button("small-button", null, "Hide", () => invoke("open_icon_page", { page: "hideWindows" }))),
+  ];
+}
+
 /** Every setting at once, in two columns beside the flyout. */
 function settingsPanel(state) {
   const s = state.settings;
@@ -408,15 +426,7 @@ function settingsPanel(state) {
     row("Album art as app icon", toggle(s.albumArt, (on) => setting("albumArt", on))),
     row("Automatic updates", toggle(s.autoUpdate, (on) => setting("autoUpdate", on))),
     updateRow(state.update),
-    row(
-      "Tray icons",
-      el(
-        "div",
-        "buttons",
-        button("small-button", null, "Show ours", () => invoke("open_icon_page", { page: "showOurs" })),
-        button("small-button", null, "Hide Windows'", () => invoke("open_icon_page", { page: "hideWindows" })),
-      ),
-    ),
+    ...iconRows(state.iconOnTaskbar),
     el("div", "section-label", "Look"),
     row("Accent color", swatches(s.accent)),
     segmented(s, "dark"),

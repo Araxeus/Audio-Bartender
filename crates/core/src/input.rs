@@ -528,6 +528,26 @@ unsafe extern "system" fn wndproc(hwnd: HWND, msg: u32, wparam: WPARAM, lparam: 
 
 /// The icon's rectangle, if the pointer is on it. For an icon hidden in the overflow
 /// area the shell reports the overflow button instead, which must not count.
+/// Whether this app's tray icon shows on the taskbar rather than in the overflow.
+/// Windows 11 keeps that in the registry. On Windows 10 the icon is on the taskbar
+/// when its rectangle lies inside the taskbar's.
+pub(crate) fn icon_on_taskbar() -> Option<bool> {
+    if crate::util::windows_11() {
+        return crate::util::tray_icon_promoted();
+    }
+    let hwnd = HWND(TRAY.load(Relaxed) as _);
+    if hwnd.is_invalid() {
+        return None;
+    }
+    unsafe {
+        let icon = Shell_NotifyIconGetRect(&identifier(hwnd)).ok()?;
+        let taskbar = FindWindowW(w!("Shell_TrayWnd"), None).ok()?;
+        let mut bar = RECT::default();
+        windows::Win32::UI::WindowsAndMessaging::GetWindowRect(taskbar, &mut bar).ok()?;
+        Some(icon.left >= bar.left && icon.right <= bar.right && icon.top >= bar.top && icon.bottom <= bar.bottom)
+    }
+}
+
 fn icon_rect(hwnd: HWND) -> Option<RECT> {
     let rect = unsafe { Shell_NotifyIconGetRect(&identifier(hwnd)).ok()? };
     let mut at = POINT::default();

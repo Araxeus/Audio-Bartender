@@ -409,19 +409,22 @@ button.icon.tiny { width: 26px; height: 22px; }
 .fly-row:hover .hover-swap .detail { display: none; }
 .fly-row:hover .hover-swap .transport { display: flex; }
 
-/* Cards: rounded, with shadows, 8px apart. Each has a 12px margin for its shadow,
-   matching MARGIN and OVERLAP in main.rs. Toward the taskbar the margin is 12px where
-   the cards float (Windows 11) and none where they sit flush (Windows 10). */
+/* Cards: rounded, with shadows, 8px apart. Each has an 8px margin for its shadow,
+   matching MARGIN and OVERLAP in main.rs. Toward the taskbar the margin is FLOAT (12px)
+   where the cards float (Windows 11) and none where they sit flush (Windows 10). */
 
 html { background: transparent; }
 .flyout-column,
-.settings-panel { margin: 12px; overflow: hidden; border-radius: 8px; box-shadow: 0 4px 10px -2px rgba(0, 0, 0, .18); }
+.settings-panel { margin: 8px; overflow: hidden; border-radius: 8px; box-shadow: 0 2px 6px -1px rgba(0, 0, 0, .18); }
 :root[data-theme="dark"] .flyout-column,
-:root[data-theme="dark"] .settings-panel { box-shadow: 0 4px 10px -2px rgba(0, 0, 0, .45); }
-.settings-panel { width: 640px; margin-right: -4px; }
-body[data-panel="right"] .settings-panel { margin-right: 12px; margin-left: -4px; }
+:root[data-theme="dark"] .settings-panel { box-shadow: 0 2px 6px -1px rgba(0, 0, 0, .45); }
+.settings-panel { width: 640px; margin-right: 0; }
+body[data-panel="right"] .settings-panel { margin-right: 8px; margin-left: 0; }
+body.floats:not([data-down="true"]) :is(.flyout-column, .settings-panel) { margin-bottom: 12px; }
+body.floats[data-down="true"] :is(.flyout-column, .settings-panel) { margin-top: 12px; }
 body:not(.floats):not([data-down="true"]) :is(.flyout-column, .settings-panel) { margin-bottom: 0; }
 body:not(.floats)[data-down="true"] :is(.flyout-column, .settings-panel) { margin-top: 0; }
+.fly-setting .place { align-self: center; color: var(--muted); font-size: 12px; }
 
 /* Tooltips like GPUI's: quick, and below the control so they stay inside its card. */
 

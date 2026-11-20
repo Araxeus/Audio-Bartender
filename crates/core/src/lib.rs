@@ -478,18 +478,14 @@ pub enum Setting {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 #[cfg_attr(feature = "serde", derive(Deserialize), serde(rename_all = "camelCase"))]
 pub enum IconPage {
-    /// Shows this app's icon on the taskbar rather than in the overflow.
+    /// Notification Area Icons, where this app's icon can be set to always show.
     ShowOurs,
     /// System Icons: turn off the Windows volume icon.
     HideWindows,
 }
 
-/// Opens a Windows page for arranging tray icons, or on Windows 11 shows this app's
-/// icon on the taskbar directly.
+/// Opens a Windows 10 page for arranging tray icons.
 pub fn open_icon_page(page: IconPage) {
-    if page == IconPage::ShowOurs && util::windows_11() && util::promote_tray_icon() {
-        return;
-    }
     util::open_icon_page(page);
 }
 
@@ -508,6 +504,9 @@ pub struct State {
     pub selected: Option<String>,
     pub settings: Settings,
     pub update: UpdateStatus,
+    /// This app's tray icon shows on the taskbar rather than in the overflow, when
+    /// Windows says.
+    pub icon_on_taskbar: Option<bool>,
 }
 
 impl State {
@@ -788,6 +787,15 @@ impl Core {
     /// Sends a key to the routed target, or to Windows' current session in automatic mode.
     pub fn press(&self, key: MediaKey) {
         self.shared.send(Cmd::Press(key));
+    }
+
+    /// Shows or hides this app's icon on the taskbar. Windows 11 does it at once.
+    /// Windows 10 lets only the user, so there it opens the page for it.
+    pub fn set_icon_on_taskbar(&self, show: bool) {
+        if !(util::windows_11() && util::set_tray_icon_promoted(show)) {
+            util::open_icon_page(IconPage::ShowOurs);
+        }
+        self.shared.send(Cmd::Refresh { resubscribe: false });
     }
 
     /// Checks GitHub for a newer release and installs it if there is one.
