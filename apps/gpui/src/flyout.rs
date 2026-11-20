@@ -15,7 +15,7 @@ use gpui_kit::component::{ActiveTheme, Icon, Sizable, StyledExt};
 use gpui_kit::prelude::FluentBuilder;
 use gpui_kit::*;
 use mediakeys_core::{
-    Accent, Anchor, Core, IconPage, MediaKey, Page, Playback, Setting, State, Target, TooltipStyle, TrayStyle,
+    Accent, Anchor, Core, IconPage, MediaButtons, MediaKey, Page, Playback, Setting, State, Target, TooltipStyle, TrayStyle,
     VolumeBars,
 };
 use raw_window_handle::{HasWindowHandle, RawWindowHandle};
@@ -35,11 +35,13 @@ const MIXER_ROW: f32 = 35.;
 const SLIDER: f32 = 32.;
 const SETTING_ROW: f32 = 50.;
 const SETTINGS: usize = 8;
+/// A setting with its choices under its title.
+const STACKED_ROW: f32 = 72.;
 
 /// Estimated height that fits `page` with the given state.
 pub fn height(state: &State, page: Page) -> f32 {
     let middle = if page == Page::Settings {
-        LABEL + SETTING_ROW * SETTINGS as f32
+        LABEL + SETTING_ROW * SETTINGS as f32 + STACKED_ROW
     } else {
         let always = state.settings.volume_bars == VolumeBars::Always;
         let sliders = if always { state.targets.iter().filter(|t| t.volume.is_some()).count() } else { 0 };
@@ -581,6 +583,20 @@ impl Flyout {
                 .child(control)
                 .into_any_element()
         };
+        let stacked = |title: &'static str, control: AnyElement| {
+            v_flex()
+                .mx_2()
+                .px_2()
+                .py_2()
+                .gap_1p5()
+                .h(px(STACKED_ROW))
+                .justify_center()
+                .border_b_1()
+                .border_color(theme.border)
+                .child(div().text_sm().child(title))
+                .child(control)
+                .into_any_element()
+        };
         let switch = |id: &'static str, on: bool, make: fn(bool) -> Setting| {
             let core = self.core.clone();
             Switch::new(id).checked(on).on_click(move |on, _, _| core.set(make(*on))).into_any_element()
@@ -635,6 +651,22 @@ impl Flyout {
                     ))
                     .child(choice("tip-compact", "Compact", s.tooltip == TooltipStyle::Compact, Setting::Tooltip(TooltipStyle::Compact)))
                     .child(choice("tip-text", "Text", s.tooltip == TooltipStyle::Text, Setting::Tooltip(TooltipStyle::Text)))
+                    .into_any_element(),
+            ),
+            stacked(
+                "Media buttons on the tooltip",
+                h_flex()
+                    .gap_1()
+                    .children(
+                        [
+                            ("buttons-none", "None", MediaButtons::None),
+                            ("buttons-hover", "Hover", MediaButtons::Hover),
+                            ("buttons-inline", "Inline", MediaButtons::Inline),
+                            ("buttons-capsule", "Capsule", MediaButtons::Capsule),
+                            ("buttons-player", "Player", MediaButtons::Player),
+                        ]
+                        .map(|(id, label, b)| choice(id, label, s.media_buttons == b, Setting::MediaButtons(b))),
+                    )
                     .into_any_element(),
             ),
             row(

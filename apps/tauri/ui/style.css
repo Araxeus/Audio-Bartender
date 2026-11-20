@@ -216,6 +216,7 @@ button.icon.active { color: var(--accent); }
 
 .fly-setting { display: flex; align-items: center; justify-content: space-between; gap: 12px; min-height: 50px; margin: 0 8px; padding: 0 8px; border-bottom: 1px solid var(--border); font-size: 13px; }
 .fly-setting:last-child { border-bottom: 0; }
+.fly-setting.stacked { flex-direction: column; align-items: flex-start; justify-content: center; gap: 8px; min-height: 72px; }
 .transport { display: flex; gap: 6px; }
 
 .segmented { display: flex; gap: 2px; padding: 2px; border: 1px solid var(--border); border-radius: 7px; background: var(--bg); }

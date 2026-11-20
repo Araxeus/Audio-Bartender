@@ -244,6 +244,20 @@ function settings(state) {
         ["Text", s.tooltip === "text", () => setting("tooltip", "text")],
       ]),
     ),
+    el(
+      "div",
+      "fly-setting stacked",
+      el("span", "", "Media buttons on the tooltip"),
+      choices(
+        [
+          ["None", "none"],
+          ["Hover", "hover"],
+          ["Inline", "inline"],
+          ["Capsule", "capsule"],
+          ["Player", "player"],
+        ].map(([label, value]) => [label, s.mediaButtons === value, () => setting("mediaButtons", value)]),
+      ),
+    ),
     row(
       "Volume bars",
       choices([
