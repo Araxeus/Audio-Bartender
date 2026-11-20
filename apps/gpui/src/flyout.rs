@@ -15,7 +15,7 @@ use gpui_kit::component::{ActiveTheme, Icon, Sizable, StyledExt};
 use gpui_kit::prelude::FluentBuilder;
 use gpui_kit::*;
 use mediakeys_core::{
-    Accent, Anchor, Core, IconPage, MediaButtons, MediaKey, Page, Playback, Setting, State, Target, TooltipStyle, TrayStyle,
+    Accent, Anchor, Core, IconPage, MediaButtons, MediaControls, MediaKey, Page, Playback, Setting, State, Target, TooltipStyle, TrayStyle,
     VolumeBars,
 };
 use raw_window_handle::{HasWindowHandle, RawWindowHandle};
@@ -34,7 +34,11 @@ const TARGET_ROW: f32 = 58.;
 const MIXER_ROW: f32 = 35.;
 const SLIDER: f32 = 32.;
 const SETTING_ROW: f32 = 50.;
-const SETTINGS: usize = 8;
+const SETTINGS: usize = 9;
+/// Extra height of each media controls layout.
+const BANNER: f32 = 66.;
+const ROW_CONTROLS: f32 = 36.;
+const DOCK: f32 = 56.;
 /// A setting with its choices under its title.
 const STACKED_ROW: f32 = 72.;
 
@@ -47,9 +51,47 @@ pub fn height(state: &State, page: Page) -> f32 {
         let sliders = if always { state.targets.iter().filter(|t| t.volume.is_some()).count() } else { 0 };
         let targets = LABEL + TARGET_ROW * (1 + state.targets.len()) as f32 + SLIDER * sliders as f32;
         let mixer = if state.mixer.is_empty() { 0. } else { LABEL + MIXER_ROW * state.mixer.len() as f32 };
-        targets + mixer
+        let controls = match state.settings.media_controls {
+            MediaControls::Banner => BANNER,
+            MediaControls::Row => ROW_CONTROLS,
+            MediaControls::Dock | MediaControls::Hover => 0.,
+        };
+        targets + mixer + controls
     };
-    (CONTROLS + middle + VOLUME + 12.).min(MAX_HEIGHT)
+    let dock = if state.settings.media_controls == MediaControls::Dock { DOCK } else { 0. };
+    (CONTROLS + middle + VOLUME + dock + 12.).min(MAX_HEIGHT)
+}
+
+/// What the media keys control right now, for the banner and the dock.
+struct NowPlaying {
+    title: String,
+    subtitle: String,
+    playing: bool,
+    target: Option<Target>,
+}
+
+impl NowPlaying {
+    fn new(state: &State) -> NowPlaying {
+        let selected = state.selected.as_deref().and_then(|id| state.targets.iter().find(|t| t.id == id));
+        let Some(target) = selected else {
+            return NowPlaying {
+                title: "Automatic".into(),
+                subtitle: "Media keys go where Windows decides".into(),
+                playing: false,
+                target: None,
+            };
+        };
+        let (title, subtitle) = match (&target.track, target.running) {
+            (_, false) => (target.name.clone(), "Not running".into()),
+            (Some(track), true) => match track.split_once(" — ") {
+                Some((title, artist)) => (title.to_owned(), format!("{artist} · {}", target.name)),
+                None => (track.clone(), target.name.clone()),
+            },
+            (None, true) => (target.name.clone(), "Nothing playing".into()),
+        };
+        let playing = target.running && target.playback == Playback::Playing;
+        NowPlaying { title, subtitle, playing, target: Some(target.clone()) }
+    }
 }
 
 /// The laid-out heights of the flyout's three parts, zero until first measured.
@@ -102,6 +144,8 @@ pub struct Flyout {
     devices_open: bool,
     /// Stays open when it loses focus.
     pinned: bool,
+    /// The app row under the pointer, for the Hover media controls.
+    hovered: Option<String>,
     dark: Option<bool>,
     accent: Accent,
     height: f32,
@@ -160,6 +204,7 @@ impl Flyout {
             page,
             devices_open: false,
             pinned,
+            hovered: None,
             dark,
             accent,
             height,
@@ -233,10 +278,6 @@ impl Flyout {
     }
 
     fn controls(&self, theme: &Theme, cx: &mut Context<Self>) -> Div {
-        let press = |key: MediaKey, core: &Core| {
-            let core = core.clone();
-            move |_: &ClickEvent, _: &mut Window, _: &mut App| core.press(key)
-        };
         let dark = theme.is_dark();
         let settings_open = self.page == Page::Settings;
         let (core_theme, core_quit) = (self.core.clone(), self.core.clone());
@@ -249,10 +290,10 @@ impl Flyout {
             .when(dark, |d| d.bg(hex(DARK_FOOTER)))
             .child(
                 h_flex()
-                    .gap_1()
-                    .child(Button::new("prev").small().ghost().icon(IconName::SkipBack).on_click(press(MediaKey::Previous, &self.core)))
-                    .child(Button::new("play").small().primary().icon(IconName::Play).on_click(press(MediaKey::PlayPause, &self.core)))
-                    .child(Button::new("next").small().ghost().icon(IconName::SkipForward).on_click(press(MediaKey::Next, &self.core))),
+                    .gap_2()
+                    .pl_1()
+                    .child(ui::logo(px(18.), self.accent.colors(dark).gradient))
+                    .child(div().text_sm().font_semibold().child("Media Keys Selector")),
             )
             .child(
                 h_flex()
@@ -299,6 +340,60 @@ impl Flyout {
                         ),
                     ),
             )
+    }
+
+    /// Previous, play/pause and next. With `target` they control that app; without,
+    /// wherever media keys go.
+    fn transport(&self, id: &str, target: Option<String>, playing: bool, small: bool) -> Div {
+        let button = |name: &str, key: MediaKey, icon: IconName, primary: bool| {
+            let (core, target) = (self.core.clone(), target.clone());
+            Button::new(SharedString::from(format!("{id}-{name}")))
+                .map(|b| if small { b.xsmall() } else { b.small() })
+                .map(|b| if primary { b.primary() } else { b.ghost() })
+                .icon(icon)
+                .on_click(move |_, _, cx| {
+                    match &target {
+                        Some(target) => core.press_for(target, key),
+                        None => core.press(key),
+                    }
+                    cx.stop_propagation();
+                })
+        };
+        let play = if playing { IconName::Pause } else { IconName::Play };
+        h_flex()
+            .flex_none()
+            .gap_1()
+            .child(button("prev", MediaKey::Previous, IconName::SkipBack, false))
+            .child(button("play", MediaKey::PlayPause, play, true))
+            .child(button("next", MediaKey::Next, IconName::SkipForward, false))
+    }
+
+    /// Art, track and buttons for whatever the media keys control.
+    fn now_playing(&self, state: &State, theme: &Theme, art: Pixels) -> Div {
+        let now = NowPlaying::new(state);
+        let avatar = match &now.target {
+            Some(t) => ui::avatar(t.icon.as_ref(), &t.name, t.running, art, theme),
+            None => ui::logo(art, self.accent.colors(theme.is_dark()).gradient)
+                .child(Icon::new(IconName::Sparkles).small().text_color(white()))
+                .into_any_element(),
+        };
+        let subtitle = h_flex()
+            .gap_1()
+            .text_xs()
+            .text_color(theme.muted_foreground)
+            .when(now.playing, |d| d.child(Self::playing_bars("now-playing", theme.success)))
+            .child(div().truncate().child(now.subtitle));
+        h_flex()
+            .gap_3()
+            .child(avatar)
+            .child(
+                v_flex()
+                    .flex_1()
+                    .min_w_0()
+                    .child(div().text_sm().font_semibold().truncate().child(now.title))
+                    .child(subtitle),
+            )
+            .child(self.transport("now-playing", None, now.playing, false))
     }
 
     fn device_header(&self, state: &State, theme: &Theme, cx: &mut Context<Self>) -> Stateful<Div> {
@@ -430,6 +525,7 @@ impl Flyout {
     fn targets(&mut self, state: &State, cx: &mut Context<Self>) -> Vec<AnyElement> {
         let theme = cx.theme().clone();
         let bars = state.settings.volume_bars;
+        let controls = state.settings.media_controls;
         let mut rows = Vec::new();
 
         let automatic = state.selected.is_none();
@@ -453,6 +549,9 @@ impl Flyout {
                         )
                         .child(Self::radio("automatic", &theme, automatic, &self.core, None)),
                 )
+                .when(automatic && controls == MediaControls::Row, |d| {
+                    d.child(Self::row_controls(self.transport("automatic", None, false, false)))
+                })
                 .into_any_element(),
         );
 
@@ -472,6 +571,17 @@ impl Flyout {
             });
             rows.push(
                 Self::row(&theme, target.id.clone().into(), checked, true)
+                    .on_hover({
+                        let id = target.id.clone();
+                        cx.listener(move |this, hovered: &bool, _, cx| {
+                            if *hovered {
+                                this.hovered = Some(id.clone());
+                            } else if this.hovered.as_ref() == Some(&id) {
+                                this.hovered = None;
+                            }
+                            cx.notify();
+                        })
+                    })
                     .map(|d| {
                         if toggles {
                             d.on_click(self.volumes.on_toggle(&target.id))
@@ -491,11 +601,30 @@ impl Flyout {
                                     .min_w_0()
                                     .when(!target.running, |d| d.opacity(0.6))
                                     .child(div().text_sm().font_semibold().truncate().child(target.name.clone()))
-                                    .child(Self::detail(target, &theme)),
+                                    .map(|d| {
+                                        if controls == MediaControls::Hover && target.running {
+                                            // The track line swaps to buttons for this app while hovered.
+                                            // Chosen at render time, because a hover style that hides
+                                            // elements can change between prepaint and paint.
+                                            let line = if self.hovered.as_ref() == Some(&target.id) {
+                                                let playing = target.playback == Playback::Playing;
+                                                self.transport(&target.id, Some(target.id.clone()), playing, true)
+                                            } else {
+                                                Self::detail(target, &theme)
+                                            };
+                                            d.child(div().h(px(22.)).flex().items_center().child(line))
+                                        } else {
+                                            d.child(Self::detail(target, &theme))
+                                        }
+                                    }),
                             )
                             .children(volume)
                             .child(Self::radio(&target.id, &theme, checked, &self.core, Some(target.id.clone()))),
                     )
+                    .when(checked && controls == MediaControls::Row, |d| {
+                        let playing = target.running && target.playback == Playback::Playing;
+                        d.child(Self::row_controls(self.transport(&target.id, None, playing, false)))
+                    })
                     .when_some(slider, |d, slider| {
                         // Under the name, clear of the avatar.
                         let indent = if bars == VolumeBars::Always { px(38.) } else { px(8.) };
@@ -505,6 +634,11 @@ impl Flyout {
             );
         }
         rows
+    }
+
+    /// Buttons under the selected row, lined up with its name.
+    fn row_controls(buttons: Div) -> Div {
+        h_flex().pl(px(48.)).pr_2().pb_2().mt(px(-2.)).child(buttons)
     }
 
     fn mixer(&mut self, state: &State, cx: &mut Context<Self>) -> Vec<AnyElement> {
@@ -653,6 +787,21 @@ impl Flyout {
                     .child(choice("tip-text", "Text", s.tooltip == TooltipStyle::Text, Setting::Tooltip(TooltipStyle::Text)))
                     .into_any_element(),
             ),
+            row(
+                "Media controls",
+                h_flex()
+                    .gap_1()
+                    .children(MediaControls::ALL.map(|c| {
+                        let id = SharedString::from(format!("controls-{}", c.name()));
+                        let core = self.core.clone();
+                        Button::new(id)
+                            .small()
+                            .label(c.label())
+                            .map(|b| if s.media_controls == c { b.primary() } else { b.ghost() })
+                            .on_click(move |_, _, _| core.set(Setting::MediaControls(c)))
+                    }))
+                    .into_any_element(),
+            ),
             stacked(
                 "Media buttons on the tooltip",
                 h_flex()
@@ -711,12 +860,20 @@ impl Render for Flyout {
         let controls = self.controls(&theme, cx);
         let master = self.volumes.slider_row(ui::MASTER, state.audio.volume, state.audio.muted, &theme);
         let device_header = self.device_header(&state, &theme, cx);
+        let dock = (state.settings.media_controls == MediaControls::Dock).then(|| {
+            self.now_playing(&state, &theme, px(36.)).px_2().pb_2().mb_1().border_b_1().border_color(theme.border)
+        });
         let middle = if self.devices_open {
             vec![self.devices(&state, &theme, cx).into_any_element()]
         } else if self.page == Page::Settings {
             self.settings(&state, &theme)
         } else {
-            let mut items = vec![Self::label("MEDIA KEYS GO TO", &theme).into_any_element()];
+            let mut items = Vec::new();
+            if state.settings.media_controls == MediaControls::Banner {
+                let banner = self.now_playing(&state, &theme, px(44.));
+                items.push(div().mx_2().mt_2().p_2p5().rounded(theme.radius * 1.5).bg(theme.secondary).child(banner).into_any_element());
+            }
+            items.push(Self::label("MEDIA KEYS GO TO", &theme).into_any_element());
             items.extend(self.targets(&state, cx));
             if !state.mixer.is_empty() {
                 items.push(Self::label("OTHER APPS", &theme).into_any_element());
@@ -754,6 +911,7 @@ impl Render for Flyout {
                     .border_t_1()
                     .border_color(theme.border)
                     .relative()
+                    .children(dock)
                     .child(device_header)
                     .child(div().px_2().child(master))
                     .child(measure(&self.measured.volume, view)),

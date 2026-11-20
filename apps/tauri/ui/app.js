@@ -56,16 +56,42 @@ function expandable(node, id, level, muted) {
   if (volumes.expanded === id) node.append(volumes.sliderRow(id, level, muted));
 }
 
+/** Previous, play/pause and next. With `id` they control that app; without, wherever media keys go. */
+function transport(playing, id = null, size = "small") {
+  const press = (key) => (id ? invoke("press_for", { id, key }) : invoke("press", { key }));
+  return el(
+    "div",
+    "transport",
+    button(`icon ghost ${size}`, "Previous track", icon("prev"), () => press("previous")),
+    button(`icon primary ${size}`, playing ? "Pause" : "Play", icon(playing ? "pause" : "play"), () => press("playPause")),
+    button(`icon ghost ${size}`, "Next track", icon("next"), () => press("next")),
+  );
+}
+
+/** What the media keys control right now, for the banner and the dock. */
+function nowPlaying(state) {
+  const t = state.targets.find((t) => t.id === state.selected);
+  if (!t) return { title: "Automatic", subtitle: "Media keys go where Windows decides", playing: false, target: null };
+  if (!t.running) return { title: t.name, subtitle: "Not running", playing: false, target: t };
+  const playing = t.playback === "playing";
+  if (!t.track) return { title: t.name, subtitle: "Nothing playing", playing, target: t };
+  const [title, artist] = t.track.split(" \u2014 ");
+  return { title, subtitle: artist ? `${artist} \u00b7 ${t.name}` : t.name, playing, target: t };
+}
+
+/** Art, track and buttons for whatever the media keys control. */
+function nowPlayingView(state, className) {
+  const now = nowPlaying(state);
+  const art = now.target ? avatar(now.target.icon, now.target.name, now.target.running) : logo();
+  const bars = now.playing ? el("span", "bars", el("i"), el("i"), el("i")) : null;
+  const text = el("div", "text", el("div", "name", now.title), el("div", "detail", bars, now.subtitle));
+  return el("div", "now-playing " + className, art, text, transport(now.playing));
+}
+
 function controls() {
   const dark = isDark();
   return [
-    el(
-      "div",
-      "transport",
-      button("icon ghost small", "Previous track", icon("prev"), () => invoke("press", { key: "previous" })),
-      button("icon primary small", "Play / pause", icon("play"), () => invoke("press", { key: "playPause" })),
-      button("icon ghost small", "Next track", icon("next"), () => invoke("press", { key: "next" })),
-    ),
+    el("div", "brand", logo("avatar brand-logo"), el("span", "", "Media Keys Selector")),
     el(
       "div",
       "transport",
@@ -126,8 +152,15 @@ function detail(t) {
   return line;
 }
 
+/** The track line, which swaps to buttons for this app while hovered in Hover mode. */
+function trackLine(t, mode) {
+  if (mode !== "hover" || !t.running) return detail(t);
+  return el("div", "hover-swap", detail(t), transport(t.playback === "playing", t.id, "tiny"));
+}
+
 function targets(state) {
   const bars = state.settings.volumeBars;
+  const mode = state.settings.mediaControls;
   const automatic = state.selected === null;
   const auto = row(
     automatic,
@@ -136,6 +169,7 @@ function targets(state) {
     el("div", "text", el("div", "name small", "Automatic"), el("div", "detail", "Windows decides")),
     radio(automatic, null),
   );
+  if (automatic && mode === "row") auto.append(el("div", "row-controls", transport(false)));
   selectable(auto, null);
   const rows = [auto];
   for (const t of state.targets) {
@@ -147,11 +181,12 @@ function targets(state) {
       checked,
       true,
       avatar(t.icon, t.name, t.running),
-      el("div", "text" + (t.running ? "" : " offline"), el("div", "name small", t.name), detail(t)),
+      el("div", "text" + (t.running ? "" : " offline"), el("div", "name small", t.name), trackLine(t, mode)),
       hasVolume ? volumeControl(bars, t.id, t.volume, t.muted) : null,
       radio(checked, t.id),
     );
     node.querySelector(".avatar").classList.add("small");
+    if (checked && mode === "row") node.append(el("div", "row-controls", transport(t.running && t.playback === "playing")));
     if (hasVolume && bars === "always") {
       // Under the name, clear of the avatar.
       const slider = volumes.sliderRow(t.id, t.volume, t.muted);
@@ -244,6 +279,17 @@ function settings(state) {
         ["Text", s.tooltip === "text", () => setting("tooltip", "text")],
       ]),
     ),
+    row(
+      "Media controls",
+      choices(
+        [
+          ["Banner", "banner"],
+          ["Row", "row"],
+          ["Dock", "dock"],
+          ["Hover", "hover"],
+        ].map(([label, value]) => [label, s.mediaControls === value, () => setting("mediaControls", value)]),
+      ),
+    ),
     el(
       "div",
       "fly-setting stacked",
@@ -281,6 +327,7 @@ function settings(state) {
 function render(state) {
   latest = state;
   $("controls").replaceChildren(...controls());
+  $("dock").replaceChildren(...(state.settings.mediaControls === "dock" ? [nowPlayingView(state, "dock")] : []));
   $("device").replaceChildren(deviceHeader(state));
   $("master").replaceChildren(volumes.sliderRow(MASTER, state.audio.volume, state.audio.muted));
 
@@ -291,6 +338,7 @@ function render(state) {
     middle = settings(state);
   } else {
     middle = [
+      ...(state.settings.mediaControls === "banner" ? [nowPlayingView(state, "banner")] : []),
       el("div", "section-label", "Media keys go to"),
       ...targets(state),
       ...(state.mixer.length ? [el("div", "section-label", "Other apps"), ...mixer(state)] : []),

@@ -53,6 +53,12 @@ fn press(core: tauri::State<Core>, key: MediaKey) {
     core.press(key);
 }
 
+/// Sends a key to one app without changing where media keys go.
+#[tauri::command]
+fn press_for(core: tauri::State<Core>, id: String, key: MediaKey) {
+    core.press_for(&id, key);
+}
+
 #[tauri::command]
 fn set_setting(core: tauri::State<Core>, setting: Setting) {
     core.set(setting);
@@ -312,6 +318,7 @@ fn main() {
             accents,
             select,
             press,
+            press_for,
             set_setting,
             adjust_volume,
             set_volume,
