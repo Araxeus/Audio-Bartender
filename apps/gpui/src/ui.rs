@@ -6,13 +6,13 @@ use std::rc::Rc;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
+use audio_bartender_core::{AppIcon, Core, ImageKind};
 use gpui_kit::assets::IconName;
 use gpui_kit::base::h_flex;
 use gpui_kit::component::theme::Theme;
 use gpui_kit::component::{Icon, Sizable, StyledExt};
 use gpui_kit::prelude::FluentBuilder;
 use gpui_kit::*;
-use audio_bartender_core::{AppIcon, Core, ImageKind};
 
 /// Volume change per wheel notch.
 pub const WHEEL_STEP: f32 = 0.02;
@@ -47,19 +47,17 @@ pub fn image(icon: &AppIcon) -> Arc<Image> {
 }
 
 pub fn logo(size: Pixels, [from, to]: [u32; 2]) -> Div {
-    div()
-        .flex_none()
-        .size(size)
-        .rounded(size * 0.22)
-        .flex()
-        .items_center()
-        .justify_center()
-        .bg(linear_gradient(135., linear_color_stop(rgb(from), 0.), linear_color_stop(rgb(to), 1.)))
+    div().flex_none().size(size).rounded(size * 0.22).flex().items_center().justify_center().bg(linear_gradient(
+        135.,
+        linear_color_stop(rgb(from), 0.),
+        linear_color_stop(rgb(to), 1.),
+    ))
 }
 
 /// The app's icon (or album art), else its first letter on a colored square.
 pub fn avatar(icon: Option<&AppIcon>, name: &str, running: bool, size: Pixels, theme: &Theme) -> AnyElement {
-    let frame = div().flex_none().size(size).rounded(theme.radius).overflow_hidden().flex().items_center().justify_center();
+    let frame =
+        div().flex_none().size(size).rounded(theme.radius).overflow_hidden().flex().items_center().justify_center();
     match icon {
         Some(icon) => {
             // Album art fills the square, cropped; exe icons keep a little margin.
@@ -105,12 +103,7 @@ pub struct Volumes {
 
 impl Volumes {
     pub fn new<V: 'static>(core: Core, cx: &mut Context<V>) -> Volumes {
-        Volumes {
-            core,
-            local: Rc::default(),
-            controls: Rc::default(),
-            view: cx.entity().downgrade().into(),
-        }
+        Volumes { core, local: Rc::default(), controls: Rc::default(), view: cx.entity().downgrade().into() }
     }
 
     /// True while the user is changing `id`'s volume, so its slider stays put.
@@ -187,7 +180,15 @@ impl Volumes {
             .text_xs()
             .text_color(theme.muted_foreground)
             .when_some(meter, |d, meter| {
-                d.child(div().absolute().top_0().bottom_0().left_0().w(relative(meter.clamp(0.0, 1.0))).bg(theme.primary.opacity(0.18)))
+                d.child(
+                    div()
+                        .absolute()
+                        .top_0()
+                        .bottom_0()
+                        .left_0()
+                        .w(relative(meter.clamp(0.0, 1.0)))
+                        .bg(theme.primary.opacity(0.18)),
+                )
             })
             .child(Icon::new(volume_icon(level, muted)).xsmall())
             .child(if muted { "Muted".to_owned() } else { format!("{}%", (level * 100.0).round()) })
@@ -224,7 +225,15 @@ impl Volumes {
             .hover(|s| s.border_color(theme.primary.opacity(0.6)))
             .child(div().absolute().top_0().bottom_0().left_0().w(relative(level.clamp(0.0, 1.0))).bg(fill))
             .when_some(meter, |d, meter| {
-                d.child(div().absolute().top_0().bottom_0().left_0().w(relative(meter.clamp(0.0, 1.0))).bg(theme.primary.opacity(0.55)))
+                d.child(
+                    div()
+                        .absolute()
+                        .top_0()
+                        .bottom_0()
+                        .left_0()
+                        .w(relative(meter.clamp(0.0, 1.0)))
+                        .bg(theme.primary.opacity(0.55)),
+                )
             })
             .child(
                 h_flex()
@@ -291,13 +300,11 @@ impl Volumes {
                     .h(px(4.))
                     .rounded_full()
                     .bg(track)
-                    .child(
-                        div()
-                            .h_full()
-                            .w(relative(level))
-                            .rounded_full()
-                            .bg(if meter.is_some() { theme.primary.opacity(0.35) } else { theme.primary }),
-                    )
+                    .child(div().h_full().w(relative(level)).rounded_full().bg(if meter.is_some() {
+                        theme.primary.opacity(0.35)
+                    } else {
+                        theme.primary
+                    }))
                     .when_some(meter, |d, meter| {
                         d.child(
                             div()
@@ -321,13 +328,25 @@ impl Volumes {
                             .p(px(1.))
                             .rounded_full()
                             .bg(theme.primary)
-                            .child(div().size_full().rounded_full().border(px(3.)).border_color(theme.background).bg(theme.primary)),
+                            .child(
+                                div()
+                                    .size_full()
+                                    .rounded_full()
+                                    .border(px(3.))
+                                    .border_color(theme.background)
+                                    .bg(theme.primary),
+                            ),
                     ),
             )
             .on_scroll(self.on_wheel(id))
             .on_mouse_down(MouseButton::Left, move |event, _, cx| {
                 let Some(bounds) = controls.borrow().get(&down_key).copied() else { return };
-                Self::set_level(&down_core, &down_local, &down_id, (at(event.position, bounds) * 100.0).round() / 100.0);
+                Self::set_level(
+                    &down_core,
+                    &down_local,
+                    &down_id,
+                    (at(event.position, bounds) * 100.0).round() / 100.0,
+                );
                 notify(&down_view, cx);
             })
             .on_click(|_, _, cx| cx.stop_propagation())
@@ -339,7 +358,12 @@ impl Volumes {
                 if event.drag(cx).0 != drag_key {
                     return;
                 }
-                Self::set_level(&core, &local, &target, (at(event.event.position, event.bounds) * 100.0).round() / 100.0);
+                Self::set_level(
+                    &core,
+                    &local,
+                    &target,
+                    (at(event.event.position, event.bounds) * 100.0).round() / 100.0,
+                );
                 notify(&view, cx);
             })
     }
@@ -363,7 +387,11 @@ impl Volumes {
                     .child(Icon::new(volume_icon(shown, muted)).small())
                     .on_scroll(self.on_wheel(id))
                     .on_click(move |_, _, cx| {
-                        if key == MASTER { core.toggle_master_mute() } else { core.toggle_mute(&key) }
+                        if key == MASTER {
+                            core.toggle_master_mute()
+                        } else {
+                            core.toggle_mute(&key)
+                        }
                         cx.stop_propagation();
                     }),
             )

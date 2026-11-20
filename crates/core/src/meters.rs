@@ -34,7 +34,12 @@ pub fn level(id: &str) -> f32 {
 fn want() {
     WANTED_MS.store(now_ms(), Relaxed);
     let thread = THREAD.get_or_init(|| {
-        std::thread::Builder::new().name("bartender-meters".into()).spawn(run).expect("spawn meter thread").thread().clone()
+        std::thread::Builder::new()
+            .name("bartender-meters".into())
+            .spawn(run)
+            .expect("spawn meter thread")
+            .thread()
+            .clone()
     });
     thread.unpark();
 }
@@ -90,7 +95,8 @@ mod tests {
         let every = std::env::var("PROBE_MS").ok().and_then(|v| v.parse().ok()).unwrap_or(250u64);
         for _ in 0..(2000 / every) {
             std::thread::sleep(std::time::Duration::from_millis(every));
-            let line: Vec<String> = exes.iter().map(|e| format!("{e} {:.2}", super::level(&format!("exe:{e}")))).collect();
+            let line: Vec<String> =
+                exes.iter().map(|e| format!("{e} {:.2}", super::level(&format!("exe:{e}")))).collect();
             println!("{}", line.join("  "));
         }
     }

@@ -109,11 +109,7 @@ fn ring(x: f32, y: f32, level: f32) -> f32 {
     // Clockwise angle from 12 o'clock.
     let angle = dx.atan2(-dy).rem_euclid(TAU);
     let sweep = level.clamp(0.0, 1.0) * TAU;
-    if angle <= sweep || cap(dx, dy, mid, 0.0, level) || cap(dx, dy, mid, sweep, level) {
-        1.0
-    } else {
-        TRACK_OPACITY
-    }
+    if angle <= sweep || cap(dx, dy, mid, 0.0, level) || cap(dx, dy, mid, sweep, level) { 1.0 } else { TRACK_OPACITY }
 }
 
 /// Rounded ends of the filled arc.
@@ -170,7 +166,7 @@ fn text(size: i32, text: &str, face: PCWSTR, height: i32, weight: i32, offset: i
 
         // White text on black: any channel is the coverage.
         let pixels = std::slice::from_raw_parts(bits as *const u8, (size * size * 4) as usize);
-        let alpha = pixels.chunks_exact(4).map(|px| px[0].max(px[1]).max(px[2]) as f32 / 255.0).collect();
+        let alpha = pixels.as_chunks::<4>().0.iter().map(|px| px[0].max(px[1]).max(px[2]) as f32 / 255.0).collect();
 
         SelectObject(dc, old_font);
         SelectObject(dc, old_bitmap);

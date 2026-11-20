@@ -1,7 +1,7 @@
+use audio_bartender_core::{Accent, AccentColors};
 use gpui_kit::component::ActiveTheme;
 use gpui_kit::component::theme::{Theme, ThemeMode};
 use gpui_kit::*;
-use audio_bartender_core::{Accent, AccentColors};
 
 pub fn hex(color: u32) -> Hsla {
     rgb(color).into()
@@ -57,5 +57,4 @@ pub fn apply(window: &mut Window, cx: &mut App, dark: Option<bool>, accent: Acce
             t.switch = hex(border);
         }
     });
-
 }

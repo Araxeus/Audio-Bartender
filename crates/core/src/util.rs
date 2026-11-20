@@ -20,7 +20,10 @@ pub fn log(line: impl AsRef<str>) {
     }
     let path = std::env::temp_dir().join("audio_bartender.log");
     if let Ok(mut file) = std::fs::OpenOptions::new().create(true).append(true).open(path) {
-        let ms = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_millis() % 100_000).unwrap_or(0);
+        let ms = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_millis() % 100_000)
+            .unwrap_or(0);
         let _ = writeln!(file, "{ms:>5} pid {} {}", std::process::id(), line.as_ref());
     }
 }
@@ -50,7 +53,14 @@ pub fn open_icon_page(page: crate::IconPage) {
     };
     let target = wide(&target);
     unsafe {
-        ShellExecuteW(None, windows::core::w!("open"), windows::core::w!("explorer.exe"), windows::core::PCWSTR(target.as_ptr()), None, SW_SHOWNORMAL);
+        ShellExecuteW(
+            None,
+            windows::core::w!("open"),
+            windows::core::w!("explorer.exe"),
+            windows::core::PCWSTR(target.as_ptr()),
+            None,
+            SW_SHOWNORMAL,
+        );
     }
 }
 
@@ -106,7 +116,8 @@ pub fn set_cloaked(hwnd: isize, cloaked: bool) {
     use windows::Win32::Graphics::Dwm::{DWMWA_CLOAK, DwmSetWindowAttribute};
     let value = windows::core::BOOL::from(cloaked);
     unsafe {
-        let _ = DwmSetWindowAttribute(HWND(hwnd as _), DWMWA_CLOAK, &value as *const _ as _, size_of_val(&value) as u32);
+        let _ =
+            DwmSetWindowAttribute(HWND(hwnd as _), DWMWA_CLOAK, &value as *const _ as _, size_of_val(&value) as u32);
     }
 }
 

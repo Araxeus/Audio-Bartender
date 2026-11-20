@@ -6,19 +6,19 @@ use std::collections::HashMap;
 use std::rc::Rc;
 use std::time::{Duration, Instant};
 
+use audio_bartender_core::{
+    Accent, Anchor, Core, IconPage, LevelMeters, MediaButtons, MediaControls, MediaKey, Page, Playback, Setting,
+    Settings, State, Target, TooltipStyle, TrayStyle, VolumeBars,
+};
 use gpui_kit::assets::IconName;
 use gpui_kit::base::{h_flex, v_flex};
 use gpui_kit::component::button::{Button, ButtonVariants};
 use gpui_kit::component::switch::Switch;
-use gpui_kit::component::tooltip::Tooltip;
 use gpui_kit::component::theme::Theme;
+use gpui_kit::component::tooltip::Tooltip;
 use gpui_kit::component::{ActiveTheme, Icon, Sizable, StyledExt};
 use gpui_kit::prelude::FluentBuilder;
 use gpui_kit::*;
-use audio_bartender_core::{
-    Accent, Anchor, Core, IconPage, LevelMeters, MediaButtons, MediaControls, MediaKey, Page, Playback, Setting, Settings, State, Target, TooltipStyle, TrayStyle,
-    VolumeBars,
-};
 use raw_window_handle::{HasWindowHandle, RawWindowHandle};
 
 use crate::theme::{self, DARK_FOOTER, hex};
@@ -106,13 +106,38 @@ impl Choice {
                 (Setting::Dark(Some(true)), "Dark", "", s.dark == Some(true)),
             ],
             Choice::TrayIcon => vec![
-                (Setting::TrayStyle(TrayStyle::Ring), "Ring", "A ring that fills with the volume", s.tray_style == TrayStyle::Ring),
-                (Setting::TrayStyle(TrayStyle::Number), "Number", "The volume as a number", s.tray_style == TrayStyle::Number),
+                (
+                    Setting::TrayStyle(TrayStyle::Ring),
+                    "Ring",
+                    "A ring that fills with the volume",
+                    s.tray_style == TrayStyle::Ring,
+                ),
+                (
+                    Setting::TrayStyle(TrayStyle::Number),
+                    "Number",
+                    "The volume as a number",
+                    s.tray_style == TrayStyle::Number,
+                ),
             ],
             Choice::Tooltip => vec![
-                (Setting::Tooltip(TooltipStyle::NowPlaying), "Now playing", "Track, album art, device and volume", s.tooltip == TooltipStyle::NowPlaying),
-                (Setting::Tooltip(TooltipStyle::Compact), "Compact", "Device, volume and the media app", s.tooltip == TooltipStyle::Compact),
-                (Setting::Tooltip(TooltipStyle::Text), "Text", "The plain Windows tooltip", s.tooltip == TooltipStyle::Text),
+                (
+                    Setting::Tooltip(TooltipStyle::NowPlaying),
+                    "Now playing",
+                    "Track, album art, device and volume",
+                    s.tooltip == TooltipStyle::NowPlaying,
+                ),
+                (
+                    Setting::Tooltip(TooltipStyle::Compact),
+                    "Compact",
+                    "Device, volume and the media app",
+                    s.tooltip == TooltipStyle::Compact,
+                ),
+                (
+                    Setting::Tooltip(TooltipStyle::Text),
+                    "Text",
+                    "The plain Windows tooltip",
+                    s.tooltip == TooltipStyle::Text,
+                ),
             ],
             Choice::TooltipButtons => vec![
                 buttons(MediaButtons::None, "None", "No buttons on the tooltip"),
@@ -398,7 +423,14 @@ impl Flyout {
 
     /// The row's volume control beside its name: a bar, or a percentage that turns
     /// into a slider while the row is hovered or its volume is changing.
-    fn volume_control(&self, id: &str, level: f32, muted: bool, meter: Option<f32>, theme: &Theme) -> Option<AnyElement> {
+    fn volume_control(
+        &self,
+        id: &str,
+        level: f32,
+        muted: bool,
+        meter: Option<f32>,
+        theme: &Theme,
+    ) -> Option<AnyElement> {
         match self.state_bars {
             VolumeBars::Compact => Some(self.volumes.bar(id, level, muted, meter, theme).into_any_element()),
             VolumeBars::OnHover if self.hovered.as_deref() == Some(id) || self.volumes.changing(id) => {
@@ -415,7 +447,9 @@ impl Flyout {
             return None;
         }
         // A slight wobble per bar, so they move like an equalizer rather than in lockstep.
-        let t = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0., |d| (d.as_millis() % 100_000) as f32 / 1000.);
+        let t = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map_or(0., |d| (d.as_millis() % 100_000) as f32 / 1000.);
         // Music rarely drops below about a quarter, so spread the useful range over the bars' height.
         let shape = ((level - 0.25) / 0.7).clamp(0.12, 1.);
         Some(h_flex().flex_none().items_end().gap(px(2.)).h(px(11.)).children((0..3).map(|i| {
@@ -429,23 +463,28 @@ impl Flyout {
     fn row_meter(style: LevelMeters, level: f32, theme: &Theme) -> Option<Div> {
         let level = level.clamp(0., 1.);
         match style {
-            LevelMeters::Line => Some(
-                div().absolute().left(px(10.)).right(px(10.)).bottom(px(1.)).h(px(2.)).child(
-                    div().h_full().w(relative(level)).rounded_full().bg(linear_gradient(
-                        90.,
-                        linear_color_stop(theme.primary.opacity(0.4), 0.),
-                        linear_color_stop(theme.primary, 1.),
-                    )),
-                ),
-            ),
+            LevelMeters::Line => Some(div().absolute().left(px(10.)).right(px(10.)).bottom(px(1.)).h(px(2.)).child(
+                div().h_full().w(relative(level)).rounded_full().bg(linear_gradient(
+                    90.,
+                    linear_color_stop(theme.primary.opacity(0.4), 0.),
+                    linear_color_stop(theme.primary, 1.),
+                )),
+            )),
             LevelMeters::Strip => Some(
-                div().absolute().left(px(2.)).top(px(8.)).bottom(px(8.)).w(px(3.)).flex().flex_col().justify_end().child(
-                    div().w_full().h(relative(level)).rounded_full().bg(linear_gradient(
+                div()
+                    .absolute()
+                    .left(px(2.))
+                    .top(px(8.))
+                    .bottom(px(8.))
+                    .w(px(3.))
+                    .flex()
+                    .flex_col()
+                    .justify_end()
+                    .child(div().w_full().h(relative(level)).rounded_full().bg(linear_gradient(
                         0.,
                         linear_color_stop(theme.success, 0.),
                         linear_color_stop(rgb(0xfacc15), 1.),
-                    )),
-                ),
+                    ))),
             ),
             _ => None,
         }
@@ -571,20 +610,22 @@ impl Flyout {
                                 Icon::new(if self.pinned { IconName::Pin } else { IconName::PinOff })
                                     .when(self.pinned, |i| i.text_color(theme.primary)),
                             )
-                            .tooltip(if self.pinned { "Unpin: close when clicking elsewhere" } else { "Pin: stay open" })
+                            .tooltip(if self.pinned {
+                                "Unpin: close when clicking elsewhere"
+                            } else {
+                                "Pin: stay open"
+                            })
                             .on_click(cx.listener(|this, _, _, cx| {
                                 this.pinned = !this.pinned;
                                 cx.notify();
                             })),
                     )
-                    .child(
-                        Button::new("quit").small().ghost().icon(IconName::Power).tooltip("Quit").on_click(
-                            move |_, _, cx| {
-                                core_quit.shutdown();
-                                cx.quit();
-                            },
-                        ),
-                    ),
+                    .child(Button::new("quit").small().ghost().icon(IconName::Power).tooltip("Quit").on_click(
+                        move |_, _, cx| {
+                            core_quit.shutdown();
+                            cx.quit();
+                        },
+                    )),
             )
     }
 
@@ -811,7 +852,9 @@ impl Flyout {
                 .volume
                 .filter(|_| bars == VolumeBars::Always)
                 .map(|volume| self.volumes.slider_row(&target.id, volume, target.muted, in_volume, &theme));
-            let volume = target.volume.and_then(|volume| self.volume_control(&target.id, volume, target.muted, in_volume, &theme));
+            let volume = target
+                .volume
+                .and_then(|volume| self.volume_control(&target.id, volume, target.muted, in_volume, &theme));
             let avatar = ui::avatar(target.icon.as_ref(), &target.name, target.running, px(28.), &theme);
             let name = h_flex()
                 .gap_1p5()
@@ -830,14 +873,15 @@ impl Flyout {
                             .gap_3()
                             .px_2()
                             .py_2()
-                            .child(Self::ringed(avatar, (meters == LevelMeters::Ring).then_some(level), px(28.), &theme))
+                            .child(Self::ringed(
+                                avatar,
+                                (meters == LevelMeters::Ring).then_some(level),
+                                px(28.),
+                                &theme,
+                            ))
                             .child(
-                                v_flex()
-                                    .flex_1()
-                                    .min_w_0()
-                                    .when(!target.running, |d| d.opacity(0.6))
-                                    .child(name)
-                                    .map(|d| {
+                                v_flex().flex_1().min_w_0().when(!target.running, |d| d.opacity(0.6)).child(name).map(
+                                    |d| {
                                         if controls == MediaControls::Hover && target.running {
                                             // The track line swaps to buttons for this app while hovered.
                                             // Chosen at render time, because a hover style that hides
@@ -852,7 +896,8 @@ impl Flyout {
                                         } else {
                                             d.child(detail())
                                         }
-                                    }),
+                                    },
+                                ),
                             )
                             .children(volume)
                             .child(Self::radio(&target.id, &theme, checked, &self.core, Some(target.id.clone()))),
@@ -891,10 +936,12 @@ impl Flyout {
                 .children((meters == LevelMeters::Bars).then(|| Self::live_bars(level, &theme)).flatten())
                 .child(div().text_sm().truncate().child(app.name.clone()));
             let avatar = ui::avatar(app.icon.as_ref(), &app.name, true, px(22.), &theme);
-            let main = h_flex()
-                .gap_3()
-                .px_2()
-                .child(Self::ringed(avatar, (meters == LevelMeters::Ring).then_some(level), px(22.), &theme));
+            let main = h_flex().gap_3().px_2().child(Self::ringed(
+                avatar,
+                (meters == LevelMeters::Ring).then_some(level),
+                px(22.),
+                &theme,
+            ));
             let row = Self::row(&theme, app.id.clone().into(), false, false)
                 .relative()
                 .on_hover(Self::track_hover(&app.id, cx))
@@ -961,7 +1008,11 @@ impl Flyout {
             Switch::new(id).checked(on).on_click(move |on, _, _| core.set(make(*on))).into_any_element()
         };
         let page_button = |id: &'static str, label: &'static str, page: IconPage| {
-            Button::new(id).small().ghost().label(label).on_click(move |_, _, _| audio_bartender_core::open_icon_page(page))
+            Button::new(id)
+                .small()
+                .ghost()
+                .label(label)
+                .on_click(move |_, _, _| audio_bartender_core::open_icon_page(page))
         };
         let nav = |choice: Choice| {
             h_flex()
@@ -1059,7 +1110,9 @@ impl Flyout {
                     v_flex()
                         .min_w_0()
                         .child(div().text_sm().when(on, |d| d.font_semibold()).child(name))
-                        .when(!about.is_empty(), |d| d.child(div().text_xs().text_color(theme.muted_foreground).child(about))),
+                        .when(!about.is_empty(), |d| {
+                            d.child(div().text_xs().text_color(theme.muted_foreground).child(about))
+                        }),
                 )
                 .on_click(move |_, _, _| core.set(setting.clone()))
                 .into_any_element()
@@ -1091,7 +1144,16 @@ impl Render for Flyout {
             let mut items = Vec::new();
             if state.settings.media_controls == MediaControls::Banner {
                 let banner = self.now_playing(&state, &theme, px(44.));
-                items.push(div().mx_2().mt_2().p_2p5().rounded(theme.radius * 1.5).bg(theme.secondary).child(banner).into_any_element());
+                items.push(
+                    div()
+                        .mx_2()
+                        .mt_2()
+                        .p_2p5()
+                        .rounded(theme.radius * 1.5)
+                        .bg(theme.secondary)
+                        .child(banner)
+                        .into_any_element(),
+                );
             }
             items.push(Self::label("MEDIA KEYS GO TO", &theme).into_any_element());
             items.extend(self.targets(&state, cx));
@@ -1117,9 +1179,7 @@ impl Render for Flyout {
                     .flex_1()
                     .min_h_0()
                     .map(|d| if self.height >= MAX_HEIGHT { d.overflow_y_scroll() } else { d.overflow_hidden() })
-                    .child(
-                    v_flex().relative().pb_2().children(middle).child(measure(&self.measured.middle, view)),
-                ),
+                    .child(v_flex().relative().pb_2().children(middle).child(measure(&self.measured.middle, view))),
             )
             // Volume sits at the bottom, next to the tray icon the user just clicked.
             .child(

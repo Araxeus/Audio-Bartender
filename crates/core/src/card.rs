@@ -20,9 +20,8 @@ use windows::Win32::Graphics::Direct2D::Common::{
 use windows::Win32::Graphics::Direct2D::{
     D2D1_BITMAP_BRUSH_PROPERTIES, D2D1_BITMAP_INTERPOLATION_MODE_LINEAR, D2D1_DRAW_TEXT_OPTIONS_CLIP,
     D2D1_EXTEND_MODE_CLAMP, D2D1_FACTORY_TYPE_SINGLE_THREADED, D2D1_FEATURE_LEVEL_DEFAULT,
-    D2D1_RENDER_TARGET_PROPERTIES, D2D1_RENDER_TARGET_TYPE_DEFAULT, D2D1_RENDER_TARGET_USAGE_NONE,
-    D2D1_ROUNDED_RECT, D2D1_TEXT_ANTIALIAS_MODE_GRAYSCALE, D2D1CreateFactory, ID2D1Bitmap, ID2D1DCRenderTarget,
-    ID2D1Factory,
+    D2D1_RENDER_TARGET_PROPERTIES, D2D1_RENDER_TARGET_TYPE_DEFAULT, D2D1_RENDER_TARGET_USAGE_NONE, D2D1_ROUNDED_RECT,
+    D2D1_TEXT_ANTIALIAS_MODE_GRAYSCALE, D2D1CreateFactory, ID2D1Bitmap, ID2D1DCRenderTarget, ID2D1Factory,
 };
 use windows::Win32::Graphics::DirectWrite::{
     DWRITE_FACTORY_TYPE_SHARED, DWRITE_FONT_STRETCH_NORMAL, DWRITE_FONT_STYLE_NORMAL, DWRITE_FONT_WEIGHT,
@@ -44,12 +43,14 @@ use windows::Win32::System::Com::{CLSCTX_INPROC_SERVER, CoCreateInstance};
 use windows::Win32::System::LibraryLoader::GetModuleHandleW;
 use windows::Win32::System::Registry::{HKEY_CURRENT_USER, RRF_RT_REG_DWORD, RegGetValueW};
 use windows::Win32::UI::Controls::WM_MOUSELEAVE;
-use windows::Win32::UI::Input::KeyboardAndMouse::{ReleaseCapture, SetCapture, TME_LEAVE, TRACKMOUSEEVENT, TrackMouseEvent};
+use windows::Win32::UI::Input::KeyboardAndMouse::{
+    ReleaseCapture, SetCapture, TME_LEAVE, TRACKMOUSEEVENT, TrackMouseEvent,
+};
 use windows::Win32::UI::WindowsAndMessaging::{
     CreateWindowExW, DefWindowProcW, GWL_EXSTYLE, GetCursorPos, GetWindowLongPtrW, IDC_ARROW, KillTimer, LoadCursorW,
     MA_NOACTIVATE, RegisterClassW, SW_HIDE, SW_SHOWNOACTIVATE, SetTimer, SetWindowLongPtrW, ShowWindow, ULW_ALPHA,
-    UpdateLayeredWindow, WM_LBUTTONDOWN, WM_LBUTTONUP, WM_MOUSEACTIVATE, WM_MOUSEMOVE, WM_TIMER,
-    WNDCLASSW, WS_EX_LAYERED, WS_EX_NOACTIVATE, WS_EX_TOOLWINDOW, WS_EX_TOPMOST, WS_EX_TRANSPARENT, WS_POPUP,
+    UpdateLayeredWindow, WM_LBUTTONDOWN, WM_LBUTTONUP, WM_MOUSEACTIVATE, WM_MOUSEMOVE, WM_TIMER, WNDCLASSW,
+    WS_EX_LAYERED, WS_EX_NOACTIVATE, WS_EX_TOOLWINDOW, WS_EX_TOPMOST, WS_EX_TRANSPARENT, WS_POPUP,
 };
 use windows::core::{PCWSTR, w};
 use windows_numerics::{Matrix3x2, Vector2};
@@ -354,7 +355,8 @@ impl Card {
         let x = (lparam.0 & 0xffff) as u16 as i16 as f32 / scale;
         let y = ((lparam.0 >> 16) & 0xffff) as u16 as i16 as f32 / scale;
         let buttons = buttons(content);
-        let hit = buttons.iter().position(|b| x >= b.rect.left && x < b.rect.right && y >= b.rect.top && y < b.rect.bottom);
+        let hit =
+            buttons.iter().position(|b| x >= b.rect.left && x < b.rect.right && y >= b.rect.top && y < b.rect.bottom);
         let before = (self.hot, self.pressed, self.hovered);
         let mut key = None;
         match msg {
@@ -432,7 +434,8 @@ impl Card {
         let alpha = ((t * 1000. / FADE_MS).min(1.0) * 255.) as u8;
         let position = self.position(size, scale);
         let shadow = (SHADOW * scale) as i32;
-        let card = [position.x + shadow, position.y + shadow, position.x + size.0 - shadow, position.y + size.1 - shadow];
+        let card =
+            [position.x + shadow, position.y + shadow, position.x + size.0 - shadow, position.y + size.1 - shadow];
         for (slot, value) in SCREEN.iter().zip(card) {
             slot.store(value, Relaxed);
         }
@@ -571,7 +574,11 @@ fn trio(cx: f32, cy: f32, gap: f32, skip: Spec, main: Spec) -> Vec<Button> {
         icon: s.4,
     };
     let off = main.0 / 2. + gap + skip.0 / 2.;
-    vec![make(MediaKey::Previous, cx - off, skip), make(MediaKey::PlayPause, cx, main), make(MediaKey::Next, cx + off, skip)]
+    vec![
+        make(MediaKey::Previous, cx - off, skip),
+        make(MediaKey::PlayPause, cx, main),
+        make(MediaKey::Next, cx + off, skip),
+    ]
 }
 
 /// The card's buttons, in window DIPs. Drawing and hit testing both use these.
@@ -594,7 +601,13 @@ fn buttons(content: &Content) -> Vec<Button> {
             match style {
                 MediaButtons::Hover => {
                     let cx = (x + 26. + right + 4.) / 2.;
-                    trio(cx, line + 9., 6., Spec(40., 24., 6., Tone::Muted, 11.), Spec(48., 24., 12., Tone::Filled, 12.))
+                    trio(
+                        cx,
+                        line + 9.,
+                        6.,
+                        Spec(40., 24., 6., Tone::Muted, 11.),
+                        Spec(48., 24., 12., Tone::Filled, 12.),
+                    )
                 }
                 MediaButtons::Inline => inline(right, line + 9.),
                 MediaButtons::Capsule => capsule(card.top + 60.5),
@@ -700,14 +713,27 @@ impl Painter {
             let target = factory.CreateDCRenderTarget(&props).ok()?;
             target.SetTextAntialiasMode(D2D1_TEXT_ANTIALIAS_MODE_GRAYSCALE);
             let dwrite: IDWriteFactory = DWriteCreateFactory(DWRITE_FACTORY_TYPE_SHARED).ok()?;
-            let wic: IWICImagingFactory = CoCreateInstance(&CLSID_WICImagingFactory, None, CLSCTX_INPROC_SERVER).ok()?;
+            let wic: IWICImagingFactory =
+                CoCreateInstance(&CLSID_WICImagingFactory, None, CLSCTX_INPROC_SERVER).ok()?;
             let format = |family: PCWSTR, weight: DWRITE_FONT_WEIGHT, size: f32| -> Option<IDWriteTextFormat> {
                 let format = dwrite
-                    .CreateTextFormat(family, None, weight, DWRITE_FONT_STYLE_NORMAL, DWRITE_FONT_STRETCH_NORMAL, size, w!("en-us"))
+                    .CreateTextFormat(
+                        family,
+                        None,
+                        weight,
+                        DWRITE_FONT_STYLE_NORMAL,
+                        DWRITE_FONT_STRETCH_NORMAL,
+                        size,
+                        w!("en-us"),
+                    )
                     .ok()?;
                 let _ = format.SetWordWrapping(DWRITE_WORD_WRAPPING_NO_WRAP);
                 let _ = format.SetParagraphAlignment(DWRITE_PARAGRAPH_ALIGNMENT_CENTER);
-                let trimming = DWRITE_TRIMMING { granularity: DWRITE_TRIMMING_GRANULARITY_CHARACTER, delimiter: 0, delimiterCount: 0 };
+                let trimming = DWRITE_TRIMMING {
+                    granularity: DWRITE_TRIMMING_GRANULARITY_CHARACTER,
+                    delimiter: 0,
+                    delimiterCount: 0,
+                };
                 if let Ok(sign) = dwrite.CreateEllipsisTrimmingSign(&format) {
                     let _ = format.SetTrimming(&trimming, &sign);
                 }
@@ -858,7 +884,13 @@ impl Painter {
     #[allow(clippy::too_many_arguments)]
     fn button(&self, b: &Button, p: &Palette, content: &Content, playing: bool, hot: bool, pressed: bool, alpha: f32) {
         let shape = rounded(b.rect, b.radius);
-        let tint = if pressed { 0.14 } else if hot { 0.08 } else { 0. };
+        let tint = if pressed {
+            0.14
+        } else if hot {
+            0.08
+        } else {
+            0.
+        };
         let (ink, ink_alpha) = if content.dark { (0xffffff, tint) } else { (0, tint * 0.8) };
         let fg = match b.tone {
             Tone::Filled => {
@@ -867,7 +899,12 @@ impl Painter {
                 if b.rect.right - b.rect.left >= 34. {
                     for i in 1..5 {
                         let spread = i as f32 * 1.5;
-                        let r = rect(b.rect.left - spread, b.rect.top - spread + 2., b.rect.right + spread, b.rect.bottom + spread + 2.);
+                        let r = rect(
+                            b.rect.left - spread,
+                            b.rect.top - spread + 2.,
+                            b.rect.right + spread,
+                            b.rect.bottom + spread + 2.,
+                        );
                         self.fill(rounded(r, b.radius + spread), accent, alpha * 0.06);
                     }
                 }
@@ -1048,7 +1085,17 @@ impl Painter {
     /// Title, artist and status, stacked and centered beside the art. `reserve`
     /// keeps the status line's room for the Inline buttons even without a status.
     #[allow(clippy::too_many_arguments)]
-    fn now_playing(&self, media: &Media, p: &Palette, x: f32, y: f32, right: f32, status_right: f32, reserve: bool, t: f32) {
+    fn now_playing(
+        &self,
+        media: &Media,
+        p: &Palette,
+        x: f32,
+        y: f32,
+        right: f32,
+        status_right: f32,
+        reserve: bool,
+        t: f32,
+    ) {
         let (title, subtitle) = titles(media);
         let status = media.app.is_some();
         let lines = 1. + subtitle.is_some() as u8 as f32 + (status || reserve) as u8 as f32;
@@ -1166,11 +1213,19 @@ impl Painter {
         let bitmap = unsafe {
             let stream = self.wic.CreateStream().ok()?;
             stream.InitializeFromMemory(&icon.data).ok()?;
-            let decoder = self.wic.CreateDecoderFromStream(&stream, std::ptr::null(), WICDecodeMetadataCacheOnDemand).ok()?;
+            let decoder =
+                self.wic.CreateDecoderFromStream(&stream, std::ptr::null(), WICDecodeMetadataCacheOnDemand).ok()?;
             let frame = decoder.GetFrame(0).ok()?;
             let converter = self.wic.CreateFormatConverter().ok()?;
             converter
-                .Initialize(&frame, &GUID_WICPixelFormat32bppPBGRA, WICBitmapDitherTypeNone, None, 0.0, WICBitmapPaletteTypeMedianCut)
+                .Initialize(
+                    &frame,
+                    &GUID_WICPixelFormat32bppPBGRA,
+                    WICBitmapDitherTypeNone,
+                    None,
+                    0.0,
+                    WICBitmapPaletteTypeMedianCut,
+                )
                 .ok()?;
             self.target.CreateBitmapFromWicBitmap(&converter, None).ok()?
         };
@@ -1245,7 +1300,13 @@ mod tests {
         }
         let mut painter = Painter::new().unwrap();
         let scale = 1.5;
-        let all = [MediaButtons::None, MediaButtons::Hover, MediaButtons::Inline, MediaButtons::Capsule, MediaButtons::Player];
+        let all = [
+            MediaButtons::None,
+            MediaButtons::Hover,
+            MediaButtons::Inline,
+            MediaButtons::Capsule,
+            MediaButtons::Player,
+        ];
         let media = Media {
             app: Some("Spotify".into()),
             playback: Playback::Playing,
@@ -1253,14 +1314,19 @@ mod tests {
             track: Some("Midnight City — M83".into()),
             icon: Some(art()),
         };
-        let (cell_w, cell_h) = (((330. + 2. * SHADOW) * scale) as usize + 30, ((174. + 2. * SHADOW) * scale) as usize + 30);
+        let (cell_w, cell_h) =
+            (((330. + 2. * SHADOW) * scale) as usize + 30, ((174. + 2. * SHADOW) * scale) as usize + 30);
         let (cols, rows) = (all.len(), 4);
         let (img_w, img_h) = (cell_w * cols, cell_h * rows);
         let mut img = vec![0u8; img_w * img_h * 4];
-        for (row, (style, dark)) in
-            [(TooltipStyle::NowPlaying, true), (TooltipStyle::NowPlaying, false), (TooltipStyle::Compact, true), (TooltipStyle::Compact, false)]
-                .into_iter()
-                .enumerate()
+        for (row, (style, dark)) in [
+            (TooltipStyle::NowPlaying, true),
+            (TooltipStyle::NowPlaying, false),
+            (TooltipStyle::Compact, true),
+            (TooltipStyle::Compact, false),
+        ]
+        .into_iter()
+        .enumerate()
         {
             let stage = if dark { 0x0d0f17 } else { 0xdfe3ec };
             for (col, buttons) in all.into_iter().enumerate() {

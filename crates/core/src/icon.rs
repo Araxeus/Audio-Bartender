@@ -3,15 +3,15 @@
 use std::sync::Arc;
 
 use windows::Win32::Graphics::Gdi::{
-    BI_RGB, BITMAPINFO, BITMAPINFOHEADER, CreateCompatibleDC, CreateDIBSection, DIB_RGB_COLORS, DeleteDC,
-    DeleteObject, SelectObject,
+    BI_RGB, BITMAPINFO, BITMAPINFOHEADER, CreateCompatibleDC, CreateDIBSection, DIB_RGB_COLORS, DeleteDC, DeleteObject,
+    SelectObject,
 };
 use windows::Win32::UI::Shell::SHDefExtractIconW;
 use windows::Win32::UI::WindowsAndMessaging::{DI_NORMAL, DestroyIcon, DrawIconEx, HICON};
 use windows::core::PCWSTR;
 
-use crate::{AppIcon, ImageKind};
 use crate::util::wide;
+use crate::{AppIcon, ImageKind};
 
 /// Big enough for a 34 px avatar at 150% scaling.
 const SIZE: u32 = 48;
@@ -66,12 +66,12 @@ unsafe fn render(icon: HICON) -> Option<Vec<u8>> {
             return None;
         }
 
-        for px in rgba.chunks_exact_mut(4) {
+        for px in rgba.as_chunks_mut::<4>().0 {
             px.swap(0, 2);
         }
         // Old icons without an alpha channel come out fully transparent.
-        if rgba.chunks_exact(4).all(|px| px[3] == 0) {
-            rgba.chunks_exact_mut(4).for_each(|px| px[3] = 255);
+        if rgba.as_chunks::<4>().0.iter().all(|px| px[3] == 0) {
+            rgba.as_chunks_mut::<4>().0.iter_mut().for_each(|px| px[3] = 255);
         }
         Some(rgba)
     }

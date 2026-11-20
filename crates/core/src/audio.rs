@@ -3,6 +3,7 @@
 use std::ffi::c_void;
 
 use windows::Win32::Devices::FunctionDiscovery::PKEY_Device_FriendlyName;
+use windows::Win32::Foundation::PROPERTYKEY;
 use windows::Win32::Media::Audio::Endpoints::{
     IAudioEndpointVolume, IAudioEndpointVolumeCallback, IAudioEndpointVolumeCallback_Impl,
 };
@@ -13,7 +14,6 @@ use windows::Win32::Media::Audio::{
 };
 use windows::Win32::System::Com::StructuredStorage::PropVariantToStringAlloc;
 use windows::Win32::System::Com::{CLSCTX_ALL, CoCreateInstance, CoTaskMemFree, STGM_READ};
-use windows::Win32::Foundation::PROPERTYKEY;
 use windows::core::{GUID, HRESULT, PCWSTR, implement, interface};
 
 use crate::Device;
@@ -111,36 +111,38 @@ pub fn toggle_master_mute() {
 mod policy {
     use super::*;
 
-/// Undocumented, but stable since Windows 7 and the only way to change the default
-/// device. EarTrumpet and SoundSwitch use the same interface.
-#[interface("f8679f50-850a-41cf-9c72-430f290290c8")]
-unsafe trait IPolicyConfig: windows::core::IUnknown {
-    fn GetMixFormat(&self, id: PCWSTR, format: *mut *mut c_void) -> HRESULT;
-    fn GetDeviceFormat(&self, id: PCWSTR, default: i32, format: *mut *mut c_void) -> HRESULT;
-    fn ResetDeviceFormat(&self, id: PCWSTR) -> HRESULT;
-    fn SetDeviceFormat(&self, id: PCWSTR, endpoint: *mut c_void, mix: *mut c_void) -> HRESULT;
-    fn GetProcessingPeriod(&self, id: PCWSTR, default: i32, period: *mut i64, min: *mut i64) -> HRESULT;
-    fn SetProcessingPeriod(&self, id: PCWSTR, period: *mut i64) -> HRESULT;
-    fn GetShareMode(&self, id: PCWSTR, mode: *mut c_void) -> HRESULT;
-    fn SetShareMode(&self, id: PCWSTR, mode: *mut c_void) -> HRESULT;
-    fn GetPropertyValue(&self, id: PCWSTR, key: *const PROPERTYKEY, value: *mut c_void) -> HRESULT;
-    fn SetPropertyValue(&self, id: PCWSTR, key: *const PROPERTYKEY, value: *mut c_void) -> HRESULT;
-    fn SetDefaultEndpoint(&self, id: PCWSTR, role: ERole) -> HRESULT;
-    fn SetEndpointVisibility(&self, id: PCWSTR, visible: i32) -> HRESULT;
-}
+    /// Undocumented, but stable since Windows 7 and the only way to change the default
+    /// device. EarTrumpet and SoundSwitch use the same interface.
+    #[interface("f8679f50-850a-41cf-9c72-430f290290c8")]
+    unsafe trait IPolicyConfig: windows::core::IUnknown {
+        fn GetMixFormat(&self, id: PCWSTR, format: *mut *mut c_void) -> HRESULT;
+        fn GetDeviceFormat(&self, id: PCWSTR, default: i32, format: *mut *mut c_void) -> HRESULT;
+        fn ResetDeviceFormat(&self, id: PCWSTR) -> HRESULT;
+        fn SetDeviceFormat(&self, id: PCWSTR, endpoint: *mut c_void, mix: *mut c_void) -> HRESULT;
+        fn GetProcessingPeriod(&self, id: PCWSTR, default: i32, period: *mut i64, min: *mut i64) -> HRESULT;
+        fn SetProcessingPeriod(&self, id: PCWSTR, period: *mut i64) -> HRESULT;
+        fn GetShareMode(&self, id: PCWSTR, mode: *mut c_void) -> HRESULT;
+        fn SetShareMode(&self, id: PCWSTR, mode: *mut c_void) -> HRESULT;
+        fn GetPropertyValue(&self, id: PCWSTR, key: *const PROPERTYKEY, value: *mut c_void) -> HRESULT;
+        fn SetPropertyValue(&self, id: PCWSTR, key: *const PROPERTYKEY, value: *mut c_void) -> HRESULT;
+        fn SetDefaultEndpoint(&self, id: PCWSTR, role: ERole) -> HRESULT;
+        fn SetEndpointVisibility(&self, id: PCWSTR, visible: i32) -> HRESULT;
+    }
 
-const POLICY_CONFIG_CLIENT: GUID = GUID::from_u128(0x870af99c_171d_4f9e_af0d_e63df40c2bc9);
+    const POLICY_CONFIG_CLIENT: GUID = GUID::from_u128(0x870af99c_171d_4f9e_af0d_e63df40c2bc9);
 
-/// Makes `id` the default output for every role.
-pub fn set_default_device(id: &str) {
-    let id = crate::util::wide(id);
-    unsafe {
-        let Ok(policy) = CoCreateInstance::<_, IPolicyConfig>(&POLICY_CONFIG_CLIENT, None, CLSCTX_ALL) else { return };
-        for role in [eConsole, eMultimedia, eCommunications] {
-            let _ = policy.SetDefaultEndpoint(PCWSTR(id.as_ptr()), role);
+    /// Makes `id` the default output for every role.
+    pub fn set_default_device(id: &str) {
+        let id = crate::util::wide(id);
+        unsafe {
+            let Ok(policy) = CoCreateInstance::<_, IPolicyConfig>(&POLICY_CONFIG_CLIENT, None, CLSCTX_ALL) else {
+                return;
+            };
+            for role in [eConsole, eMultimedia, eCommunications] {
+                let _ = policy.SetDefaultEndpoint(PCWSTR(id.as_ptr()), role);
+            }
         }
     }
-}
 }
 pub use policy::set_default_device;
 

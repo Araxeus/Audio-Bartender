@@ -7,17 +7,33 @@ mod ui;
 use std::borrow::Cow;
 use std::time::{Duration, Instant};
 
+use audio_bartender_core::{Anchor, Core, Event, Page, State};
 use futures::StreamExt;
 use gpui_kit::*;
-use audio_bartender_core::{Anchor, Core, Event, Page, State};
 
 use crate::flyout::Flyout;
 
 gpui_kit::assets::icon_assets!(
     AppIcons,
     [
-        Play, SkipBack, SkipForward, Sparkles, Moon, Sun, Volume, Volume1, Volume2, VolumeX, Settings, Power,
-        ChevronDown, ChevronUp, Speaker, Check, Pin, PinOff
+        Play,
+        SkipBack,
+        SkipForward,
+        Sparkles,
+        Moon,
+        Sun,
+        Volume,
+        Volume1,
+        Volume2,
+        VolumeX,
+        Settings,
+        Power,
+        ChevronDown,
+        ChevronUp,
+        Speaker,
+        Check,
+        Pin,
+        PinOff
     ]
 );
 
