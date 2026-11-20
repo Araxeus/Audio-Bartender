@@ -103,6 +103,8 @@ pub struct Flyout {
     opened: Instant,
     /// The slide has finished and the window sits in its final place.
     settled: bool,
+    /// When the flyout started closing, sliding back behind the taskbar.
+    closing: Option<Instant>,
     _subscriptions: Vec<Subscription>,
 }
 
@@ -138,8 +140,7 @@ impl Flyout {
             // Clicking anywhere else closes the flyout, like the Windows one.
             cx.observe_window_activation(window, |this, window, cx| {
                 if !window.is_window_active() && !this.pinned {
-                    window.remove_window();
-                    crate::flyout_closed(cx);
+                    this.close(cx);
                 }
             }),
         ];
@@ -157,6 +158,7 @@ impl Flyout {
             measured: Measured::default(),
             opened: Instant::now(),
             settled: false,
+            closing: None,
             _subscriptions,
         }
     }
@@ -167,9 +169,31 @@ impl Flyout {
         cx.notify();
     }
 
-    /// Resizes the window to its content and slides it out from behind the taskbar.
+    /// Slides the flyout back behind the taskbar, then closes its window.
+    pub fn close(&mut self, cx: &mut Context<Self>) {
+        if self.closing.is_none() {
+            self.closing = Some(Instant::now());
+            crate::flyout_closed(cx);
+            cx.notify();
+        }
+    }
+
+    /// Resizes the window to its content and slides it in or out.
     /// GPUI resizes downward from the top, so the window moves once the new size applies.
     fn fit(&mut self, state: &State, window: &mut Window) {
+        if let Some(closing) = self.closing {
+            if mediakeys_core::slide_out_progress(closing) <= 0.0 {
+                window.remove_window();
+                return;
+            }
+            window.request_animation_frame();
+            let Some(hwnd) = hwnd(window) else { return };
+            let anchor = self.anchor;
+            window.on_next_frame(move |_, _| {
+                mediakeys_core::place_window(hwnd, &anchor, mediakeys_core::slide_out_progress(closing));
+            });
+            return;
+        }
         let height = match self.measured.total() {
             Some(total) => total.ceil().min(MAX_HEIGHT),
             None => height(state, self.page),

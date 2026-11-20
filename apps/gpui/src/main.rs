@@ -63,8 +63,7 @@ fn open_flyout(cx: &mut App) -> Option<(AnyWindowHandle, Entity<Flyout>)> {
 fn show_flyout(cx: &mut App, anchor: Anchor, page: Page, toggle: bool, pinned: bool) {
     if let Some((handle, view)) = open_flyout(cx) {
         if toggle {
-            let _ = handle.update(cx, |_, window, _| window.remove_window());
-            flyout_closed(cx);
+            view.update(cx, |view, cx| view.close(cx));
         } else {
             view.update(cx, |view, cx| view.open_page(page, cx));
             let _ = handle.update(cx, |_, window, _| window.activate_window());

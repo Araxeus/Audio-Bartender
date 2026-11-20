@@ -26,6 +26,8 @@ struct Flyout {
     closed_at: Option<Instant>,
     /// When the flyout was last shown, for sliding it out from behind the taskbar.
     shown_at: Option<Instant>,
+    /// When the flyout started closing, sliding back behind the taskbar.
+    closing_at: Option<Instant>,
     /// Stays open when it loses focus.
     pinned: bool,
 }
@@ -116,7 +118,12 @@ fn ready(window: WebviewWindow) {
 
 /// Shows the flyout, sliding it out from behind the taskbar.
 fn reveal(app: &AppHandle, window: &WebviewWindow) {
-    app.state::<Mutex<Flyout>>().lock().unwrap().shown_at = Some(Instant::now());
+    {
+        let flyout = app.state::<Mutex<Flyout>>();
+        let mut flyout = flyout.lock().unwrap();
+        flyout.shown_at = Some(Instant::now());
+        flyout.closing_at = None;
+    }
     place_flyout(app);
     let _ = window.show();
     let _ = window.set_focus();
@@ -147,15 +154,19 @@ fn page_name(page: Page) -> &'static str {
 /// Sizes the flyout to its content and puts it next to the tray icon.
 fn place_flyout(app: &AppHandle) {
     let Some(window) = app.get_webview_window(FLYOUT) else { return };
-    let (anchor, height, shown_at) = {
+    let (anchor, height, progress) = {
         let flyout = app.state::<Mutex<Flyout>>();
         let flyout = flyout.lock().unwrap();
-        (flyout.anchor, flyout.height.unwrap_or(480.0), flyout.shown_at)
+        let progress = match (flyout.closing_at, flyout.shown_at) {
+            (Some(at), _) => mediakeys_core::slide_out_progress(at),
+            (None, Some(at)) => mediakeys_core::slide_progress(at),
+            (None, None) => 1.0,
+        };
+        (flyout.anchor, flyout.height.unwrap_or(480.0), progress)
     };
     let Some(anchor) = anchor else { return };
     let scale = anchor.scale as f64;
     let _ = window.set_size(LogicalSize::new(FLYOUT_WIDTH, height));
-    let progress = shown_at.map_or(1.0, mediakeys_core::slide_progress);
     let (width, height) = ((FLYOUT_WIDTH * scale) as i32, (height * scale) as i32);
     match window.hwnd() {
         Ok(hwnd) => mediakeys_core::place_window_sized(hwnd.0 as isize, &anchor, width, height, progress),
@@ -166,11 +177,40 @@ fn place_flyout(app: &AppHandle) {
     }
 }
 
+/// Slides the flyout back behind the taskbar, then hides it.
 fn hide_flyout(app: &AppHandle) {
-    if let Some(window) = app.get_webview_window(FLYOUT) {
-        let _ = window.hide();
+    let start = Instant::now();
+    {
+        let flyout = app.state::<Mutex<Flyout>>();
+        let mut flyout = flyout.lock().unwrap();
+        if flyout.closing_at.is_some() {
+            return;
+        }
+        flyout.closed_at = Some(start);
+        flyout.closing_at = Some(start);
     }
-    app.state::<Mutex<Flyout>>().lock().unwrap().closed_at = Some(Instant::now());
+    let sliding = app.clone();
+    std::thread::spawn(move || {
+        loop {
+            // Showing it again cancels the slide.
+            if sliding.state::<Mutex<Flyout>>().lock().unwrap().closing_at != Some(start) {
+                return;
+            }
+            place_flyout(&sliding);
+            if mediakeys_core::slide_out_progress(start) <= 0.0 {
+                break;
+            }
+            std::thread::sleep(Duration::from_millis(8));
+        }
+        if let Some(window) = sliding.get_webview_window(FLYOUT) {
+            let _ = window.hide();
+        }
+        let flyout = sliding.state::<Mutex<Flyout>>();
+        let mut flyout = flyout.lock().unwrap();
+        if flyout.closing_at == Some(start) {
+            flyout.closing_at = None;
+        }
+    });
     // Free the webview if the flyout stays closed for a while.
     let app = app.clone();
     std::thread::spawn(move || {
@@ -190,7 +230,9 @@ fn hide_flyout(app: &AppHandle) {
 /// open flyout closes instead.
 fn show_flyout(app: &AppHandle, anchor: Anchor, page: Page, toggle: bool) {
     let existing = app.get_webview_window(FLYOUT);
-    let visible = existing.as_ref().is_some_and(|w| w.is_visible().unwrap_or(false));
+    // A flyout sliding closed counts as closed.
+    let closing = app.state::<Mutex<Flyout>>().lock().unwrap().closing_at.is_some();
+    let visible = !closing && existing.as_ref().is_some_and(|w| w.is_visible().unwrap_or(false));
     if visible && toggle {
         hide_flyout(app);
         return;

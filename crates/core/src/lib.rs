@@ -274,6 +274,19 @@ pub fn slide_progress(since: std::time::Instant) -> f32 {
     1.0 - (1.0 - t).powi(3)
 }
 
+/// How long a closing flyout takes to slide back behind the taskbar.
+pub const SLIDE_OUT: std::time::Duration = std::time::Duration::from_millis(120);
+
+/// How far a flyout closing since `since` is still out, from 1 down to 0 (hidden).
+/// Eases in, and is always 0 when Windows animations are off.
+pub fn slide_out_progress(since: std::time::Instant) -> f32 {
+    if !util::animations_enabled() {
+        return 0.0;
+    }
+    let t = (since.elapsed().as_secs_f32() / SLIDE_OUT.as_secs_f32()).min(1.0);
+    1.0 - t * t
+}
+
 impl Anchor {
     /// Top-left corner for a flyout of the given physical size: flush against the
     /// taskbar like the Windows flyouts, centered on the icon, kept inside the work area.
