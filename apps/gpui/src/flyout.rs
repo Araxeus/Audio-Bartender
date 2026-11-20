@@ -14,10 +14,9 @@ use gpui_kit::assets::IconName;
 use gpui_kit::base::{h_flex, v_flex};
 use gpui_kit::component::button::{Button, ButtonVariants};
 use gpui_kit::component::scroll::ScrollableElement;
-use gpui_kit::component::switch::Switch;
 use gpui_kit::component::theme::Theme;
 use gpui_kit::component::tooltip::Tooltip;
-use gpui_kit::component::{ActiveTheme, Disableable, Icon, Sizable, StyledExt};
+use gpui_kit::component::{ActiveTheme, Icon, Sizable, StyledExt};
 use gpui_kit::prelude::FluentBuilder;
 use gpui_kit::*;
 use raw_window_handle::{HasWindowHandle, RawWindowHandle};
@@ -29,6 +28,8 @@ pub const WIDTH: f32 = 360.;
 /// The settings panel beside the flyout, two columns wide.
 pub const PANEL: f32 = 640.;
 const MAX_HEIGHT: f32 = 640.;
+/// The segmented control's track in light mode, as in the Tauri front end.
+const TRACK_LIGHT: u32 = 0xdcdce4;
 
 // Estimated heights, for sizing the window before its content is measured.
 const CONTROLS: f32 = 45.;
@@ -1013,14 +1014,82 @@ impl Flyout {
             .into_any_element()
     }
 
-    /// A setting's label, then a segmented control of its modes, then a line about
+    /// A switch drawn like the Tauri one: an outlined track when off, filled with the
+    /// accent when on.
+    fn switch(&self, id: &'static str, on: bool, make: fn(bool) -> Setting, theme: &Theme) -> AnyElement {
+        let core = self.core.clone();
+        let (accent, muted) = (theme.primary, theme.muted_foreground);
+        div()
+            .id(id)
+            .flex_none()
+            .relative()
+            .w(px(40.))
+            .h(px(20.))
+            .rounded(px(10.))
+            .border(px(1.5))
+            .border_color(if on { accent } else { muted })
+            .when(on, |d| d.bg(accent))
+            .cursor_pointer()
+            .child(
+                div()
+                    .absolute()
+                    .top(px(3.))
+                    .left(px(if on { 23. } else { 3. }))
+                    .size(px(11.))
+                    .rounded_full()
+                    .bg(if on { white() } else { muted }),
+            )
+            .on_click(move |_, _, _| core.set(make(!on)))
+            .into_any_element()
+    }
+
+    /// A small bordered button, for actions inside a settings row.
+    fn small_button(id: &'static str, label: &'static str, theme: &Theme) -> Stateful<Div> {
+        let hover = theme.secondary_hover;
+        div()
+            .id(id)
+            .flex_none()
+            .px(px(9.))
+            .py(px(3.))
+            .rounded(px(6.))
+            .border_1()
+            .border_color(theme.border)
+            .bg(theme.background)
+            .text_size(px(12.))
+            .line_height(px(17.))
+            .cursor_pointer()
+            .hover(move |st| st.bg(hover))
+            .child(label)
+    }
+
+    /// A group heading in the settings panel.
+    fn panel_label(text: &'static str, theme: &Theme) -> Div {
+        div()
+            .px_4()
+            .pt(px(10.))
+            .pb(px(2.))
+            .text_size(px(11.))
+            .line_height(px(15.))
+            .font_semibold()
+            .text_color(theme.muted_foreground)
+            .child(text)
+    }
+
+    /// A setting's name, then a segmented control of its modes, then a line about
     /// the current one.
     fn segmented(&self, mode: Mode, s: &Settings, theme: &Theme) -> AnyElement {
         let options = mode.options(s);
         let about = options.iter().find(|o| o.3).map_or("", |o| o.2);
         let (fg, muted) = (theme.foreground, theme.muted_foreground);
-        let (track, chip) =
-            if theme.is_dark() { (theme.muted, theme.secondary) } else { (theme.secondary, theme.background) };
+        let dark = theme.is_dark();
+        let (track, chip) = if dark { (theme.muted, theme.secondary) } else { (hex(TRACK_LIGHT), theme.background) };
+        let shadow = vec![BoxShadow {
+            color: black().opacity(if dark { 0.25 } else { 0.12 }),
+            offset: point(px(0.), px(1.)),
+            blur_radius: px(2.),
+            spread_radius: px(0.),
+            inset: false,
+        }];
         let buttons = options.into_iter().enumerate().map(|(i, (setting, name, _, on))| {
             let core = self.core.clone();
             div()
@@ -1028,15 +1097,16 @@ impl Flyout {
                 .flex_1()
                 .min_w_0()
                 .h(px(24.))
+                .px_1()
                 .flex()
                 .items_center()
                 .justify_center()
                 .rounded(px(5.))
-                .text_xs()
+                .text_size(px(12.))
                 .cursor_pointer()
                 .map(|d| {
                     if on {
-                        d.bg(chip).text_color(fg).font_semibold().shadow_xs()
+                        d.bg(chip).text_color(fg).font_semibold().shadow(shadow.clone())
                     } else {
                         d.text_color(muted).hover(move |st| st.text_color(fg))
                     }
@@ -1047,12 +1117,12 @@ impl Flyout {
         v_flex()
             .mx_2()
             .px_2()
-            .pt_1p5()
+            .pt(px(6.))
             .pb_2()
-            .gap_1p5()
-            .child(div().text_sm().child(mode.title()))
+            .gap(px(6.))
+            .child(div().text_size(px(13.)).line_height(px(18.)).child(mode.title()))
             .child(h_flex().p(px(2.)).gap(px(2.)).rounded(px(7.)).bg(track).children(buttons))
-            .child(div().h(px(16.)).text_xs().text_color(muted).truncate().child(about))
+            .child(div().h(px(16.)).text_size(px(12.)).line_height(px(16.)).text_color(muted).truncate().child(about))
             .into_any_element()
     }
 
@@ -1066,23 +1136,18 @@ impl Flyout {
                 .px_2()
                 .h(px(SETTING_ROW))
                 .gap_3()
-                .child(div().flex_1().min_w_0().text_sm().child(title))
+                .text_size(px(13.))
+                .line_height(px(18.))
+                .child(div().flex_1().min_w_0().child(title))
                 .child(control)
                 .into_any_element()
         };
-        let switch = |id: &'static str, on: bool, make: fn(bool) -> Setting| {
-            let core = self.core.clone();
-            Switch::new(id).checked(on).on_click(move |on, _, _| core.set(make(*on))).into_any_element()
-        };
         let page_button = |id: &'static str, label: &'static str, page: IconPage| {
-            Button::new(id)
-                .small()
-                .ghost()
-                .label(label)
-                .on_click(move |_, _, _| audio_bartender_core::open_icon_page(page))
+            Self::small_button(id, label, theme).on_click(move |_, _, _| audio_bartender_core::open_icon_page(page))
         };
         let update = {
             let core = self.core.clone();
+            let busy = state.update.busy();
             h_flex()
                 .mx_2()
                 .px_2()
@@ -1093,27 +1158,24 @@ impl Flyout {
                         .flex_1()
                         .min_w_0()
                         .truncate()
-                        .text_xs()
+                        .text_size(px(12.))
                         .text_color(theme.muted_foreground)
                         .child(state.update.summary.clone()),
                 )
                 .child(
-                    Button::new("check-update")
-                        .small()
-                        .ghost()
-                        .label("Check now")
-                        .disabled(state.update.busy())
-                        .on_click(move |_, _, _| core.check_update()),
+                    Self::small_button("check-update", "Check now", theme)
+                        .when(busy, |d| d.opacity(0.5))
+                        .when(!busy, |d| d.on_click(move |_, _, _| core.check_update())),
                 )
                 .into_any_element()
         };
         let left = v_flex()
             .flex_1()
             .min_w_0()
-            .child(Self::label("GENERAL", theme))
-            .child(row("Start with Windows", switch("autostart", s.autostart, Setting::Autostart)))
-            .child(row("Album art as app icon", switch("album-art", s.album_art, Setting::AlbumArt)))
-            .child(row("Automatic updates", switch("auto-update", s.auto_update, Setting::AutoUpdate)))
+            .child(Self::panel_label("GENERAL", theme))
+            .child(row("Start with Windows", self.switch("autostart", s.autostart, Setting::Autostart, theme)))
+            .child(row("Album art as app icon", self.switch("album-art", s.album_art, Setting::AlbumArt, theme)))
+            .child(row("Automatic updates", self.switch("auto-update", s.auto_update, Setting::AutoUpdate, theme)))
             .child(update)
             .child(row(
                 "Tray icons",
@@ -1123,17 +1185,17 @@ impl Flyout {
                     .child(page_button("hide-windows", "Hide Windows'", IconPage::HideWindows))
                     .into_any_element(),
             ))
-            .child(Self::label("LOOK", theme))
+            .child(Self::panel_label("LOOK", theme))
             .child(row("Accent color", self.swatches(s.accent, theme)))
             .child(self.segmented(Mode::Theme, s, theme))
             .child(self.segmented(Mode::TrayIcon, s, theme));
         let right = v_flex()
             .flex_1()
             .min_w_0()
-            .child(Self::label("TRAY TOOLTIP", theme))
+            .child(Self::panel_label("TRAY TOOLTIP", theme))
             .child(self.segmented(Mode::Tooltip, s, theme))
             .child(self.segmented(Mode::TooltipButtons, s, theme))
-            .child(Self::label("FLYOUT", theme))
+            .child(Self::panel_label("FLYOUT", theme))
             .child(self.segmented(Mode::MediaControls, s, theme))
             .child(self.segmented(Mode::VolumeBars, s, theme))
             .child(self.segmented(Mode::LevelMeters, s, theme));
@@ -1144,7 +1206,7 @@ impl Flyout {
             .border_b_1()
             .border_color(theme.border)
             .when(theme.is_dark(), |d| d.bg(hex(DARK_FOOTER)))
-            .child(div().pl_1().text_sm().font_semibold().child("Settings"))
+            .child(div().pl_1().text_size(px(13.)).font_semibold().child("Settings"))
             .child(
                 Button::new("close-settings")
                     .small()
