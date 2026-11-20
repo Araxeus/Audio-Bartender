@@ -1,4 +1,4 @@
-# Opens both front ends next to each other. Press Enter here to close them.
+# Opens both flyouts pinned, next to each other. Press Enter here to close them.
 #
 #   pwsh scripts/side-by-side.ps1
 #   pwsh scripts/side-by-side.ps1 -Shots dist   # also save a screenshot of each window
@@ -27,7 +27,8 @@ public static class S {
         IntPtr found = IntPtr.Zero;
         EnumWindows((h, l) => {
             uint p; GetWindowThreadProcessId(h, out p);
-            if (p == pid && IsWindowVisible(h) && GetWindowTextLength(h) > 0) { found = h; return false; }
+            RECT r; GetWindowRect(h, out r);
+            if (p == pid && IsWindowVisible(h) && r.R - r.L > 100) { found = h; return false; }
             return true;
         }, IntPtr.Zero);
         return found;
@@ -38,15 +39,17 @@ public static class S {
 
 $area = [System.Windows.Forms.Screen]::PrimaryScreen.WorkingArea
 $procs = @()
-$x = $area.X + [int]($area.Width / 2) - 430
+$x = $area.Right - 2 * 400
 foreach ($app in 'gpui', 'tauri') {
-    $p = Start-Process (Join-Path $root "target/release/mediakeys-$app.exe") -PassThru
+    $p = Start-Process (Join-Path $root "target/release/mediakeys-$app.exe") -ArgumentList '--pinned' -PassThru
     $hwnd = [IntPtr]::Zero
     $deadline = (Get-Date).AddSeconds(15)
     while ($hwnd -eq [IntPtr]::Zero -and (Get-Date) -lt $deadline) { Start-Sleep -Milliseconds 50; $hwnd = [S]::FindMain([uint32]$p.Id) }
     # SWP_NOSIZE | SWP_NOZORDER
-    [void][S]::SetWindowPos($hwnd, [IntPtr]::Zero, $x, $area.Y + 80, 0, 0, 0x5)
-    $x += 440
+    # Keep each flyout's height and bottom edge; only move it sideways. SWP_NOSIZE | SWP_NOZORDER
+    $r = New-Object S+RECT; [void][S]::GetWindowRect($hwnd, [ref]$r)
+    [void][S]::SetWindowPos($hwnd, [IntPtr]::Zero, $x, $r.T, 0, 0, 0x5)
+    $x += 400
     $procs += [pscustomobject]@{ App = $app; Process = $p; Hwnd = $hwnd }
 }
 

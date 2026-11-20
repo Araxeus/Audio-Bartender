@@ -1,4 +1,5 @@
-# Builds both front ends, copies them to dist/, then measures and screenshots each.
+# Builds both front ends, copies them to dist/, then measures each in the tray and
+# with its flyout open, and screenshots the flyout.
 #
 #   pwsh scripts/measure.ps1            # build + measure
 #   pwsh scripts/measure.ps1 -NoBuild
@@ -60,12 +61,13 @@ public static class W {
         return ok ? (ulong)c.PrivateWorkingSetSize : 0;
     }
 
-    // First visible, titled top-level window owned by pid.
+    // The first visible top-level window owned by pid that is wider than a tooltip.
     public static IntPtr FindMain(uint pid) {
         IntPtr found = IntPtr.Zero;
         EnumWindows((h, l) => {
             uint p; GetWindowThreadProcessId(h, out p);
-            if (p == pid && IsWindowVisible(h) && GetWindowTextLength(h) > 0) { found = h; return false; }
+            RECT r; DwmGetWindowAttribute(h, 9, out r, Marshal.SizeOf(typeof(RECT)));
+            if (p == pid && IsWindowVisible(h) && r.R - r.L > 100) { found = h; return false; }
             return true;
         }, IntPtr.Zero);
         return found;
@@ -129,39 +131,41 @@ function Save-Shot($rect, [string]$path) {
 
 $results = foreach ($app in 'gpui', 'tauri') {
     $exe = Join-Path $root "target/release/mediakeys-$app.exe"
-    Copy-Item $exe (Join-Path $dist "mediakeys-$app.exe") -Force
+    try { Copy-Item $exe (Join-Path $dist "mediakeys-$app.exe") -Force }
+    catch { Write-Warning "dist/mediakeys-$app.exe is in use; not replaced" }
 
+    # Tray only: what the app costs while you're not looking at it.
+    $p = Start-Process $exe -ArgumentList '--hidden' -PassThru
+    Start-Sleep -Seconds ($SettleSeconds + 2)
+    $tray = Get-PrivateMB $p.Id
+    Get-Tree $p.Id | ForEach-Object { Stop-Process -Id $_ -Force -ErrorAction SilentlyContinue }
+    Start-Sleep -Milliseconds 800
+
+    # Flyout open, pinned so it stays up while measured.
     $sw = [Diagnostics.Stopwatch]::StartNew()
-    $p = Start-Process $exe -PassThru
+    $p = Start-Process $exe -ArgumentList '--pinned' -PassThru
     $hwnd = [IntPtr]::Zero
     while ($sw.Elapsed.TotalSeconds -lt 20 -and $hwnd -eq [IntPtr]::Zero) {
         Start-Sleep -Milliseconds 10
         $hwnd = [W]::FindMain([uint32]$p.Id)
     }
     $startup = [int]$sw.Elapsed.TotalMilliseconds
-    if ($hwnd -eq [IntPtr]::Zero) { Write-Warning "$app : no window"; Stop-Process -Id $p.Id -Force; continue }
+    if ($hwnd -eq [IntPtr]::Zero) { Write-Warning "$app : no flyout"; Get-Tree $p.Id | ForEach-Object { Stop-Process -Id $_ -Force -ErrorAction SilentlyContinue }; continue }
 
     Start-Sleep -Seconds $SettleSeconds
     $open = Get-PrivateMB $p.Id
-    [W]::Front($hwnd)
-    Start-Sleep -Milliseconds 400
     Save-Shot ([W]::Frame($hwnd)) (Join-Path $dist "$app.png")
-
-    # Close the window; the app keeps running in the tray.
-    [void][W]::PostMessage($hwnd, 0x10, [IntPtr]::Zero, [IntPtr]::Zero)
-    Start-Sleep -Seconds ($SettleSeconds + 4)
-    $tray = Get-PrivateMB $p.Id
-
     Get-Tree $p.Id | ForEach-Object { Stop-Process -Id $_ -Force -ErrorAction SilentlyContinue }
     Start-Sleep -Milliseconds 800
+
     [pscustomobject]@{
-        App          = $app
-        ExeMB        = [math]::Round((Get-Item $exe).Length / 1MB, 2)
-        WindowMs     = $startup
-        OpenRamMB    = $open.MB
-        OpenProcs    = $open.Count
-        TrayRamMB    = $tray.MB
-        TrayProcs    = $tray.Count
+        App         = $app
+        ExeMB       = [math]::Round((Get-Item $exe).Length / 1MB, 2)
+        FlyoutMs    = $startup
+        FlyoutRamMB = $open.MB
+        FlyoutProcs = $open.Count
+        TrayRamMB   = $tray.MB
+        TrayProcs   = $tray.Count
     }
 }
 $results | Format-Table -AutoSize
