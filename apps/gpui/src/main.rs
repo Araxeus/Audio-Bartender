@@ -1,7 +1,6 @@
 #![windows_subsystem = "windows"]
 
 mod flyout;
-mod main_view;
 mod theme;
 mod ui;
 
@@ -9,18 +8,16 @@ use std::borrow::Cow;
 use std::time::{Duration, Instant};
 
 use futures::StreamExt;
-use gpui_kit::component::TitleBar;
 use gpui_kit::*;
-use mediakeys_core::{Anchor, Core, Event, State};
+use mediakeys_core::{Anchor, Core, Event, Page, State};
 
 use crate::flyout::Flyout;
-use crate::main_view::MainView;
 
 gpui_kit::assets::icon_assets!(
     AppIcons,
     [
-        Play, SkipBack, SkipForward, Sparkles, Moon, Sun, AppWindow, Volume, Volume1, Volume2, VolumeX, Settings,
-        Power, ChevronDown, ChevronUp, ArrowLeft, Speaker, Check
+        Play, SkipBack, SkipForward, Sparkles, Moon, Sun, Volume, Volume1, Volume2, VolumeX, Settings, Power,
+        ChevronDown, ChevronUp, Speaker, Check, Pin, PinOff
     ]
 );
 
@@ -45,9 +42,7 @@ impl AssetSource for AppAssets {
 struct Globals {
     core: Core,
     state: Entity<State>,
-    main: Option<AnyWindowHandle>,
-    main_view: Option<WeakEntity<MainView>>,
-    flyout: Option<AnyWindowHandle>,
+    flyout: Option<(AnyWindowHandle, WeakEntity<Flyout>)>,
     flyout_closed: Option<Instant>,
 }
 
@@ -56,82 +51,33 @@ impl Global for Globals {}
 /// A tray click that lands right after the flyout closed is the click that closed it.
 const REOPEN_GUARD: Duration = Duration::from_millis(300);
 
-fn alive(handle: Option<AnyWindowHandle>, cx: &mut App) -> Option<AnyWindowHandle> {
-    let handle = handle?;
-    handle.update(cx, |_, _, _| ()).ok().map(|_| handle)
+/// The open flyout, if its window still exists.
+fn open_flyout(cx: &mut App) -> Option<(AnyWindowHandle, Entity<Flyout>)> {
+    let (handle, view) = cx.global::<Globals>().flyout.clone()?;
+    let view = view.upgrade()?;
+    handle.update(cx, |_, _, _| ()).ok()?;
+    Some((handle, view))
 }
 
-/// Focuses the main window, or opens it.
-pub fn show_main(cx: &mut App) {
-    if let Some(handle) = alive(cx.global::<Globals>().main, cx) {
-        let _ = handle.update(cx, |_, window, _| window.activate_window());
+/// Shows the flyout on `page`. With `toggle` (a tray click) an open flyout closes.
+fn show_flyout(cx: &mut App, anchor: Anchor, page: Page, toggle: bool, pinned: bool) {
+    if let Some((handle, view)) = open_flyout(cx) {
+        if toggle {
+            let _ = handle.update(cx, |_, window, _| window.remove_window());
+            flyout_closed(cx);
+        } else {
+            view.update(cx, |view, cx| view.open_page(page, cx));
+            let _ = handle.update(cx, |_, window, _| window.activate_window());
+        }
         return;
     }
-    open_main(cx, None);
-}
-
-pub fn open_main(cx: &mut App, bounds: Option<Bounds<Pixels>>) {
-    let globals = cx.global::<Globals>();
-    let (core, state) = (globals.core.clone(), globals.state.clone());
-    let custom = state.read(cx).settings.custom_title_bar;
-
-    // The title also names the taskbar and Alt+Tab entries when the caption is hidden.
-    let title = Some("Media Keys Selector".into());
-    let base = if custom {
-        let options = TitleBar::window_options();
-        WindowOptions { titlebar: Some(TitlebarOptions { title, ..TitleBar::title_bar_options() }), ..options }
-    } else {
-        WindowOptions { titlebar: Some(TitlebarOptions { title, ..Default::default() }), ..Default::default() }
-    };
-    let bounds = bounds.unwrap_or_else(|| Bounds::centered(None, size(px(420.), px(640.)), cx));
-    let options = WindowOptions {
-        window_bounds: Some(WindowBounds::Windowed(bounds)),
-        window_min_size: Some(size(px(360.), px(480.))),
-        app_id: Some("MediaKeysSelector".into()),
-        ..base
-    };
-    let opened = gpui_kit::open_window(options, cx, |window, cx| {
-        // Closing quits unless the close button is set to hide to the tray.
-        let (state, core) = (state.clone(), core.clone());
-        window.on_window_should_close(cx, move |_, cx| {
-            if !state.read(cx).settings.close_to_tray {
-                core.shutdown();
-                cx.quit();
-            }
-            true
-        });
-        let (core, state) = (cx.global::<Globals>().core.clone(), cx.global::<Globals>().state.clone());
-        cx.new(|cx| MainView::new(core, state, window, cx))
-    });
-    if let Ok((handle, view)) = opened {
-        let globals = cx.global_mut::<Globals>();
-        globals.main = Some(handle);
-        globals.main_view = Some(view.downgrade());
-    }
-}
-
-/// Shows the main window on its settings page.
-pub fn show_settings(cx: &mut App) {
-    show_main(cx);
-    if let Some(view) = cx.global::<Globals>().main_view.clone().and_then(|v| v.upgrade()) {
-        view.update(cx, |view, cx| view.open_settings(cx));
-    }
-}
-
-/// Opens the flyout next to the tray icon, or closes it if it is open.
-fn toggle_flyout(cx: &mut App, anchor: Anchor) {
-    if let Some(handle) = alive(cx.global::<Globals>().flyout, cx) {
-        let _ = handle.update(cx, |_, window, _| window.remove_window());
-        flyout_closed(cx);
-        return;
-    }
-    if cx.global::<Globals>().flyout_closed.is_some_and(|at| at.elapsed() < REOPEN_GUARD) {
+    if toggle && cx.global::<Globals>().flyout_closed.is_some_and(|at| at.elapsed() < REOPEN_GUARD) {
         return;
     }
 
     let globals = cx.global::<Globals>();
     let (core, state) = (globals.core.clone(), globals.state.clone());
-    let height = flyout::height(state.read(cx));
+    let height = flyout::height(state.read(cx), page);
     let scale = anchor.scale;
     let (x, y) = anchor.place((flyout::WIDTH * scale) as i32, (height * scale) as i32);
     let options = WindowOptions {
@@ -149,10 +95,12 @@ fn toggle_flyout(cx: &mut App, anchor: Anchor) {
         app_id: Some("MediaKeysSelector".into()),
         ..Default::default()
     };
-    let opened = gpui_kit::open_window(options, cx, |window, cx| cx.new(|cx| Flyout::new(core, state, window, cx)));
-    if let Ok((handle, _)) = opened {
+    let opened = gpui_kit::open_window(options, cx, |window, cx| {
+        cx.new(|cx| Flyout::new(core, state, anchor, page, pinned, window, cx))
+    });
+    if let Ok((handle, view)) = opened {
         let _ = handle.update(cx, |_, window, _| window.activate_window());
-        cx.global_mut::<Globals>().flyout = Some(handle);
+        cx.global_mut::<Globals>().flyout = Some((handle, view.downgrade()));
     }
 }
 
@@ -170,16 +118,16 @@ fn main() {
         return;
     };
     let hidden = mediakeys_core::start_hidden();
+    let pinned = mediakeys_core::start_pinned();
 
     gpui_kit::application().with_assets(AppAssets).run(move |cx| {
         gpui_kit::init(cx);
         cx.set_quit_mode(QuitMode::Explicit);
         let state = cx.new(|_| core.state());
-        cx.set_global(Globals { core, state, main: None, main_view: None, flyout: None, flyout_closed: None });
-        if mediakeys_core::start_in_settings() {
-            show_settings(cx);
-        } else if !hidden {
-            show_main(cx);
+        let anchor = core.default_anchor();
+        cx.set_global(Globals { core, state, flyout: None, flyout_closed: None });
+        if !hidden {
+            show_flyout(cx, anchor, mediakeys_core::start_page(), false, pinned);
         }
 
         cx.spawn(async move |cx| {
@@ -192,9 +140,7 @@ fn main() {
                             cx.notify();
                         });
                     }
-                    Event::Show => show_main(cx),
-                    Event::ShowSettings => show_settings(cx),
-                    Event::Flyout(anchor) => toggle_flyout(cx, anchor),
+                    Event::Flyout { anchor, page, toggle } => show_flyout(cx, anchor, page, toggle, false),
                     Event::Quit => cx.quit(),
                 });
             }

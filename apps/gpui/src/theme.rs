@@ -1,7 +1,6 @@
 use gpui_kit::component::ActiveTheme;
 use gpui_kit::component::theme::{Theme, ThemeMode};
 use gpui_kit::*;
-use raw_window_handle::{HasWindowHandle, RawWindowHandle};
 
 pub fn hex(color: u32) -> Hsla {
     rgb(color).into()
@@ -58,10 +57,4 @@ pub fn apply(window: &mut Window, cx: &mut App, dark: Option<bool>) {
         }
     });
 
-    // The native caption ignores the app theme unless told.
-    if let Ok(handle) = HasWindowHandle::window_handle(window)
-        && let RawWindowHandle::Win32(win32) = handle.as_raw()
-    {
-        mediakeys_core::set_dark_title_bar(win32.hwnd.get(), dark);
-    }
 }
