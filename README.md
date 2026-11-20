@@ -31,7 +31,7 @@ The flyout is the whole UI. Left-click the tray icon to open or close it; it als
 
 - Shows the master volume: a ring that fills around a speaker, or the number. It follows the taskbar's light or dark theme.
 - Wheel over the icon: master volume, 2% per notch, with a live tooltip. Middle click: mute.
-- Right click opens a quick menu: master volume, targets and other apps with their volumes, settings, autostart and quit. Scrolling over a volume entry changes it while the menu stays open; clicking an app in Other apps mutes it.
+- Right click opens a quick menu in the app's theme: master volume, targets and other apps with their volumes, the Windows volume icon's links (Sound settings, Volume mixer, Sounds, troubleshooter), settings and quit. Scrolling over a volume entry changes it while the menu stays open; clicking an app in Other apps mutes it.
 - New tray icons start in the overflow area, and Windows lets only the user move them. Drag the icon onto the taskbar, and the Windows volume icon into the overflow. Settings → "Tray icons" opens the Windows pages for this.
 
 ## Settings

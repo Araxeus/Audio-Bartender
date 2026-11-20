@@ -29,7 +29,9 @@ use windows::core::{BOOL, PCSTR, PCWSTR, PWSTR, w};
 use crate::tray_icon::{self, Look};
 use crate::tooltip;
 use crate::util::fill_wide;
-use crate::{Anchor, Cmd, Event, MediaKey, Page, Rect, Setting, Shared, State, TrayStyle, audio, volume};
+use crate::{Anchor, Cmd, Event, MediaKey, Page, Rect, Shared, State, TrayStyle, audio, volume};
+use windows::Win32::UI::Shell::ShellExecuteW;
+use windows::Win32::UI::WindowsAndMessaging::SW_SHOWNORMAL;
 
 const CLASS: PCWSTR = w!("MediaKeysSelector.Tray");
 const WM_TRAY: u32 = WM_APP + 1;
@@ -43,10 +45,13 @@ const TIMER_TOOLTIP: usize = 1;
 
 const ID_OPEN: usize = 1;
 const ID_AUTOMATIC: usize = 2;
-const ID_AUTOSTART: usize = 3;
+const ID_SOUND_SETTINGS: usize = 3;
 const ID_QUIT: usize = 4;
 const ID_SETTINGS: usize = 5;
 const ID_MASTER: usize = 6;
+const ID_VOLUME_MIXER: usize = 7;
+const ID_SOUNDS: usize = 8;
+const ID_TROUBLESHOOT: usize = 9;
 const ID_TARGET: usize = 100;
 const ID_MIXER: usize = 500;
 
@@ -506,6 +511,37 @@ unsafe fn allow_dark_menus(hwnd: HWND) {
     }
 }
 
+/// Themes context menus: `dark` forces dark or light, `None` follows Windows.
+unsafe fn theme_menus(dark: Option<bool>) {
+    unsafe {
+        let Ok(uxtheme) = LoadLibraryW(w!("uxtheme.dll")) else { return };
+        let ordinal = |n: usize| GetProcAddress(uxtheme, PCSTR(n as *const u8));
+        // SetPreferredAppMode: 1 follows Windows, 2 forces dark, 3 forces light.
+        let mode = match dark {
+            None => 1,
+            Some(true) => 2,
+            Some(false) => 3,
+        };
+        if let Some(f) = ordinal(135) {
+            let set_preferred_app_mode: extern "system" fn(i32) -> i32 = std::mem::transmute(f);
+            set_preferred_app_mode(mode);
+        }
+        if let Some(f) = ordinal(136) {
+            let flush_menu_themes: extern "system" fn() = std::mem::transmute(f);
+            flush_menu_themes();
+        }
+    }
+}
+
+/// Opens `file` with `args` through the shell. Returns false if it couldn't start.
+fn shell_open(file: &str, args: Option<&str>) -> bool {
+    let (file, args) = (crate::util::wide(file), args.map(crate::util::wide));
+    let args = args.as_ref().map_or(PCWSTR::null(), |a| PCWSTR(a.as_ptr()));
+    let result = unsafe { ShellExecuteW(None, w!("open"), PCWSTR(file.as_ptr()), args, None, SW_SHOWNORMAL) };
+    // ShellExecute returns a value above 32 on success.
+    result.0 as isize > 32
+}
+
 /// A menu entry whose volume the wheel changes: its command id and the volume id.
 struct WheelItem {
     command: u32,
@@ -529,8 +565,8 @@ unsafe fn show_menu(hwnd: HWND) {
         let check = |on: bool| if on { MF_CHECKED } else { MF_UNCHECKED };
         let mut wheel = Vec::new();
 
+        theme_menus(state.settings.dark);
         add(MF_STRING, ID_OPEN, "Open Media Keys Selector");
-        add(MF_STRING, ID_SETTINGS, "Settings…");
         add(MF_SEPARATOR, 0, "");
         let audio = &state.audio;
         add(MF_STRING, ID_MASTER, &volume_label("Volume", audio.volume, audio.muted));
@@ -558,9 +594,15 @@ unsafe fn show_menu(hwnd: HWND) {
                 add(MF_STRING, ID_MIXER + i, &volume_label(&app.name, app.volume, app.muted));
             }
         }
-        add(MF_SEPARATOR, 0, "");
         add(MF_STRING | MF_GRAYED, 0, "Scroll over a volume to change it");
-        add(MF_STRING | check(state.settings.autostart), ID_AUTOSTART, "Start with Windows");
+        // The same Windows links as the Windows volume icon's menu.
+        add(MF_SEPARATOR, 0, "");
+        add(MF_STRING, ID_SOUND_SETTINGS, "Open Sound settings");
+        add(MF_STRING, ID_VOLUME_MIXER, "Open Volume mixer");
+        add(MF_STRING, ID_SOUNDS, "Sounds");
+        add(MF_STRING, ID_TROUBLESHOOT, "Troubleshoot sound problems");
+        add(MF_SEPARATOR, 0, "");
+        add(MF_STRING, ID_SETTINGS, "Settings…");
         add(MF_STRING, ID_QUIT, "Quit");
         let _ = SetMenuDefaultItem(menu, ID_OPEN as u32, 0);
 
@@ -582,7 +624,15 @@ unsafe fn show_menu(hwnd: HWND) {
             ID_SETTINGS => show(Page::Settings),
             ID_MASTER => audio::toggle_master_mute(),
             ID_AUTOMATIC => shared().send(Cmd::Select(None)),
-            ID_AUTOSTART => shared().send(Cmd::Set(Setting::Autostart(!state.settings.autostart))),
+            ID_SOUND_SETTINGS => _ = shell_open("ms-settings:sound", None),
+            ID_VOLUME_MIXER => _ = shell_open("sndvol.exe", None),
+            ID_SOUNDS => _ = shell_open("rundll32.exe", Some("shell32.dll,Control_RunDLL mmsys.cpl,,2")),
+            ID_TROUBLESHOOT => {
+                // Newer Windows builds retired msdt; the troubleshooter list replaces it.
+                if !shell_open("msdt.exe", Some("-id AudioPlaybackDiagnostic")) {
+                    shell_open("ms-settings:troubleshoot", None);
+                }
+            }
             ID_QUIT => {
                 remove_tray();
                 shared().emit(Event::Quit);
