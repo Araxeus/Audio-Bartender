@@ -4,6 +4,11 @@ updates:
     directory: /
     schedule:
       interval: weekly
+    # These must match the versions `windows` depends on, or their types differ from the
+    # ones its APIs take. Bump them by hand together with `windows`.
+    ignore:
+      - dependency-name: windows-core
+      - dependency-name: windows-numerics
     groups:
       cargo:
         patterns: ['*']

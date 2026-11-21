@@ -9,6 +9,8 @@ serde = ["dep:serde"]
 
 [dependencies]
 serde = { version = "1.0.229", features = ["derive"], optional = true }
+# Keep these on the versions `windows` itself uses, so the types are the same ones its
+# APIs take. `#[interface]` expands to `::windows_core` paths, so it stays a direct dependency.
 windows-core = "0.62.2"
 windows-numerics = "0.3.1"
 
