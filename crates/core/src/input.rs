@@ -205,15 +205,16 @@ pub(crate) fn set_flyout_page(page: Option<Page>) {
     FLYOUT_QUIET.store(page == Some(Page::Apps), Relaxed);
 }
 
-/// Whether a tooltip by `icon` would cover the flyout's apps. A pinned flyout
-/// dragged away from the icon leaves room for the tooltip.
-fn tooltip_covers_flyout(icon: RECT) -> bool {
+/// Whether `tip`, shown by `icon`, would cover the flyout's apps. A pinned flyout
+/// dragged away from the icon leaves room for it.
+fn tooltip_covers_flyout(tip: &Tip, icon: RECT) -> bool {
     use windows::Win32::Graphics::Gdi::GetWindowRgnBox;
     if !FLYOUT_QUIET.load(Relaxed) {
         return false;
     }
     let flyout = HWND(FLYOUT_WINDOW.load(Relaxed) as _);
     let (mut window, mut shown) = (RECT::default(), RECT::default());
+    let Some(tip) = tooltip::screen_rect(tip, icon) else { return true };
     if unsafe { GetWindowRect(flyout, &mut window) }.is_err() {
         return true;
     }
@@ -228,14 +229,8 @@ fn tooltip_covers_flyout(icon: RECT) -> bool {
     } else {
         window
     };
-    // Room for the largest tooltip on any side of the icon.
-    let reach = (TOOLTIP_REACH * anchor_for(icon).scale) as i32;
-    let (x, y) = ((icon.left + icon.right) / 2, (icon.top + icon.bottom) / 2);
-    shown.left < x + reach && shown.right > x - reach && shown.top < y + reach && shown.bottom > y - reach
+    tip.left < shown.right && tip.right > shown.left && tip.top < shown.bottom && tip.bottom > shown.top
 }
-
-/// How far a tooltip reaches from the icon's center, in logical pixels.
-const TOOLTIP_REACH: f32 = 260.;
 
 /// Closes the tray overflow, which stays on top of the flyout a click in it opens.
 /// Windows 10 closes it by its button, so the button knows it closed. Windows 11
@@ -632,8 +627,8 @@ unsafe extern "system" fn wndproc(hwnd: HWND, msg: u32, wparam: WPARAM, lparam: 
             WM_MOUSEMOVE => remember_icon_rect(hwnd, false),
             NIN_POPUPOPEN => {
                 let icon = icon_rect(hwnd).unwrap_or_else(cursor_rect);
-                if !tooltip_covers_flyout(icon) {
-                    let tip = TRAY_STATE.lock().unwrap().tip();
+                let tip = TRAY_STATE.lock().unwrap().tip();
+                if !tooltip_covers_flyout(&tip, icon) {
                     tooltip::show(&tip, icon);
                 }
             }

@@ -477,7 +477,7 @@ impl Card {
         let (width, height) = card_size(&content);
         let size = (((width + 2. * SHADOW) * scale).ceil() as i32, ((height + 2. * SHADOW) * scale).ceil() as i32);
         let alpha = ((t * 1000. / FADE_MS).min(1.0) * 255.) as u8;
-        let position = self.position(size, scale);
+        let position = position(&self.anchor, size, scale);
         let shadow = (SHADOW * scale) as i32;
         let card =
             [position.x + shadow, position.y + shadow, position.x + size.0 - shadow, position.y + size.1 - shadow];
@@ -497,33 +497,44 @@ impl Card {
             self.painter = None;
         }
     }
+}
 
-    /// Top-left corner of the window: the card centered on the icon, just off the
-    /// taskbar and inside the work area.
-    fn position(&self, (w, h): (i32, i32), scale: f32) -> POINT {
-        let (i, work) = (self.anchor.icon, self.anchor.work);
-        let shadow = (SHADOW * scale) as i32;
-        let gap = (GAP * scale) as i32;
-        let (card_w, card_h) = (w - 2 * shadow, h - 2 * shadow);
-        let margin = (8. * scale) as i32;
-        let clamp_x = |x: i32| x.clamp(work.left + margin, (work.right - card_w - margin).max(work.left + margin));
-        let clamp_y = |y: i32| y.clamp(work.top + margin, (work.bottom - card_h - margin).max(work.top + margin));
-        let center_x = (i.left + i.right) / 2 - card_w / 2;
-        let center_y = (i.top + i.bottom) / 2 - card_h / 2;
-        let (x, y) = if i.bottom <= work.top {
-            (clamp_x(center_x), work.top + gap)
-        } else if i.top < work.bottom && i.left >= work.right {
-            (work.right - card_w - gap, clamp_y(center_y))
-        } else if i.top < work.bottom && i.right <= work.left {
-            (work.left + gap, clamp_y(center_y))
-        } else if i.top >= work.bottom {
-            (clamp_x(center_x), work.bottom - card_h - gap)
-        } else {
-            // The icon sits inside the work area (overflow): above it.
-            (clamp_x(center_x), clamp_y(i.top - card_h - gap))
-        };
-        POINT { x: x - shadow, y: y - shadow }
-    }
+/// Where the card for `content` would show by the icon that `anchor` describes,
+/// without its shadow.
+pub fn screen_rect(content: &Content, anchor: &Anchor) -> RECT {
+    let scale = anchor.scale.max(1.0);
+    let (width, height) = card_size(content);
+    let size = (((width + 2. * SHADOW) * scale).ceil() as i32, ((height + 2. * SHADOW) * scale).ceil() as i32);
+    let at = position(anchor, size, scale);
+    let shadow = (SHADOW * scale) as i32;
+    RECT { left: at.x + shadow, top: at.y + shadow, right: at.x + size.0 - shadow, bottom: at.y + size.1 - shadow }
+}
+
+/// Top-left corner of the window: the card centered on the icon, just off the
+/// taskbar and inside the work area.
+fn position(anchor: &Anchor, (w, h): (i32, i32), scale: f32) -> POINT {
+    let (i, work) = (anchor.icon, anchor.work);
+    let shadow = (SHADOW * scale) as i32;
+    let gap = (GAP * scale) as i32;
+    let (card_w, card_h) = (w - 2 * shadow, h - 2 * shadow);
+    let margin = (8. * scale) as i32;
+    let clamp_x = |x: i32| x.clamp(work.left + margin, (work.right - card_w - margin).max(work.left + margin));
+    let clamp_y = |y: i32| y.clamp(work.top + margin, (work.bottom - card_h - margin).max(work.top + margin));
+    let center_x = (i.left + i.right) / 2 - card_w / 2;
+    let center_y = (i.top + i.bottom) / 2 - card_h / 2;
+    let (x, y) = if i.bottom <= work.top {
+        (clamp_x(center_x), work.top + gap)
+    } else if i.top < work.bottom && i.left >= work.right {
+        (work.right - card_w - gap, clamp_y(center_y))
+    } else if i.top < work.bottom && i.right <= work.left {
+        (work.left + gap, clamp_y(center_y))
+    } else if i.top >= work.bottom {
+        (clamp_x(center_x), work.bottom - card_h - gap)
+    } else {
+        // The icon sits inside the work area (overflow): above it.
+        (clamp_x(center_x), clamp_y(i.top - card_h - gap))
+    };
+    POINT { x: x - shadow, y: y - shadow }
 }
 
 /// The buttons a card shows. An app that isn't running has nothing to control.

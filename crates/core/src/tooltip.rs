@@ -9,8 +9,8 @@ use std::sync::atomic::{AtomicBool, AtomicI32, AtomicIsize, Ordering::Relaxed};
 use windows::Win32::Foundation::POINT;
 use windows::Win32::Foundation::{HWND, LPARAM, RECT, WPARAM};
 use windows::Win32::UI::Controls::{
-    TOOLTIPS_CLASSW, TTF_ABSOLUTE, TTF_TRACK, TTM_ADDTOOLW, TTM_SETMAXTIPWIDTH, TTM_TRACKACTIVATE, TTM_TRACKPOSITION,
-    TTM_UPDATETIPTEXTW, TTS_ALWAYSTIP, TTS_NOPREFIX, TTTOOLINFOW,
+    TOOLTIPS_CLASSW, TTF_ABSOLUTE, TTF_TRACK, TTM_ADDTOOLW, TTM_GETBUBBLESIZE, TTM_SETMAXTIPWIDTH, TTM_TRACKACTIVATE,
+    TTM_TRACKPOSITION, TTM_UPDATETIPTEXTW, TTS_ALWAYSTIP, TTS_NOPREFIX, TTTOOLINFOW,
 };
 use windows::Win32::UI::WindowsAndMessaging::{
     CreateWindowExW, GetCursorPos, GetWindowRect, SendMessageW, WINDOW_STYLE, WS_EX_TOPMOST, WS_POPUP,
@@ -123,22 +123,44 @@ unsafe fn place(tooltip: HWND) {
     if unsafe { GetWindowRect(tooltip, &mut rect) }.is_err() {
         return;
     }
-    let i = icon();
-    let work = crate::input::anchor_for(i).work;
-    let (width, height) = (rect.right - rect.left, rect.bottom - rect.top);
-    let (center_x, center_y) = ((i.left + i.right) / 2 - width / 2, (i.top + i.bottom) / 2 - height / 2);
-    let (x, y) = if i.bottom <= work.top {
-        (center_x, i.bottom + GAP)
-    } else if i.right <= work.left {
-        (i.right + GAP, center_y)
-    } else if i.left >= work.right {
-        (i.left - width - GAP, center_y)
-    } else {
-        (center_x, i.top - height - GAP)
-    };
+    let (x, y) = text_origin(icon(), rect.right - rect.left, rect.bottom - rect.top);
     let point = ((y as u16 as u32) << 16 | x as u16 as u32) as isize;
     unsafe {
         SendMessageW(tooltip, TTM_TRACKPOSITION, None, Some(LPARAM(point)));
+    }
+}
+
+/// Top-left corner of a `width` by `height` text tooltip by `icon`.
+fn text_origin(icon: RECT, width: i32, height: i32) -> (i32, i32) {
+    let work = crate::input::anchor_for(icon).work;
+    let (center_x, center_y) = ((icon.left + icon.right) / 2 - width / 2, (icon.top + icon.bottom) / 2 - height / 2);
+    if icon.bottom <= work.top {
+        (center_x, icon.bottom + GAP)
+    } else if icon.right <= work.left {
+        (icon.right + GAP, center_y)
+    } else if icon.left >= work.right {
+        (icon.left - width - GAP, center_y)
+    } else {
+        (center_x, icon.top - height - GAP)
+    }
+}
+
+/// Where `tip` would show by `icon`, without showing it.
+pub fn screen_rect(tip: &Tip, icon: RECT) -> Option<RECT> {
+    match tip {
+        Tip::Card(content) => Some(card::screen_rect(content, &crate::input::anchor_for(icon))),
+        Tip::Text(text) => {
+            let (tooltip, owner) = handles()?;
+            let size = unsafe {
+                set_text(tooltip, owner, text);
+                let mut empty = wide("");
+                let info = tool(owner, &mut empty);
+                SendMessageW(tooltip, TTM_GETBUBBLESIZE, None, Some(LPARAM(&info as *const _ as isize))).0
+            };
+            let (width, height) = ((size & 0xFFFF) as i32, ((size >> 16) & 0xFFFF) as i32);
+            let (x, y) = text_origin(icon, width, height);
+            Some(RECT { left: x, top: y, right: x + width, bottom: y + height })
+        }
     }
 }
 
