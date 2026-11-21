@@ -36,10 +36,14 @@ The site runs the real flyout from `apps/tauri/ui` in an iframe over a simulated
 
 A new `invoke` command in the Tauri app needs a matching entry in `mock.js`, or the demo rejects it.
 
+Preview the site before pushing:
+
 ```powershell
-pwsh scripts/build-demo.ps1
+pwsh scripts/build-demo.ps1          # copy the current UI and version into the demo
 python -m http.server -d site 8000   # then open http://localhost:8000
 ```
+
+It needs a local server, because opening `index.html` straight from disk blocks the demo's scripts. Run `build-demo.ps1` again after changing the Tauri UI.
 
 Set `AUDIO_BARTENDER_LOG=1` to log routing, forwarded keys and tray wheel steps to `%TEMP%\audio_bartender.log`.
 

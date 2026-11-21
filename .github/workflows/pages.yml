@@ -3,7 +3,7 @@ name: Pages
 on:
   push:
     branches: [main]
-    paths: ['site/**', 'apps/tauri/ui/**', 'scripts/build-demo.ps1', '.github/workflows/pages.yml']
+    paths: ['site/**', 'apps/tauri/ui/**', 'scripts/build-demo.ps1', 'Cargo.toml', '.github/workflows/pages.yml']
   workflow_dispatch:
 
 permissions: {}

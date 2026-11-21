@@ -122,6 +122,9 @@
   };
   const exeIcon = (id) => (EXE_ICONS[id] ? { url: `../icons/${EXE_ICONS[id]}.png`, art: false } : null);
 
+  // The app's version, written by scripts/build-demo.ps1 from Cargo.toml.
+  const VERSION = window.__abVersion ?? "dev";
+
   const target = (id, name, playback, volume, running = true) => ({
     id, name, playback, track: null, running, viaWindow: false, volume, muted: false, icon: exeIcon(id), route: null,
   });
@@ -155,7 +158,7 @@
       levelMeters: "volume", deviceChip: "beside", showMediaKeys: true, showOtherApps: true, showVolume: true,
       accent: accent("cyan"),
     },
-    update: { state: { state: "upToDate" }, checkedAt: Date.now(), summary: "Version 0.1.0 · Web · up to date, checked today" },
+    update: { state: { state: "upToDate" }, checkedAt: Date.now(), summary: `Version ${VERSION} · Web · up to date, checked today` },
     iconOnTaskbar: true,
     speakerPositionActive: false,
   };
@@ -276,10 +279,10 @@
     press: ({ key }) => void press(key),
     press_for: ({ id, key }) => void press(key, id),
     check_update: () => {
-      state.update = { state: { state: "checking" }, checkedAt: state.update.checkedAt, summary: "Version 0.1.0 · Web · checking for updates…" };
+      state.update = { state: { state: "checking" }, checkedAt: state.update.checkedAt, summary: `Version ${VERSION} · Web · checking for updates…` };
       changed();
       setTimeout(() => {
-        state.update = { state: { state: "upToDate" }, checkedAt: Date.now(), summary: "Version 0.1.0 · Web · up to date, checked today" };
+        state.update = { state: { state: "upToDate" }, checkedAt: Date.now(), summary: `Version ${VERSION} · Web · up to date, checked today` };
         changed();
       }, 1200);
     },
