@@ -64,6 +64,9 @@ impl Config {
                 "tray_style" => s.tray_style = if value == "number" { TrayStyle::Number } else { TrayStyle::Ring },
                 "level_meters" => s.level_meters = LevelMeters::from_name(value).unwrap_or_default(),
                 "device_chip" => s.device_chip = DeviceChip::from_name(value).unwrap_or_default(),
+                "show_media_keys" => s.show_media_keys = flag(value),
+                "show_other_apps" => s.show_other_apps = flag(value),
+                "show_volume" => s.show_volume = flag(value),
                 "media_controls" => s.media_controls = MediaControls::from_name(value).unwrap_or_default(),
                 "media_buttons" => s.media_buttons = MediaButtons::from_name(value).unwrap_or_default(),
                 "auto_update" => s.auto_update = flag(value),
@@ -100,7 +103,7 @@ impl Config {
             None => "",
         };
         let text = format!(
-            "target={}\ntarget_name={}\ntheme={theme}\nalbum_art={}\nspeaker_position={}\ntray_style={}\nvolume_bars={}\ntooltip={}\nmedia_buttons={}\nmedia_controls={}\nlevel_meters={}\ndevice_chip={}\nauto_update={}\nlast_update_check={}\naccent={}\n",
+            "target={}\ntarget_name={}\ntheme={theme}\nalbum_art={}\nspeaker_position={}\ntray_style={}\nvolume_bars={}\ntooltip={}\nmedia_buttons={}\nmedia_controls={}\nlevel_meters={}\ndevice_chip={}\nshow_media_keys={}\nshow_other_apps={}\nshow_volume={}\nauto_update={}\nlast_update_check={}\naccent={}\n",
             self.target.as_deref().unwrap_or(""),
             self.target_name.as_deref().unwrap_or(""),
             s.album_art,
@@ -121,6 +124,9 @@ impl Config {
             s.media_controls.name(),
             s.level_meters.name(),
             s.device_chip.name(),
+            s.show_media_keys,
+            s.show_other_apps,
+            s.show_volume,
             s.auto_update,
             self.last_update_check,
             s.accent.name(),

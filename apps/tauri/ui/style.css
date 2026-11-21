@@ -483,3 +483,4 @@ body:not(.floats)[data-down="true"] :is(.flyout-column, .settings-panel) { margi
 .device-send .icon-glyph svg { width: 11px; height: 11px; }
 #popup-layer { position: fixed; inset: 0; z-index: 20; pointer-events: none; }
 #popup-layer .popup { pointer-events: auto; }
+.flyout-volume[hidden], .flyout-middle[hidden] { display: none; }

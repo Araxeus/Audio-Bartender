@@ -517,6 +517,21 @@ const MODES = {
   },
 };
 
+/** Which parts of the flyout show: chips like a segmented control, each on or off by itself. */
+function showParts(s) {
+  const parts = [
+    ["showMediaKeys", "Media key apps"],
+    ["showOtherApps", "Other apps"],
+    ["showVolume", "Volume"],
+  ];
+  return el(
+    "div",
+    "mode",
+    el("span", "mode-title", "Show"),
+    el("div", "segmented", ...parts.map(([key, name]) => button(s[key] ? "on" : "", null, name, () => setting(key, !s[key])))),
+  );
+}
+
 /** A setting's name, a segmented control of its modes, and a line about the current one. */
 function segmented(s, key) {
   const { title, options } = MODES[key];
@@ -588,6 +603,7 @@ function settingsPanel(state) {
     segmented(s, "tooltip"),
     segmented(s, "mediaButtons"),
     el("div", "section-label", "Flyout"),
+    showParts(s),
     segmented(s, "mediaControls"),
     segmented(s, "volumeBars"),
     segmented(s, "levelMeters"),
@@ -606,6 +622,10 @@ function render(state) {
   $("dock").replaceChildren(...(state.settings.mediaControls === "dock" ? [nowPlayingView(state, "dock")] : []));
   $("device").replaceChildren(deviceHeader(state));
   $("master").replaceChildren(volumes.sliderRow(MASTER, state.audio.volume, state.audio.muted));
+  // The footer holds the dock and the device with the master volume, each by its setting.
+  const show = state.settings;
+  $("device").hidden = $("master").hidden = !show.showVolume;
+  document.querySelector(".flyout-volume").hidden = !(show.showVolume || show.mediaControls === "dock");
 
   const panel = page === "settings" || shownPanel;
   $("panel").hidden = !panel;
@@ -616,14 +636,14 @@ function render(state) {
     middle = devices(state);
   } else {
     middle = [
-      ...(state.settings.mediaControls === "banner" ? [nowPlayingView(state, "banner")] : []),
-      el("div", "section-label", "Media keys go to"),
-      ...targets(state),
+      ...(show.mediaControls === "banner" ? [nowPlayingView(state, "banner")] : []),
+      ...(show.showMediaKeys ? [el("div", "section-label", "Media keys go to"), ...targets(state)] : []),
       // Other apps are listed only for their volume.
-      ...(state.mixer.length && state.settings.volumeBars !== "none" ? [el("div", "section-label", "Other apps"), ...mixer(state)] : []),
+      ...(show.showOtherApps && state.mixer.length && show.volumeBars !== "none" ? [el("div", "section-label", "Other apps"), ...mixer(state)] : []),
     ];
   }
   $("middle").replaceChildren(...middle);
+  $("middle").hidden = middle.length === 0;
   $("popup-layer").replaceChildren(...(popup ? [popupMenu(state)] : []));
 
   // A newly opened panel joins the window region once it's painted.

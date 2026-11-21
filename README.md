@@ -46,6 +46,7 @@ The flyout is the whole UI. Left-click the tray icon to open or close it; it als
 - Top row: the app name, then settings, pin (stay open) and quit.
 - Middle: the media key target list with each app's volume, then other apps playing audio, as in the Volume Mixer. Clicking a card (or its radio button) picks where media keys go. The wheel changes volume (2% per notch) only over a volume control and scrolls the list everywhere else.
 - Bottom, next to the tray: the output device (click to list devices) and the master volume.
+- Settings → Show hides parts you don't use: the media key apps, other apps, or the device and master volume. With both lists hidden and Media controls set to Dock, the flyout is just the now playing card and the volume. At least one part always stays.
 
 ### Per-app output devices
 

@@ -207,6 +207,7 @@ impl Worker {
             }
             Cmd::Set(setting) => {
                 let preview = matches!(setting, Setting::Tooltip(_) | Setting::MediaButtons(_));
+                let before = self.config.settings.clone();
                 let s = &mut self.config.settings;
                 match setting {
                     Setting::Autostart(on) => crate::autostart::set(on),
@@ -221,7 +222,16 @@ impl Worker {
                     Setting::MediaControls(controls) => s.media_controls = controls,
                     Setting::LevelMeters(meters) => s.level_meters = meters,
                     Setting::DeviceChip(chip) => s.device_chip = chip,
+                    Setting::ShowMediaKeys(on) => s.show_media_keys = on,
+                    Setting::ShowOtherApps(on) => s.show_other_apps = on,
+                    Setting::ShowVolume(on) => s.show_volume = on,
                     Setting::Accent(accent) => s.accent = accent,
+                }
+                // Keep at least one part of the flyout showing.
+                if self.config.settings.shows_nothing() {
+                    self.config.settings = before;
+                    self.publish();
+                    return;
                 }
                 self.config.save();
                 self.refresh(false);

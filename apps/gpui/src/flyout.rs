@@ -28,6 +28,8 @@ pub const WIDTH: f32 = 360.;
 /// The settings panel beside the flyout, two columns wide.
 pub const PANEL: f32 = 640.;
 const MAX_HEIGHT: f32 = 640.;
+/// The settings panel's height limit, above the flyout's so every setting fits.
+const PANEL_MAX_HEIGHT: f32 = 720.;
 
 /// Each part is a rounded card with a shadow, `MARGIN` inside its box so the shadow
 /// fits in the window region. Toward the taskbar the margin is [`edge`], so the cards
@@ -41,7 +43,7 @@ const OVERLAP: f32 = 2. * MARGIN - 8.;
 const PANEL_PART: f32 = PANEL + 2. * MARGIN - OVERLAP;
 /// The window's fixed size. Its region shows only the flyout and the open panel.
 pub const FRAME_WIDTH: f32 = WIDTH + 2. * MARGIN + PANEL_PART;
-pub const FRAME_HEIGHT: f32 = MAX_HEIGHT + MARGIN + FLOAT;
+pub const FRAME_HEIGHT: f32 = PANEL_MAX_HEIGHT + MARGIN + FLOAT;
 
 /// The margin on the taskbar side of each card.
 fn edge(anchor: &Anchor) -> f32 {
@@ -105,12 +107,24 @@ const ROW_CONTROLS: f32 = 36.;
 const DOCK: f32 = 56.;
 
 /// Estimated height of the flyout with the given state.
+/// Whether the flyout shows its middle (the app lists, the banner or the device list)
+/// and its footer (the dock, the device and the master volume), by the Show setting.
+fn parts_shown(state: &State, devices_open: bool) -> (bool, bool) {
+    let s = &state.settings;
+    let mixer = s.show_other_apps && !state.mixer.is_empty() && s.volume_bars != VolumeBars::None;
+    let middle = devices_open || s.media_controls == MediaControls::Banner || s.show_media_keys || mixer;
+    (middle, s.show_volume || s.media_controls == MediaControls::Dock)
+}
+
 pub fn height(state: &State) -> f32 {
+    let s = &state.settings;
     let middle = {
         let always = state.settings.volume_bars == VolumeBars::Always;
         let sliders = if always { state.targets.iter().filter(|t| t.volume.is_some()).count() } else { 0 };
         let targets = LABEL + TARGET_ROW * (1 + state.targets.len()) as f32 + SLIDER * sliders as f32;
-        let mixer = if state.mixer.is_empty() { 0. } else { LABEL + MIXER_ROW * state.mixer.len() as f32 };
+        let targets = if s.show_media_keys { targets } else { 0. };
+        let shown = s.show_other_apps && !state.mixer.is_empty();
+        let mixer = if shown { LABEL + MIXER_ROW * state.mixer.len() as f32 } else { 0. };
         let controls = match state.settings.media_controls {
             MediaControls::Banner => BANNER,
             MediaControls::Row => ROW_CONTROLS,
@@ -118,9 +132,13 @@ pub fn height(state: &State) -> f32 {
         };
         targets + mixer + controls
     };
-    let dock = if state.settings.media_controls == MediaControls::Dock { DOCK } else { 0. };
-    (CONTROLS + middle + VOLUME + dock + 12.).min(MAX_HEIGHT)
+    let dock = if s.media_controls == MediaControls::Dock { DOCK } else { 0. };
+    let volume = if s.show_volume { VOLUME } else { 0. };
+    (CONTROLS + middle + volume + dock + 12.).min(MAX_HEIGHT)
 }
+
+/// Builds a setting from a switch's new state.
+type MakeSetting = fn(bool) -> Setting;
 
 /// A row's hover listener.
 type HoverHandler = Box<dyn Fn(&bool, &mut Window, &mut App) + 'static>;
@@ -349,9 +367,11 @@ struct Measured {
 impl Measured {
     // Each part's border adds a pixel above and below.
 
-    fn flyout(&self) -> Option<f32> {
-        let parts = [self.controls.get(), self.middle.get(), self.volume.get()];
-        parts.iter().all(|h| *h > 0.).then(|| parts.iter().sum::<f32>() + 2.)
+    /// The flyout's height from the parts that show, once each has been measured.
+    fn flyout(&self, (middle, footer): (bool, bool)) -> Option<f32> {
+        let parts = [(true, self.controls.get()), (middle, self.middle.get()), (footer, self.volume.get())];
+        let shown = parts.iter().filter(|(shown, _)| *shown).map(|(_, h)| *h);
+        shown.clone().all(|h| h > 0.).then(|| shown.sum::<f32>() + 2.)
     }
 
     fn panel(&self) -> Option<f32> {
@@ -908,13 +928,16 @@ impl Flyout {
             });
             return;
         }
-        self.height = self.measured.flyout().map_or_else(|| height(state), |h| h.ceil().min(MAX_HEIGHT));
+        self.height = self
+            .measured
+            .flyout(parts_shown(state, self.devices_open))
+            .map_or_else(|| height(state), |h| h.ceil().min(MAX_HEIGHT));
         // The panel joins the region once it's measured, so it never shows half laid out.
         let panel = self
             .measured
             .panel()
             .filter(|_| self.page == Page::Settings)
-            .map(|h| h.ceil().min(MAX_HEIGHT) + MARGIN + edge(&self.anchor));
+            .map(|h| h.ceil().min(PANEL_MAX_HEIGHT) + MARGIN + edge(&self.anchor));
         let region = (self.height, panel);
         if Some(region) == self.region && self.settled {
             return;
@@ -1616,6 +1639,59 @@ impl Flyout {
 
     /// A setting's name, then a segmented control of its modes, then a line about
     /// the current one.
+    /// Which parts of the flyout show: chips like a segmented control, each on or off
+    /// by itself. No line under it, to keep the settings panel within the window.
+    fn show_parts(&self, s: &Settings, theme: &Theme) -> AnyElement {
+        let (fg, muted) = (theme.foreground, theme.muted_foreground);
+        let dark = theme.is_dark();
+        let (track, chip) = if dark { (theme.muted, theme.secondary) } else { (hex(TRACK_LIGHT), theme::card(false)) };
+        let shadow = vec![BoxShadow {
+            color: black().opacity(if dark { 0.25 } else { 0.12 }),
+            offset: point(px(0.), px(1.)),
+            blur_radius: px(2.),
+            spread_radius: px(0.),
+            inset: false,
+        }];
+        let parts: [(&str, bool, MakeSetting); 3] = [
+            ("Media key apps", s.show_media_keys, Setting::ShowMediaKeys),
+            ("Other apps", s.show_other_apps, Setting::ShowOtherApps),
+            ("Volume", s.show_volume, Setting::ShowVolume),
+        ];
+        let chips = parts.into_iter().map(|(name, on, make)| {
+            let core = self.core.clone();
+            div()
+                .id(SharedString::from(format!("show-{name}")))
+                .flex_1()
+                .min_w_0()
+                .h(px(24.))
+                .px_1()
+                .flex()
+                .items_center()
+                .justify_center()
+                .rounded(px(5.))
+                .text_size(px(12.))
+                .cursor_pointer()
+                .map(|d| {
+                    if on {
+                        d.bg(chip).text_color(fg).font_semibold().shadow(shadow.clone())
+                    } else {
+                        d.text_color(muted).hover(move |st| st.text_color(fg))
+                    }
+                })
+                .child(name)
+                .on_click(move |_, _, _| core.set(make(!on)))
+        });
+        v_flex()
+            .mx_2()
+            .px_2()
+            .pt(px(6.))
+            .pb_2()
+            .gap(px(6.))
+            .child(div().text_size(px(13.)).line_height(px(18.)).child("Show"))
+            .child(h_flex().p(px(2.)).gap(px(2.)).rounded(px(7.)).bg(track).children(chips))
+            .into_any_element()
+    }
+
     fn segmented(&self, mode: Mode, s: &Settings, theme: &Theme) -> AnyElement {
         let options = mode.options(s);
         let about = options.iter().find(|o| o.3).map_or("", |o| o.2);
@@ -1777,6 +1853,7 @@ impl Flyout {
             .child(self.segmented(Mode::Tooltip, s, theme))
             .child(self.segmented(Mode::TooltipButtons, s, theme))
             .child(Self::panel_label("FLYOUT", theme))
+            .child(self.show_parts(s, theme))
             .child(self.segmented(Mode::MediaControls, s, theme))
             .child(self.segmented(Mode::VolumeBars, s, theme))
             .child(self.segmented(Mode::LevelMeters, s, theme))
@@ -1850,16 +1927,22 @@ impl Render for Flyout {
                         .into_any_element(),
                 );
             }
-            items.push(Self::label("MEDIA KEYS GO TO", &theme).into_any_element());
-            items.extend(self.targets(&state, cx));
+            if state.settings.show_media_keys {
+                items.push(Self::label("MEDIA KEYS GO TO", &theme).into_any_element());
+                items.extend(self.targets(&state, cx));
+            }
             // Other apps are listed only for their volume.
-            if !state.mixer.is_empty() && state.settings.volume_bars != VolumeBars::None {
+            if state.settings.show_other_apps
+                && !state.mixer.is_empty()
+                && state.settings.volume_bars != VolumeBars::None
+            {
                 items.push(Self::label("OTHER APPS", &theme).into_any_element());
                 items.extend(self.mixer(&state, cx));
             }
             items
         };
 
+        let (middle_shown, footer_shown) = parts_shown(&state, self.devices_open);
         let dark = theme.is_dark();
         let flyout = v_flex()
             .flex_none()
@@ -1869,35 +1952,40 @@ impl Render for Flyout {
             .border_1()
             .border_color(theme.border)
             .child(controls.relative().child(measure(&self.measured.controls, view)))
-            .child({
-                // Only a capped window scrolls, with a scrollbar so it's clear there's more;
-                // otherwise rounding could leave a pixel to scroll.
-                let content =
-                    v_flex().relative().pb(px(14.)).children(middle).child(measure(&self.measured.middle, view));
-                let area = div().flex_1().min_h_0().child(content);
-                if self.height >= MAX_HEIGHT {
-                    // Room on the right, so the overlay bar doesn't sit against the rows.
-                    area.pr(px(10.)).overflow_y_scrollbar().into_any_element()
-                } else {
-                    area.overflow_hidden().into_any_element()
-                }
+            .when(middle_shown, |d| {
+                d.child({
+                    // Only a capped window scrolls, with a scrollbar so it's clear there's more;
+                    // otherwise rounding could leave a pixel to scroll.
+                    let content =
+                        v_flex().relative().pb(px(14.)).children(middle).child(measure(&self.measured.middle, view));
+                    let area = div().flex_1().min_h_0().child(content);
+                    if self.height >= MAX_HEIGHT {
+                        // Room on the right, so the overlay bar doesn't sit against the rows.
+                        area.pr(px(10.)).overflow_y_scrollbar().into_any_element()
+                    } else {
+                        area.overflow_hidden().into_any_element()
+                    }
+                })
             })
             // Volume sits at the bottom, next to the tray icon the user just clicked.
-            .child(
-                v_flex()
-                    .px_2()
-                    .pt_2()
-                    .pb_3()
-                    .rounded_b(inner_radius())
-                    .bg(theme::card(theme.is_dark()))
-                    .border_t_1()
-                    .border_color(theme.border)
-                    .relative()
-                    .children(dock)
-                    .child(device_header)
-                    .child(div().px_2().pt(px(2.)).child(master))
-                    .child(measure(&self.measured.volume, view)),
-            );
+            .when(footer_shown, |d| {
+                d.child(
+                    v_flex()
+                        .px_2()
+                        .pt_2()
+                        .pb_3()
+                        .rounded_b(inner_radius())
+                        .bg(theme::card(theme.is_dark()))
+                        .border_t_1()
+                        .border_color(theme.border)
+                        .relative()
+                        .children(dock)
+                        .when(state.settings.show_volume, |d| {
+                            d.child(device_header).child(div().px_2().pt(px(2.)).child(master))
+                        })
+                        .child(measure(&self.measured.volume, view)),
+                )
+            });
         let flyout = card_box(card(flyout, dark), &self.anchor);
         let popup = self.popup.clone().map(|(popup, at)| self.popup_menu(popup, at, &state, &theme, window, cx));
         // Drawn while open, so it gets measured, and while the region still shows it.

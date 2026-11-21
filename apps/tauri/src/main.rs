@@ -27,7 +27,8 @@ const OVERLAP: f64 = 2.0 * MARGIN - 8.0;
 const PANEL_PART: f64 = PANEL_WIDTH + 2.0 * MARGIN - OVERLAP;
 /// The window's fixed size. Its region shows only the flyout and the open panel.
 const FRAME_WIDTH: f64 = FLYOUT_WIDTH + 2.0 * MARGIN + PANEL_PART;
-const FRAME_HEIGHT: f64 = 640.0 + MARGIN + FLOAT;
+/// The settings panel can be taller than the flyout's 640 px, so every setting fits.
+const FRAME_HEIGHT: f64 = 720.0 + MARGIN + FLOAT;
 
 /// The margin on the taskbar side of each card.
 fn edge(anchor: &Anchor) -> f64 {

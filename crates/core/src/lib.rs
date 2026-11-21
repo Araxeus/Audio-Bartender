@@ -540,7 +540,20 @@ pub struct Settings {
     pub media_controls: MediaControls,
     pub level_meters: LevelMeters,
     pub device_chip: DeviceChip,
+    /// Parts of the flyout to show. The now playing card follows `media_controls`.
+    pub show_media_keys: bool,
+    pub show_other_apps: bool,
+    /// The output device and the master volume.
+    pub show_volume: bool,
     pub accent: Accent,
+}
+
+impl Settings {
+    /// True when the flyout would show nothing but its header.
+    pub fn shows_nothing(&self) -> bool {
+        let card = matches!(self.media_controls, MediaControls::Banner | MediaControls::Dock);
+        !(self.show_media_keys || self.show_other_apps || self.show_volume || card)
+    }
 }
 
 impl Default for Settings {
@@ -558,6 +571,9 @@ impl Default for Settings {
             media_controls: MediaControls::Hover,
             level_meters: LevelMeters::Volume,
             device_chip: DeviceChip::Beside,
+            show_media_keys: true,
+            show_other_apps: true,
+            show_volume: true,
             accent: Accent::Cyan,
         }
     }
@@ -579,6 +595,9 @@ pub enum Setting {
     MediaControls(MediaControls),
     LevelMeters(LevelMeters),
     DeviceChip(DeviceChip),
+    ShowMediaKeys(bool),
+    ShowOtherApps(bool),
+    ShowVolume(bool),
     Accent(Accent),
 }
 
