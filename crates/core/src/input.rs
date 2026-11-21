@@ -949,7 +949,19 @@ unsafe fn show_menu(hwnd: HWND) {
         let _ = GetCursorPos(&mut at);
         // The menu only closes on outside clicks while its owner is foreground.
         let _ = SetForegroundWindow(hwnd);
-        let picked = TrackPopupMenu(menu, TPM_RETURNCMD | TPM_RIGHTBUTTON | TPM_NONOTIFY, at.x, at.y, None, hwnd, None);
+        let mut flags = TPM_RETURNCMD | TPM_RIGHTBUTTON | TPM_NONOTIFY;
+        let mut monitor = MONITORINFO { cbSize: size_of::<MONITORINFO>() as u32, ..Default::default() };
+        if GetMonitorInfoW(MonitorFromPoint(at, MONITOR_DEFAULTTONEAREST), &mut monitor).as_bool() {
+            // Explorer can cover the bottom menu item when Quick Settings has just
+            // closed. Keep the whole menu, including Quit, in the work area.
+            if at.y >= monitor.rcWork.bottom {
+                flags |= TPM_BOTTOMALIGN;
+                at.y = monitor.rcWork.bottom;
+            } else {
+                at.y = at.y.max(monitor.rcWork.top);
+            }
+        }
+        let picked = TrackPopupMenu(menu, flags, at.x, at.y, None, hwnd, None);
         MENU.store(0, Relaxed);
         MENU_WHEEL.lock().unwrap().clear();
         let _ = PostMessageW(Some(hwnd), WM_NULL, WPARAM(0), LPARAM(0));
