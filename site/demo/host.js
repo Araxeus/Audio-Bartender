@@ -186,6 +186,7 @@
     // What the mock calls back into.
     window.__abDemoHost = {
       systemDark,
+      tracks: opts.tracks ?? null,
       changed: () => (dirty = true),
       resize: (flyout, panel) => {
         size = { flyout, panel };
@@ -334,6 +335,7 @@
 
     return {
       press: (key) => demo()?.press(key),
+      play: (id, index) => demo()?.play(id, index),
       open: () => setOpen(true),
       close: () => setOpen(false),
     };

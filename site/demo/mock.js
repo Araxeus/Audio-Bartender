@@ -40,6 +40,22 @@
     studio: ["#334155", "#0f172a", "studio"],
   };
 
+  // A track's cover is a COVERS key, or `{ url }` for a real image.
+  const coverOf = (name) => (typeof name === "string" ? COVERS[name] : name);
+  const images = new Map();
+  function imageFor(url) {
+    if (!images.has(url)) {
+      const img = new Image();
+      img.src = url;
+      images.set(url, img);
+    }
+    return images.get(url);
+  }
+
+  function coverUrl(cover) {
+    return cover.url ?? coverSvg(cover);
+  }
+
   function coverSvg([a, b, shape]) {
     const art = {
       circle: `<circle cx="64" cy="58" r="30" fill="#fff" fill-opacity=".85"/><rect y="92" width="128" height="36" fill="#000" fill-opacity=".25"/>`,
@@ -52,7 +68,17 @@
     return "data:image/svg+xml;base64," + btoa(svg);
   }
 
-  function coverPainter([a, b, shape]) {
+  function coverPainter(cover) {
+    if (cover.url) {
+      // Cropped to its middle square, like the core's tray art.
+      const img = imageFor(cover.url);
+      return (g, x, y, s) => {
+        if (!img.complete || !img.naturalWidth) return;
+        const side = Math.min(img.naturalWidth, img.naturalHeight);
+        g.drawImage(img, (img.naturalWidth - side) / 2, (img.naturalHeight - side) / 2, side, side, x, y, s, s);
+      };
+    }
+    const [a, b, shape] = cover;
     return (g, x, y, s) => {
       const grad = g.createLinearGradient(x, y, x + s, y + s);
       grad.addColorStop(0, a);
@@ -82,7 +108,8 @@
     };
   }
 
-  const TRACKS = {
+  // A page can bring its own tracks through the host, as { id: [[track, cover], ...] }.
+  const TRACKS = host?.tracks ?? {
     "smtc:Spotify": [
       ["Glass Harbor — Lumen Bay", "tide"],
       ["Paper Planets — The Overpass", "dusk"],
@@ -95,7 +122,7 @@
       ["Mixing for beginners — Studio Notes", "studio"],
     ],
   };
-  const trackIndex = { "smtc:Spotify": 0, "smtc:Chrome": 0 };
+  const trackIndex = Object.fromEntries(Object.keys(TRACKS).map((id) => [id, 0]));
 
   // Accents, as crates/core/src/lib.rs defines them.
   const ACCENTS = [
@@ -186,7 +213,7 @@
       if (!list) continue;
       const [track, cover] = list[trackIndex[t.id]];
       t.track = track;
-      t.icon = state.settings.albumArt ? { url: coverSvg(COVERS[cover]), art: true } : exeIcon(t.id);
+      t.icon = state.settings.albumArt ? { url: coverUrl(coverOf(cover)), art: true } : exeIcon(t.id);
     }
   }
 
@@ -272,7 +299,7 @@
   /** The tray icon's look, as the host's taskbar and the settings swatches draw it. */
   function look(now, lightTaskbar) {
     const np = keyTarget();
-    const cover = np && TRACKS[np.id] ? COVERS[TRACKS[np.id][trackIndex[np.id]][1]] : null;
+    const cover = np && TRACKS[np.id] ? coverOf(TRACKS[np.id][trackIndex[np.id]][1]) : null;
     return {
       level: state.audio.volume,
       muted: state.audio.muted,
@@ -437,6 +464,16 @@
   window.__abDemo = {
     look,
     press: (key) => press(key),
+    /** Plays track `index` of app `id`, and sends the media keys there. */
+    play: (id, index) => {
+      if (!TRACKS[id]) return;
+      trackIndex[id] = index;
+      const t = state.targets.find((t) => t.id === id);
+      t.playback = "playing";
+      state.current = id;
+      state.selected = id;
+      changed();
+    },
     adjustMaster: (delta) => commands.adjust_master({ delta }),
     toggleMasterMute: () => commands.toggle_master_mute(),
     showPage: (page) => emit("page", page),
@@ -446,7 +483,7 @@
     tooltip: () => {
       const np = keyTarget();
       const device = state.audio.devices.find((d) => d.default);
-      const cover = np && TRACKS[np.id] ? coverSvg(COVERS[TRACKS[np.id][trackIndex[np.id]][1]]) : null;
+      const cover = np && TRACKS[np.id] ? coverUrl(coverOf(TRACKS[np.id][trackIndex[np.id]][1])) : null;
       return {
         style: state.settings.tooltip,
         device: device?.name ?? "No output device",
