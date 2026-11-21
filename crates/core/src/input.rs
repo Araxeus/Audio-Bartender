@@ -79,7 +79,8 @@ const MASTER: &str = "master";
 /// menu so it stays open. Zero when none.
 static MENU_PRESS: AtomicU32 = AtomicU32::new(0);
 
-/// Menu entries a click mutes rather than picks: the master volume and other apps.
+/// Menu entries a left click mutes rather than picks: the master volume and other
+/// apps. A left click on a media key app picks it.
 fn mutes_on_click(command: u32) -> bool {
     command as usize == ID_MASTER || command as usize >= ID_MIXER
 }
@@ -424,19 +425,27 @@ unsafe extern "system" fn keyboard_hook(code: i32, wparam: WPARAM, lparam: LPARA
 /// Turns the wheel over the tray icon into master volume. The shell never forwards
 /// wheel events to tray icons, so this is the only way to get them.
 unsafe extern "system" fn mouse_hook(code: i32, wparam: WPARAM, lparam: LPARAM) -> LRESULT {
-    // A click on a volume entry of the open menu mutes it. The menu never sees the
-    // click, so it stays open.
+    // A click on a volume entry of the open menu mutes it: a left click on the master
+    // volume and other apps, a right click on any volume, media key apps included. The
+    // menu never sees the click, so it stays open.
     let button = wparam.0 as u32;
     let menu = HMENU(MENU.load(Relaxed) as _);
-    if code == HC_ACTION as i32 && (button == WM_LBUTTONDOWN || button == WM_LBUTTONUP) && !menu.is_invalid() {
+    let clicks = [WM_LBUTTONDOWN, WM_LBUTTONUP, WM_RBUTTONDOWN, WM_RBUTTONUP];
+    if code == HC_ACTION as i32 && clicks.contains(&button) && !menu.is_invalid() {
         let event = unsafe { &*(lparam.0 as *const MSLLHOOKSTRUCT) };
         let position = unsafe { MenuItemFromPoint(None, menu, event.pt) };
         let command = if position >= 0 { unsafe { GetMenuItemID(menu, position) } } else { 0 };
-        if button == WM_LBUTTONDOWN && mutes_on_click(command) {
+        let has_volume = MENU_WHEEL.lock().unwrap().iter().any(|w| w.command == command);
+        let mutes = match button {
+            WM_LBUTTONDOWN => has_volume && mutes_on_click(command),
+            WM_RBUTTONDOWN => has_volume,
+            _ => false,
+        };
+        if mutes {
             MENU_PRESS.store(command, Relaxed);
             return LRESULT(1);
         }
-        if button == WM_LBUTTONUP {
+        if button == WM_LBUTTONUP || button == WM_RBUTTONUP {
             let pressed = MENU_PRESS.swap(0, Relaxed);
             if pressed != 0 {
                 if pressed == command {
@@ -838,12 +847,18 @@ unsafe fn show_menu(hwnd: HWND) {
         // The bold default item opens the flyout. It names the version and front end,
         // so a bug report can say which one is running.
         add(MF_STRING, ID_OPEN, &crate::update::app_label());
+        // From the top: other apps, media key apps, then the master volume right above
+        // the Windows links.
+        if !state.mixer.is_empty() {
+            add(MF_SEPARATOR, 0, "");
+            add(MF_STRING | MF_GRAYED, 0, "Other apps (click mutes)");
+            for (i, app) in state.mixer.iter().enumerate() {
+                wheel.push(WheelItem { command: (ID_MIXER + i) as u32, id: app.id.clone(), name: app.name.clone() });
+                add(MF_STRING, ID_MIXER + i, &volume_label(&app.name, app.volume, app.muted));
+            }
+        }
         add(MF_SEPARATOR, 0, "");
-        let audio = &state.audio;
-        add(MF_STRING, ID_MASTER, &volume_label("Volume", audio.volume, audio.muted));
-        wheel.push(WheelItem { command: ID_MASTER as u32, id: MASTER.into(), name: "Volume".into() });
-        add(MF_SEPARATOR, 0, "");
-        add(MF_STRING | MF_GRAYED, 0, "Send media keys to");
+        add(MF_STRING | MF_GRAYED, 0, "Send media keys to (right click mutes)");
         add(MF_STRING | check(state.selected.is_none()), ID_AUTOMATIC, "Automatic (Windows decides)");
         for (i, target) in state.targets.iter().enumerate() {
             let selected = state.selected.as_deref() == Some(target.id.as_str());
@@ -861,14 +876,10 @@ unsafe fn show_menu(hwnd: HWND) {
             };
             add(MF_STRING | check(selected), ID_TARGET + i, &label);
         }
-        if !state.mixer.is_empty() {
-            add(MF_SEPARATOR, 0, "");
-            add(MF_STRING | MF_GRAYED, 0, "Other apps (click mutes)");
-            for (i, app) in state.mixer.iter().enumerate() {
-                wheel.push(WheelItem { command: (ID_MIXER + i) as u32, id: app.id.clone(), name: app.name.clone() });
-                add(MF_STRING, ID_MIXER + i, &volume_label(&app.name, app.volume, app.muted));
-            }
-        }
+        add(MF_SEPARATOR, 0, "");
+        let audio = &state.audio;
+        add(MF_STRING, ID_MASTER, &volume_label("Volume", audio.volume, audio.muted));
+        wheel.push(WheelItem { command: ID_MASTER as u32, id: MASTER.into(), name: "Volume".into() });
         add(MF_STRING | MF_GRAYED, 0, "Scroll over a volume to change it");
         // The same Windows links as the Windows volume icon's menu.
         add(MF_SEPARATOR, 0, "");
