@@ -112,19 +112,29 @@
   }));
   const accent = (name) => accents.find((a) => a.name === name) ?? accents[6];
 
+  // App icons, extracted from each exe the way the core does it (48 px, icon 0).
+  const EXE_ICONS = {
+    "smtc:Spotify": "spotify",
+    "smtc:Chrome": "chrome",
+    "exe:vlc.exe": "vlc",
+    "exe:Discord.exe": "discord",
+    "exe:steam.exe": "steam",
+  };
+  const exeIcon = (id) => (EXE_ICONS[id] ? { url: `../icons/${EXE_ICONS[id]}.png`, art: false } : null);
+
   const target = (id, name, playback, volume, running = true) => ({
-    id, name, playback, track: null, running, viaWindow: false, volume, muted: false, icon: null, route: null,
+    id, name, playback, track: null, running, viaWindow: false, volume, muted: false, icon: exeIcon(id), route: null,
   });
 
   const state = {
     targets: [
       target("smtc:Spotify", "Spotify", "playing", 0.8),
       target("smtc:Chrome", "Google Chrome", "paused", 1),
-      Object.assign(target("exe:foobar2000.exe", "foobar2000", "unknown", null, false), { viaWindow: true }),
+      Object.assign(target("exe:vlc.exe", "VLC media player", "unknown", null, false), { viaWindow: true }),
     ],
     mixer: [
-      { id: "exe:Discord.exe", name: "Discord", volume: 0.7, muted: false, icon: null, route: null },
-      { id: "exe:steam.exe", name: "Steam", volume: 0.5, muted: false, icon: null, route: null },
+      { id: "exe:Discord.exe", name: "Discord", volume: 0.7, muted: false, icon: exeIcon("exe:Discord.exe"), route: null },
+      { id: "exe:steam.exe", name: "Steam", volume: 0.5, muted: false, icon: exeIcon("exe:steam.exe"), route: null },
       { id: "system", name: "System sounds", volume: 0.4, muted: false, icon: null, route: null },
     ],
     audio: {
@@ -151,14 +161,14 @@
   };
   state.mixer.find((m) => m.id === "exe:Discord.exe").route = "hp";
 
-  // Tracks and icons follow the album art setting, like SMTC thumbnails in the core.
+  // Album art replaces the app icon while that setting is on, like SMTC thumbnails in the core.
   function refreshTracks() {
     for (const t of state.targets) {
       const list = TRACKS[t.id];
       if (!list) continue;
       const [track, cover] = list[trackIndex[t.id]];
       t.track = track;
-      t.icon = state.settings.albumArt ? { url: coverSvg(COVERS[cover]), art: true } : null;
+      t.icon = state.settings.albumArt ? { url: coverSvg(COVERS[cover]), art: true } : exeIcon(t.id);
     }
   }
 
