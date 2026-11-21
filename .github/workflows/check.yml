@@ -6,6 +6,7 @@ on:
     paths: &code
       - apps/**
       - crates/**
+      - xtask/**
       - Cargo.toml
       - Cargo.lock
       - rustfmt.toml

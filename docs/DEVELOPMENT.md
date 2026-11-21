@@ -10,6 +10,7 @@
 | `assets/icon.ico` | App icon, drawn by `scripts/make-icon.ps1` |
 | `assets/logo` | Logo files and brand notes |
 | `site` | The website, served by GitHub Pages |
+| `xtask` | `cargo xtask release` |
 | `site/demo` | The live demo: `mock.js` stands in for the core so the real Tauri UI runs in a browser |
 
 ## Build and measure
@@ -50,6 +51,15 @@ Launch flags:
 - `--dev` turns off the single-instance lock and the hand-off to the elevated task
 
 Both front ends share one single-instance lock, so a second launch of either opens the running copy's flyout. Settings live in `%APPDATA%\AudioBartender\config.ini`, shared by both.
+
+## Releasing
+
+```powershell
+cargo xtask release            # asks patch, minor or major, then whether to push
+cargo xtask release minor --push
+```
+
+It bumps the version in `Cargo.toml` and `apps/tauri/tauri.conf.json`, commits `chore(release): vX.Y.Z`, tags it, and pushes `main` and the tag together. The tag starts the Release workflow, which builds the installer and both portable exes, attests them and publishes the release. It refuses a dirty tree or a branch other than `main`.
 
 ## Media keys
 
