@@ -1,21 +1,25 @@
 <div align="center">
 
-<picture>
-  <source media="(prefers-color-scheme: dark)" srcset="assets/logo/lockup-horizontal-white.svg">
-  <img src="assets/logo/lockup-horizontal.svg" alt="Audio Bartender" width="360">
-</picture>
+<a href="https://araxeus.github.io/Audio-Bartender/">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="assets/logo/lockup-horizontal-white.svg">
+    <img src="assets/logo/lockup-horizontal.svg" alt="Audio Bartender" width="360">
+  </picture>
+</a>
 
-<p><b>A better volume mixer for the Windows tray.</b><br>
-Per-app volume, live meters, media controls, and your media keys sent to the app you choose.</p>
+<p><b>The volume mixer Windows was missing.</b><br>
+Per-app volume, live meters, media controls, and media keys that go to the app you choose.</p>
 
+[![Try it in your browser](https://img.shields.io/badge/▶_Try_it-in_your_browser-0E7490?style=for-the-badge)](https://araxeus.github.io/Audio-Bartender/)
 [![Download](https://img.shields.io/badge/Download-Windows_10_%7C_11-06B6D4?style=for-the-badge&logo=windows&logoColor=white)](https://github.com/Araxeus/Audio-Bartender/releases/latest/download/AudioBartender-setup.exe)
 
-[![Release](https://img.shields.io/github/v/release/Araxeus/Audio-Bartender?include_prereleases&color=0891B2&label=release)](https://github.com/Araxeus/Audio-Bartender/releases)
-[![Downloads](https://img.shields.io/github/downloads/Araxeus/Audio-Bartender/total?color=0891B2)](https://github.com/Araxeus/Audio-Bartender/releases)
-[![Website](https://img.shields.io/badge/try_it-in_your_browser-0891B2)](https://araxeus.github.io/Audio-Bartender/)
-[![License](https://img.shields.io/github/license/Araxeus/Audio-Bartender?color=0891B2)](LICENSE)
+<a href="https://araxeus.github.io/Audio-Bartender/"><img src="assets/screenshots/flyout-gpui.png" alt="The Audio Bartender flyout. Click to try it in your browser." width="361"></a>
 
-<img src="assets/screenshots/flyout-gpui.png" alt="The Audio Bartender flyout" width="361">
+<sub>The live demo runs the real app in your browser, over a simulated taskbar.<br>
+<a href="https://araxeus.github.io/Audio-Bartender/"><b>araxeus.github.io/Audio-Bartender</b></a></sub>
+
+[![Release](https://img.shields.io/github/v/release/Araxeus/Audio-Bartender?color=0891B2&label=release)](https://github.com/Araxeus/Audio-Bartender/releases/latest)
+[![License](https://img.shields.io/github/license/Araxeus/Audio-Bartender?color=0891B2)](LICENSE)
 
 </div>
 
