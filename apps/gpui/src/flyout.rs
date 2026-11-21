@@ -1020,6 +1020,8 @@ impl Flyout {
             .child(
                 h_flex()
                     .gap_1()
+                    // Occluding keeps the header's drag area out from under the buttons.
+                    .occlude()
                     .child(
                         Button::new("settings")
                             .small()
