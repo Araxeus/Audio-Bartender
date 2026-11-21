@@ -39,11 +39,10 @@ A new `invoke` command in the Tauri app needs a matching entry in `mock.js`, or 
 Preview the site before pushing:
 
 ```powershell
-pwsh scripts/build-demo.ps1          # copy the current UI and version into the demo
-python -m http.server -d site 8000   # then open http://localhost:8000
+bun scripts/dev.js   # prints the link to open
 ```
 
-It needs a local server, because opening `index.html` straight from disk blocks the demo's scripts. Run `build-demo.ps1` again after changing the Tauri UI.
+The script builds the demo, serves `site/`, and reloads the browser on every save. Edits to the Tauri UI rebuild the demo first. It needs a local server, because opening `index.html` straight from disk blocks the demo's scripts.
 
 Set `AUDIO_BARTENDER_LOG=1` to log routing, forwarded keys and tray wheel steps to `%TEMP%\audio_bartender.log`.
 
