@@ -52,6 +52,7 @@ const WM_DISMISS: u32 = WM_APP + 8;
 
 /// Polls the pointer while our tooltip outlives the shell's hover.
 const TIMER_TOOLTIP: usize = 1;
+const TIMER_RESTORE_ICON: usize = 2;
 
 /// How long a card with buttons stays while the pointer is on neither it nor the
 /// icon, so the pointer can cross the taskbar to reach it.
@@ -425,6 +426,33 @@ unsafe extern "system" fn keyboard_hook(code: i32, wparam: WPARAM, lparam: LPARA
 /// wheel events to tray icons, so this is the only way to get them.
 unsafe extern "system" fn mouse_hook(code: i32, wparam: WPARAM, lparam: LPARAM) -> LRESULT {
     if code == HC_ACTION as i32 {
+        // When Explorer is above the overlay it receives the down event. Pair
+        // it with its own up even if the shell changes stacking mid-click.
+        static SPEAKER_BUTTONS: AtomicU32 = AtomicU32::new(0);
+        let message = wparam.0 as u32;
+        let button = match message {
+            WM_LBUTTONDOWN | WM_LBUTTONUP => 1,
+            WM_RBUTTONDOWN | WM_RBUTTONUP => 2,
+            WM_MBUTTONDOWN | WM_MBUTTONUP => 4,
+            _ => 0,
+        };
+        if button != 0 {
+            let point = unsafe { (*(lparam.0 as *const MSLLHOOKSTRUCT)).pt };
+            let down = matches!(message, WM_LBUTTONDOWN | WM_RBUTTONDOWN | WM_MBUTTONDOWN);
+            if down && speaker_slot::native_speaker_at(point) {
+                SPEAKER_BUTTONS.fetch_or(button, Relaxed);
+                return LRESULT(1);
+            }
+            if !down && SPEAKER_BUTTONS.fetch_and(!button, Relaxed) & button != 0 {
+                if speaker_slot::native_speaker_at(point)
+                    || speaker_slot::visible_window().is_some_and(|w| unsafe { WindowFromPoint(point) == w })
+                {
+                    let event = if message == WM_RBUTTONUP { WM_CONTEXTMENU } else { message };
+                    post_with(WM_TRAY, 0, event as isize);
+                }
+                return LRESULT(1);
+            }
+        }
         match wparam.0 as u32 {
             WM_LBUTTONDOWN => {
                 let flyout = HWND(FLYOUT_WINDOW.load(Relaxed) as _);
@@ -465,11 +493,9 @@ unsafe extern "system" fn mouse_hook(code: i32, wparam: WPARAM, lparam: LPARAM) 
         let [l, t, r, b] = ICON_RECT.each_ref().map(|v| v.load(Relaxed));
         let (x, y) = (event.pt.x, event.pt.y);
         let fresh = now_ms().saturating_sub(LAST_HOVER_MS.load(Relaxed)) < HOVER_TRUST_MS;
-        let on_icon = if let Some(slot) = speaker_slot::visible_window() {
-            unsafe { WindowFromPoint(event.pt) == slot }
-        } else {
-            fresh && x >= l && x < r && y >= t && y < b
-        };
+        let on_icon = speaker_slot::visible_window().is_some_and(|slot| unsafe { WindowFromPoint(event.pt) == slot })
+            || speaker_slot::native_speaker_at(event.pt)
+            || (fresh && x >= l && x < r && y >= t && y < b);
         if on_icon || card::contains(event.pt) {
             post(WM_WHEEL, delta as u16 as usize);
             return LRESULT(1);
@@ -502,9 +528,7 @@ unsafe extern "system" fn wndproc(hwnd: HWND, msg: u32, wparam: WPARAM, lparam: 
             }
             WM_LBUTTONUP => {
                 tooltip::hide();
-                if let Some(anchor) = anchor(hwnd) {
-                    shared().emit(Event::Flyout { anchor, page: Page::Apps, toggle: true });
-                }
+                shared().emit(Event::Flyout { anchor: anchor(hwnd), page: Page::Apps, toggle: true });
             }
             WM_MBUTTONUP => {
                 audio::toggle_master_mute();
@@ -551,6 +575,7 @@ unsafe extern "system" fn wndproc(hwnd: HWND, msg: u32, wparam: WPARAM, lparam: 
                 SetTimer(Some(hwnd), TIMER_TOOLTIP, 100, None);
             }
         }
+        WM_TIMER if wparam.0 == TIMER_RESTORE_ICON => unsafe { set_icon(hwnd, NIM_MODIFY) },
         WM_SHOW => show(Page::Apps),
         WM_DISMISS => shared().emit(Event::DismissFlyout),
         WM_SPEAKER_SLOT => {
@@ -574,7 +599,7 @@ unsafe extern "system" fn wndproc(hwnd: HWND, msg: u32, wparam: WPARAM, lparam: 
 }
 
 pub(crate) fn speaker_position_active() -> bool {
-    speaker_slot::visible_window().is_some()
+    speaker_slot::reachable()
 }
 
 /// Whether this app's tray icon shows on the taskbar rather than in the overflow.
@@ -598,11 +623,12 @@ pub(crate) fn icon_on_taskbar() -> Option<bool> {
 }
 
 fn icon_rect(hwnd: HWND) -> Option<RECT> {
-    let rect = speaker_slot::rect().or_else(|| unsafe { Shell_NotifyIconGetRect(&identifier(hwnd)).ok() })?;
     let mut at = POINT::default();
     unsafe { GetCursorPos(&mut at).ok()? };
-    let inside = at.x >= rect.left && at.x < rect.right && at.y >= rect.top && at.y < rect.bottom;
-    inside.then_some(rect)
+    let inside = |r: &RECT| at.x >= r.left && at.x < r.right && at.y >= r.top && at.y < r.bottom;
+    speaker_slot::rect()
+        .filter(inside)
+        .or_else(|| unsafe { Shell_NotifyIconGetRect(&identifier(hwnd)).ok().filter(inside) })
 }
 
 /// Caches the icon position for the mouse hook. Hover callbacks are frequent, so
@@ -666,13 +692,10 @@ fn tray_area_rect() -> Option<RECT> {
     }
 }
 
-fn anchor(hwnd: HWND) -> Option<Anchor> {
-    if let Some(anchor) = speaker_slot::anchor() {
-        return Some(anchor);
-    }
+fn anchor(hwnd: HWND) -> Anchor {
     remember_icon_rect(hwnd, true);
     // In the overflow area, anchor on the pointer instead.
-    Some(anchor_for(icon_rect(hwnd).unwrap_or_else(cursor_rect)))
+    anchor_for(icon_rect(hwnd).unwrap_or_else(cursor_rect))
 }
 
 /// The anchor for an icon rectangle: its monitor's work area and scale.
@@ -734,7 +757,10 @@ unsafe fn set_icon(hwnd: HWND, action: NOTIFY_ICON_MESSAGE) {
     let (text, tip) = tip;
     let slot = speaker_slot::visible_window();
     let size = slot.map_or_else(|| unsafe { GetSystemMetrics(SM_CXSMICON) }, speaker_slot::icon_size);
-    let Some(icon) = tray_icon::render(&look, size) else { return };
+    let Some(icon) = tray_icon::render(&look, size) else {
+        unsafe { SetTimer(Some(hwnd), TIMER_RESTORE_ICON, 1000, None) };
+        return;
+    };
 
     let mut data = NOTIFYICONDATAW {
         cbSize: size_of::<NOTIFYICONDATAW>() as u32,
@@ -747,10 +773,10 @@ unsafe fn set_icon(hwnd: HWND, action: NOTIFY_ICON_MESSAGE) {
         ..Default::default()
     };
     fill_wide(&mut data.szTip, &text);
+    // Explicitly clear the hidden flag left by older speaker-position builds.
     data.uFlags |= NIF_STATE;
     data.dwStateMask = NIS_HIDDEN;
     if let Some(slot) = slot {
-        data.dwState = NIS_HIDDEN;
         unsafe {
             let _ = InvalidateRect(Some(slot), None, false);
         }
@@ -764,17 +790,23 @@ unsafe fn set_icon(hwnd: HWND, action: NOTIFY_ICON_MESSAGE) {
         if action == NIM_ADD && USE_GUID.load(Relaxed) && !crate::autostart::dev() {
             let _ = Shell_NotifyIconW(NIM_DELETE, &data);
         }
-        let added = Shell_NotifyIconW(action, &data).as_bool();
-        if action == NIM_ADD {
-            crate::util::log(format!("tray icon added: {added}, with GUID: {}", USE_GUID.load(Relaxed)));
+        let mut registered = Shell_NotifyIconW(action, &data).as_bool();
+        let adding = action == NIM_ADD || !registered;
+        if !registered && action == NIM_MODIFY {
+            registered = Shell_NotifyIconW(NIM_ADD, &data).as_bool();
         }
-        if action == NIM_ADD && !added && USE_GUID.swap(false, Relaxed) {
+        if action == NIM_ADD && !registered && USE_GUID.swap(false, Relaxed) {
             crate::util::log("tray GUID refused, using the window identity");
             data.uFlags &= !NIF_GUID;
             data.guidItem = GUID::zeroed();
-            let _ = Shell_NotifyIconW(NIM_ADD, &data);
+            registered = Shell_NotifyIconW(NIM_ADD, &data).as_bool();
         }
-        if action == NIM_ADD {
+        if registered {
+            let _ = KillTimer(Some(hwnd), TIMER_RESTORE_ICON);
+        } else {
+            SetTimer(Some(hwnd), TIMER_RESTORE_ICON, 1000, None);
+        }
+        if registered && adding {
             // Version 4 sends the hover events that drive our own tooltip.
             data.Anonymous.uVersion = NOTIFYICON_VERSION_4;
             let _ = Shell_NotifyIconW(NIM_SETVERSION, &data);

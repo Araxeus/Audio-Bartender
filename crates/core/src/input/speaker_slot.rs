@@ -5,7 +5,7 @@
 use std::sync::atomic::{AtomicBool, AtomicIsize, AtomicU32, Ordering::Relaxed};
 use std::sync::mpsc::{self, Sender};
 use std::sync::{Mutex, OnceLock};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use windows::Win32::Foundation::{COLORREF, HWND, LPARAM, LRESULT, POINT, RECT, WPARAM};
 use windows::Win32::Graphics::Gdi::{
@@ -36,10 +36,12 @@ use super::{CURRENT_ICON, WM_SPEAKER_SLOT, WM_TRAY, WM_WHEEL, post, post_with};
 use crate::util;
 
 const CLASS: PCWSTR = w!("AudioBartender.SpeakerSlot");
+const PLACEMENT_LIFETIME: Duration = Duration::from_secs(4);
 static ENABLED: AtomicBool = AtomicBool::new(false);
 static WAKE: OnceLock<Sender<()>> = OnceLock::new();
 static WINDOW: AtomicIsize = AtomicIsize::new(0);
 static BACKGROUND: AtomicU32 = AtomicU32::new(0x303030);
+static REACHABLE: AtomicBool = AtomicBool::new(false);
 static FOUND: Mutex<Option<Placement>> = Mutex::new(None);
 
 #[derive(Clone, Copy)]
@@ -48,6 +50,8 @@ struct Placement {
     bar: RECT,
     button: RECT,
     neighbors: [RECT; 2],
+    tile: RECT,
+    observed: Instant,
 }
 
 pub(super) fn enable(on: bool) {
@@ -210,7 +214,14 @@ fn locate(ui: &IUIAutomation, cache: &IUIAutomationCacheRequest, label: &str) ->
                 }
             }
         }
-        Some(Placement { taskbar: taskbar.0 as isize, bar, button, neighbors })
+        Some(Placement {
+            taskbar: taskbar.0 as isize,
+            bar,
+            button,
+            neighbors,
+            tile: tile(button, GetDpiForWindow(taskbar))?,
+            observed: Instant::now(),
+        })
     }
 }
 
@@ -219,17 +230,39 @@ pub(super) fn visible_window() -> Option<HWND> {
     (!hwnd.is_invalid() && unsafe { IsWindowVisible(hwnd).as_bool() }).then_some(hwnd)
 }
 
-pub(super) fn on_neighbor(point: POINT) -> bool {
-    if visible_window().is_none() {
+fn inside(p: POINT, r: RECT) -> bool {
+    p.x >= r.left && p.x < r.right && p.y >= r.top && p.y < r.bottom
+}
+
+/// Only handle clicks on a recently measured part of this exact taskbar.
+/// Low-level mouse coordinates are physical, even for a DPI-virtualized hook.
+fn shell_hit(point: POINT, matches: impl FnOnce(Placement) -> bool) -> bool {
+    if !ENABLED.load(Relaxed) {
         return false;
     }
-    let Ok(found) = FOUND.try_lock() else {
+    let Some(p) = FOUND.try_lock().ok().and_then(|p| *p) else { return false };
+    if p.observed.elapsed() >= PLACEMENT_LIFETIME || !matches(p) {
         return false;
-    };
-    found.is_some_and(|p| {
-        p.neighbors.iter().any(|r| point.x >= r.left && point.x < r.right && point.y >= r.top && point.y < r.bottom)
-            && unsafe { GetAncestor(WindowFromPoint(point), GA_ROOT) == HWND(p.taskbar as _) }
+    }
+    physical(|| unsafe {
+        let taskbar = HWND(p.taskbar as _);
+        let mut bar = RECT::default();
+        GetAncestor(WindowFromPoint(point), GA_ROOT) == taskbar
+            && GetWindowRect(taskbar, &mut bar).is_ok()
+            && bar == p.bar
     })
+}
+
+pub(super) fn native_speaker_at(point: POINT) -> bool {
+    shell_hit(point, |p| inside(point, p.tile))
+}
+
+pub(super) fn reachable() -> bool {
+    REACHABLE.load(Relaxed)
+}
+
+pub(super) fn on_neighbor(point: POINT) -> bool {
+    shell_hit(point, |p| p.neighbors.into_iter().any(|r| inside(point, r)))
 }
 
 pub(super) fn rect() -> Option<RECT> {
@@ -258,6 +291,7 @@ pub(super) fn anchor() -> Option<crate::Anchor> {
 }
 
 pub(super) fn reset() {
+    REACHABLE.store(false, Relaxed);
     *FOUND.lock().unwrap() = None;
     if let Some(hwnd) = visible_window() {
         unsafe {
@@ -269,14 +303,10 @@ pub(super) fn reset() {
     }
 }
 
-fn window(taskbar: HWND) -> Option<HWND> {
+fn window() -> Option<HWND> {
     let hwnd = HWND(WINDOW.load(Relaxed) as _);
     if !hwnd.is_invalid() {
-        if unsafe { GetWindow(hwnd, GW_OWNER).ok() } == Some(taskbar) {
-            return Some(hwnd);
-        }
-        // Explorer may replace the taskbar while the previous popup still exists.
-        unsafe { DestroyWindow(hwnd) }.ok()?;
+        return Some(hwnd);
     }
     unsafe {
         let instance = GetModuleHandleW(None).ok()?;
@@ -289,13 +319,7 @@ fn window(taskbar: HWND) -> Option<HWND> {
         };
         RegisterClassW(&class);
         let hwnd = CreateWindowExW(
-            WS_EX_TOOLWINDOW
-                | WS_EX_NOACTIVATE
-                | if GetWindowLongPtrW(taskbar, GWL_EXSTYLE) as u32 & WS_EX_TOPMOST.0 != 0 {
-                    WS_EX_TOPMOST
-                } else {
-                    WINDOW_EX_STYLE::default()
-                },
+            WS_EX_TOOLWINDOW | WS_EX_NOACTIVATE,
             CLASS,
             w!("Audio Bartender volume"),
             WS_POPUP,
@@ -303,7 +327,7 @@ fn window(taskbar: HWND) -> Option<HWND> {
             0,
             0,
             0,
-            Some(taskbar),
+            None,
             None,
             Some(instance.into()),
             None,
@@ -345,10 +369,8 @@ fn show(found: Placement) -> Option<()> {
         {
             return None;
         }
-        let tile = tile(found.button, GetDpiForWindow(taskbar))?;
-        // An owned popup follows Explorer when clicking Quick Settings raises
-        // the taskbar, including between our geometry updates.
-        let hwnd = window(taskbar)?;
+        let tile = found.tile;
+        let hwnd = window()?;
         let edge = POINT { x: (tile.left + tile.right) / 2, y: (tile.top - 1).max(found.button.top) };
         let hit = WindowFromPoint(edge);
         // A tooltip or Quick Settings can cover this sample without moving the speaker.
@@ -384,12 +406,12 @@ fn show(found: Placement) -> Option<()> {
             }
         }
         // If Explorer stops answering UI Automation, retire the stale hit target.
-        SetTimer(Some(hwnd), 1, 4000, None);
+        SetTimer(Some(hwnd), 1, PLACEMENT_LIFETIME.as_millis() as u32, None);
         Some(())
     }
 }
 
-/// Returns true when the notification icon's hidden flag needs to change.
+/// Report transitions from a clickable overlay to the shell fallback and back.
 pub(super) fn place() -> bool {
     let before = visible_window();
     let found = *FOUND.lock().unwrap();
@@ -400,7 +422,14 @@ pub(super) fn place() -> bool {
             let _ = ShowWindow(hwnd, SW_HIDE);
         }
     }
-    before != visible_window()
+    let reachable = visible_window().is_some_and(|hwnd| {
+        physical(|| {
+            let Some(tile) = rect() else { return false };
+            let center = POINT { x: (tile.left + tile.right) / 2, y: (tile.top + tile.bottom) / 2 };
+            unsafe { WindowFromPoint(center) == hwnd }
+        })
+    });
+    REACHABLE.swap(reachable, Relaxed) != reachable
 }
 
 pub(super) fn icon_size(hwnd: HWND) -> i32 {
@@ -486,6 +515,16 @@ unsafe extern "system" fn wndproc(hwnd: HWND, msg: u32, wp: WPARAM, lp: LPARAM) 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn fallback_hit_stops_at_the_speaker_edges() {
+        let button = RECT { left: -225, top: 1128, right: -189, bottom: 1200 };
+        let r = tile(button, 144).unwrap();
+        assert!(inside(POINT { x: -207, y: 1164 }, r));
+        for (x, y) in [(-226, 1164), (-189, 1164), (-207, 1145), (-207, 1182)] {
+            assert!(!inside(POINT { x, y }, r));
+        }
+    }
 
     #[test]
     fn exact_localized_role_and_individual_bounds() {
