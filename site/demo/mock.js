@@ -28,20 +28,8 @@
     };
   };
 
-  // Covers: one painter per track, drawn on canvas for the tray icon and as SVG for the UI.
-  const COVERS = {
-    dusk: ["#f97316", "#7c3aed", "circle"],
-    tide: ["#06b6d4", "#1e3a8a", "waves"],
-    neon: ["#ec4899", "#0f172a", "grid"],
-    moss: ["#84cc16", "#14532d", "circle"],
-    ember: ["#ef4444", "#facc15", "waves"],
-    // Video frames, as Chrome reports a video's thumbnail.
-    valley: ["#7dd3fc", "#f59e0b", "valley"],
-    studio: ["#334155", "#0f172a", "studio"],
-  };
-
-  // A track's cover is a COVERS key, or `{ url }` for a real image.
-  const coverOf = (name) => (typeof name === "string" ? COVERS[name] : name);
+  // Real covers, small copies in site/demo/covers. A track's cover is a path, or `{ url }`.
+  const urlOf = (cover) => new URL(typeof cover === "string" ? cover : cover.url, location.href).href;
   const images = new Map();
   function imageFor(url) {
     if (!images.has(url)) {
@@ -52,74 +40,66 @@
     return images.get(url);
   }
 
-  function coverUrl(cover) {
-    return cover.url ?? coverSvg(cover);
-  }
-
-  function coverSvg([a, b, shape]) {
-    const art = {
-      circle: `<circle cx="64" cy="58" r="30" fill="#fff" fill-opacity=".85"/><rect y="92" width="128" height="36" fill="#000" fill-opacity=".25"/>`,
-      waves: `<path d="M0 80q32-24 64 0t64 0v48H0z" fill="#fff" fill-opacity=".35"/><path d="M0 96q32-24 64 0t64 0v32H0z" fill="#fff" fill-opacity=".55"/>`,
-      grid: `<path d="M0 88h128M0 104h128M0 120h128M32 72v56M64 72v56M96 72v56" stroke="#fff" stroke-opacity=".5" stroke-width="2"/><circle cx="64" cy="48" r="22" fill="#fff" fill-opacity=".9"/>`,
-      valley: `<circle cx="90" cy="46" r="15" fill="#fef3c7"/><path d="M0 92l30-26 26 18 30-32 42 40v36H0z" fill="#15803d"/><path d="M0 108l40-16 34 12 54-18v42H0z" fill="#14532d"/>`,
-      studio: `<circle cx="64" cy="20" r="40" fill="#fbbf24" fill-opacity=".18"/><rect x="12" y="62" width="104" height="54" rx="5" fill="#1e293b"/><path d="M28 72v34M46 72v34M64 72v34M82 72v34M100 72v34" stroke="#64748b" stroke-width="3"/><rect x="22" y="78" width="12" height="7" rx="2" fill="#e2e8f0"/><rect x="40" y="94" width="12" height="7" rx="2" fill="#e2e8f0"/><rect x="58" y="84" width="12" height="7" rx="2" fill="#e2e8f0"/><rect x="76" y="98" width="12" height="7" rx="2" fill="#e2e8f0"/><rect x="94" y="80" width="12" height="7" rx="2" fill="#e2e8f0"/>`,
-    }[shape];
-    const svg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128"><defs><linearGradient id="g" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="${a}"/><stop offset="1" stop-color="${b}"/></linearGradient></defs><rect width="128" height="128" fill="url(#g)"/>${art}</svg>`;
-    return "data:image/svg+xml;base64," + btoa(svg);
-  }
-
-  function coverPainter(cover) {
-    if (cover.url) {
-      // Cropped to its middle square, like the core's tray art.
-      const img = imageFor(cover.url);
-      return (g, x, y, s) => {
-        if (!img.complete || !img.naturalWidth) return;
-        const side = Math.min(img.naturalWidth, img.naturalHeight);
-        g.drawImage(img, (img.naturalWidth - side) / 2, (img.naturalHeight - side) / 2, side, side, x, y, s, s);
-      };
-    }
-    const [a, b, shape] = cover;
+  /** Draws the cover cropped to its middle square, like the core's tray art. */
+  function coverPainter(url) {
+    const img = imageFor(url);
     return (g, x, y, s) => {
-      const grad = g.createLinearGradient(x, y, x + s, y + s);
-      grad.addColorStop(0, a);
-      grad.addColorStop(1, b);
-      g.fillStyle = grad;
-      g.fillRect(x, y, s, s);
-      if (shape === "valley") {
-        g.fillStyle = "#15803d";
-        g.beginPath();
-        g.moveTo(x, y + s * 0.72);
-        g.lineTo(x + s * 0.45, y + s * 0.5);
-        g.lineTo(x + s, y + s * 0.68);
-        g.lineTo(x + s, y + s);
-        g.lineTo(x, y + s);
-        g.fill();
-        return;
-      }
-      if (shape === "studio") {
-        g.fillStyle = "#e2e8f0";
-        [0.3, 0.5, 0.7].forEach((fx, i) => g.fillRect(x + s * fx - s * 0.06, y + s * (0.45 + 0.1 * i), s * 0.12, s * 0.08));
-        return;
-      }
-      g.fillStyle = "rgba(255,255,255,.8)";
-      g.beginPath();
-      g.arc(x + s / 2, y + s * 0.45, s * 0.22, 0, Math.PI * 2);
-      g.fill();
+      if (!img.complete || !img.naturalWidth) return;
+      const side = Math.min(img.naturalWidth, img.naturalHeight);
+      g.drawImage(img, (img.naturalWidth - side) / 2, (img.naturalHeight - side) / 2, side, side, x, y, s, s);
     };
   }
 
   // A page can bring its own tracks through the host, as { id: [[track, cover], ...] }.
+  // Spotify plays albums, Chrome plays YouTube videos (Blender's open movies are CC BY).
   const TRACKS = host?.tracks ?? {
     "smtc:Spotify": [
-      ["Glass Harbor — Lumen Bay", "tide"],
-      ["Paper Planets — The Overpass", "dusk"],
-      ["Night Shift — Velvet Static", "neon"],
-      ["Greenhouse — Moss & Mirrors", "moss"],
-      ["Slow Burn — Ember Lane", "ember"],
+      ["After Hours — The Weeknd", "../covers/album-1.jpg"],
+      ["1989 (Taylor's Version) — Taylor Swift", "../covers/album-2.jpg"],
+      ["Happier Than Ever — Billie Eilish", "../covers/album-3.jpg"],
+      ["Random Access Memories — Daft Punk", "../covers/album-4.jpg"],
+      ["AM — Arctic Monkeys", "../covers/album-5.jpg"],
+      ["DAMN. — Kendrick Lamar", "../covers/album-6.jpg"],
+      ["SOUR — Olivia Rodrigo", "../covers/album-7.jpg"],
+      ["Harry's House — Harry Styles", "../covers/album-8.jpg"],
+      ["Thriller — Michael Jackson", "../covers/album-9.jpg"],
+      ["Rumours — Fleetwood Mac", "../covers/album-10.jpg"],
+      ["OK Computer — Radiohead", "../covers/album-11.jpg"],
+      ["Melodrama — Lorde", "../covers/album-12.jpg"],
+      ["SOS — SZA", "../covers/album-13.jpg"],
+      ["Parachutes — Coldplay", "../covers/album-14.jpg"],
+      ["RENAISSANCE — Beyoncé", "../covers/album-15.jpg"],
+      ["Demon Days — Gorillaz", "../covers/album-16.jpg"],
+      ["Abbey Road — The Beatles", "../covers/album-17.jpg"],
+      ["21 — Adele", "../covers/album-18.jpg"],
+      ["÷ — Ed Sheeran", "../covers/album-19.jpg"],
+      ["Hollywood's Bleeding — Post Malone", "../covers/album-20.jpg"],
+      ["Planet Her — Doja Cat", "../covers/album-21.jpg"],
+      ["Hybrid Theory — LINKIN PARK", "../covers/album-22.jpg"],
+      ["Born To Die — Lana Del Rey", "../covers/album-23.jpg"],
     ],
     "smtc:Chrome": [
-      ["How speakers actually work — Sound Lab", "valley"],
-      ["Mixing for beginners — Studio Notes", "studio"],
+      ["Rick Astley - Never Gonna Give You Up (Official Video) (4K Remaster) — Rick Astley", "../covers/video-1.jpg"],
+      ["PSY - GANGNAM STYLE(강남스타일) M/V — officialpsy", "../covers/video-2.jpg"],
+      ["Luis Fonsi - Despacito ft. Daddy Yankee — LuisFonsiVEVO", "../covers/video-3.jpg"],
+      ["Ed Sheeran - Shape of You (Official Music Video) — Ed Sheeran", "../covers/video-4.jpg"],
+      ["Mark Ronson - Uptown Funk (Official Video) ft. Bruno Mars — MarkRonsonVEVO", "../covers/video-5.jpg"],
+      ["Queen – Bohemian Rhapsody (Official Video Remastered) — Queen Official", "../covers/video-6.jpg"],
+      ["Nirvana - Smells Like Teen Spirit (Official Music Video) — NirvanaVEVO", "../covers/video-7.jpg"],
+      ["Alan Walker - Faded — Alan Walker", "../covers/video-8.jpg"],
+      ["Adele - Hello (Official Music Video) — Adele", "../covers/video-9.jpg"],
+      ["Wiz Khalifa - See You Again ft. Charlie Puth [Official Video] Furious 7 Soundtrack — Wiz Khalifa Music", "../covers/video-10.jpg"],
+      ["Katy Perry - Roar — KatyPerryVEVO", "../covers/video-11.jpg"],
+      ["Ed Sheeran - Thinking Out Loud (Official Music Video) — Ed Sheeran", "../covers/video-12.jpg"],
+      ["Maroon 5 - Sugar (Official Music Video) — Maroon5VEVO", "../covers/video-13.jpg"],
+      ["The Weeknd - Blinding Lights (Official Video) — TheWeekndVEVO", "../covers/video-14.jpg"],
+      ["Maroon 5 - Memories (Official Video) — Maroon5VEVO", "../covers/video-15.jpg"],
+      ["Big Buck Bunny 60fps 4K - Official Blender Foundation Short Film — Blender", "../covers/video-16.jpg"],
+      ["Sintel - Open Movie by Blender Foundation — Blender", "../covers/video-17.jpg"],
+      ["Tears of Steel - Blender VFX Open Movie — Blender", "../covers/video-18.jpg"],
+      ["Spring - Blender Open Movie — Blender Studio", "../covers/video-19.jpg"],
+      ["Agent 327: Operation Barbershop — Blender Studio", "../covers/video-20.jpg"],
+      ["Me at the zoo — jawed", "../covers/video-21.jpg"],
     ],
   };
   const trackIndex = Object.fromEntries(Object.keys(TRACKS).map((id) => [id, 0]));
@@ -213,7 +193,7 @@
       if (!list) continue;
       const [track, cover] = list[trackIndex[t.id]];
       t.track = track;
-      t.icon = state.settings.albumArt ? { url: coverUrl(coverOf(cover)), art: true } : exeIcon(t.id);
+      t.icon = state.settings.albumArt ? { url: urlOf(cover), art: true } : exeIcon(t.id);
     }
   }
 
@@ -299,7 +279,7 @@
   /** The tray icon's look, as the host's taskbar and the settings swatches draw it. */
   function look(now, lightTaskbar) {
     const np = keyTarget();
-    const cover = np && TRACKS[np.id] ? coverOf(TRACKS[np.id][trackIndex[np.id]][1]) : null;
+    const cover = np && TRACKS[np.id] ? urlOf(TRACKS[np.id][trackIndex[np.id]][1]) : null;
     return {
       level: state.audio.volume,
       muted: state.audio.muted,
@@ -483,7 +463,7 @@
     tooltip: () => {
       const np = keyTarget();
       const device = state.audio.devices.find((d) => d.default);
-      const cover = np && TRACKS[np.id] ? coverUrl(coverOf(TRACKS[np.id][trackIndex[np.id]][1])) : null;
+      const cover = np && TRACKS[np.id] ? urlOf(TRACKS[np.id][trackIndex[np.id]][1]) : null;
       return {
         style: state.settings.tooltip,
         device: device?.name ?? "No output device",
