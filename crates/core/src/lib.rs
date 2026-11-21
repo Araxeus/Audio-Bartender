@@ -1066,6 +1066,12 @@ pub fn set_window_region(hwnd: isize, parts: &[(i32, i32, i32, i32)]) {
 }
 
 /// The page to open on launch: `--settings` opens the settings page.
+/// Tells the tray which page the flyout shows, or `None` once it closes. The tray
+/// tooltip stays away while the flyout shows its apps.
+pub fn set_flyout_page(page: Option<Page>) {
+    input::set_flyout_page(page);
+}
+
 pub fn start_page() -> Page {
     if std::env::args().any(|a| a == "--settings") { Page::Settings } else { Page::Apps }
 }

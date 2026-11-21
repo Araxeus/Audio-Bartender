@@ -459,6 +459,7 @@ impl Flyout {
     ) -> Self {
         let (dark, accent) = (state.read(cx).settings.dark, state.read(cx).settings.accent);
         theme::apply(window, cx, dark, accent);
+        audio_bartender_core::set_flyout_page(Some(page));
         // GPUI opens windows only where their center is on screen, so the window starts
         // hidden and appears once the first frame moves it behind the taskbar.
         if let Some(hwnd) = hwnd(window) {
@@ -525,6 +526,7 @@ impl Flyout {
 
     pub fn open_page(&mut self, page: Page, cx: &mut Context<Self>) {
         self.page = page;
+        audio_bartender_core::set_flyout_page(Some(page));
         self.devices_open = false;
         self.popup = None;
         cx.notify();
@@ -900,6 +902,7 @@ impl Flyout {
     pub fn close(&mut self, cx: &mut Context<Self>) {
         if self.closing.is_none() {
             self.closing = Some(Instant::now());
+            audio_bartender_core::set_flyout_page(None);
             crate::flyout_closed(cx);
             cx.notify();
         }

@@ -185,6 +185,10 @@ fn flyout_size(app: AppHandle, flyout: f64, panel: Option<f64>) -> (bool, bool, 
         let state = app.state::<Mutex<Flyout>>();
         let mut state = state.lock().unwrap();
         (state.height, state.panel) = (Some(flyout), panel);
+        // Only the settings report a panel.
+        if state.closing_at.is_none() {
+            audio_bartender_core::set_flyout_page(Some(if panel.is_some() { Page::Settings } else { Page::Apps }));
+        }
     }
     place_flyout(&app);
     apply_region(&app);
@@ -304,6 +308,7 @@ fn hide_flyout(app: &AppHandle) {
         flyout.closed_at = Some(start);
         flyout.closing_at = Some(start);
     }
+    audio_bartender_core::set_flyout_page(None);
     let sliding = app.clone();
     std::thread::spawn(move || {
         loop {
@@ -373,6 +378,7 @@ fn show_flyout(app: &AppHandle, anchor: Anchor, page: Page, toggle: bool) {
         flyout.anchor = Some(anchor);
         flyout.closed_at = None;
     }
+    audio_bartender_core::set_flyout_page(Some(page));
     if let Some(window) = existing {
         let _ = window.emit_to(FLYOUT, "page", page_name(page));
         if visible {

@@ -197,6 +197,15 @@ pub(crate) fn preview_tooltip() {
     post(WM_PREVIEW, 0);
 }
 
+/// Set while the flyout shows its apps without the settings, so hovering the tray
+/// icon doesn't cover it with a tooltip.
+static FLYOUT_QUIET: AtomicBool = AtomicBool::new(false);
+
+/// The page the flyout shows, or `None` once it closes.
+pub(crate) fn set_flyout_page(page: Option<Page>) {
+    FLYOUT_QUIET.store(page == Some(Page::Apps), Relaxed);
+}
+
 /// True while the tooltip should stay: the pointer is on the icon, on a card with
 /// buttons, or has been off both for less than the grace period.
 fn keep_tooltip() -> bool {
@@ -565,6 +574,7 @@ unsafe extern "system" fn wndproc(hwnd: HWND, msg: u32, wparam: WPARAM, lparam: 
         // Version 4 callbacks carry the event in the low word.
         WM_TRAY => match lparam.0 as u32 & 0xFFFF {
             WM_MOUSEMOVE => remember_icon_rect(hwnd, false),
+            NIN_POPUPOPEN if FLYOUT_QUIET.load(Relaxed) => {}
             NIN_POPUPOPEN => {
                 let tip = TRAY_STATE.lock().unwrap().tip();
                 tooltip::show(&tip, icon_rect(hwnd).unwrap_or_else(cursor_rect));
@@ -623,9 +633,10 @@ unsafe extern "system" fn wndproc(hwnd: HWND, msg: u32, wparam: WPARAM, lparam: 
         }
         WM_PREVIEW => {
             let tip = TRAY_STATE.lock().unwrap().tip();
-            // The pointer is on the settings, so an icon in the overflow falls back
-            // to the notification area rather than the pointer.
-            let icon = icon_rect(hwnd).or_else(tray_area_rect).unwrap_or_else(cursor_rect);
+            let icon = shown_icon_rect(hwnd).unwrap_or_else(|| {
+                let r = default_anchor().icon;
+                RECT { left: r.left, top: r.top, right: r.right, bottom: r.bottom }
+            });
             tooltip::show(&tip, icon);
             PREVIEW_UNTIL_MS.store(now_ms() + PREVIEW_MS, Relaxed);
             AWAY_MS.store(0, Relaxed);
@@ -741,6 +752,29 @@ pub fn default_anchor() -> Anchor {
     anchor_for(icon)
 }
 
+/// Where the icon shows on the taskbar, wherever the pointer is: over the Windows
+/// speaker, among the tray icons, or else the overflow button that hides it.
+fn shown_icon_rect(hwnd: HWND) -> Option<RECT> {
+    if let Some(r) = speaker_slot::rect() {
+        return Some(r);
+    }
+    let bar = taskbar_rect()?;
+    let on_bar = |r: &RECT| {
+        r.right > r.left && r.left >= bar.left && r.right <= bar.right && r.top >= bar.top && r.bottom <= bar.bottom
+    };
+    unsafe { Shell_NotifyIconGetRect(&identifier(hwnd)) }
+        .ok()
+        .filter(on_bar)
+        .or_else(|| overflow_button().filter(on_bar))
+}
+
+fn taskbar_rect() -> Option<RECT> {
+    use windows::Win32::UI::WindowsAndMessaging::GetWindowRect;
+    let mut rect = RECT::default();
+    unsafe { GetWindowRect(FindWindowW(w!("Shell_TrayWnd"), None).ok()?, &mut rect).ok()? };
+    Some(rect)
+}
+
 /// A 1-pixel rectangle at the pointer.
 fn cursor_rect() -> RECT {
     let mut at = POINT::default();
@@ -750,15 +784,23 @@ fn cursor_rect() -> RECT {
     RECT { left: at.x, top: at.y, right: at.x + 1, bottom: at.y + 1 }
 }
 
-/// The taskbar's notification area, where an icon in the overflow would sit.
-fn tray_area_rect() -> Option<RECT> {
+/// The button that opens the tray overflow. Windows 10 gives it a window. On
+/// Windows 11 it leads the notification area, so take that area's first square.
+fn overflow_button() -> Option<RECT> {
     use windows::Win32::UI::WindowsAndMessaging::{FindWindowExW, GetWindowRect};
     unsafe {
         let taskbar = FindWindowW(w!("Shell_TrayWnd"), None).ok()?;
         let area = FindWindowExW(Some(taskbar), None, w!("TrayNotifyWnd"), None).ok()?;
         let mut rect = RECT::default();
+        if let Ok(button) = FindWindowExW(Some(area), None, w!("Button"), None)
+            && GetWindowRect(button, &mut rect).is_ok()
+            && rect.right > rect.left
+        {
+            return Some(rect);
+        }
         GetWindowRect(area, &mut rect).ok()?;
-        Some(rect)
+        let side = (rect.right - rect.left).min(rect.bottom - rect.top);
+        Some(RECT { right: rect.left + side, bottom: rect.top + side, ..rect })
     }
 }
 

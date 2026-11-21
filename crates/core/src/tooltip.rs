@@ -116,16 +116,26 @@ fn show_text(text: &str) {
     crate::util::raise_topmost(tooltip);
 }
 
-/// Centers the tooltip above the icon. Runs after showing, when its size is known.
+/// Centers the tooltip on the icon, on the side of it away from the taskbar. Runs
+/// after showing, when its size is known.
 unsafe fn place(tooltip: HWND) {
     let mut rect = RECT::default();
     if unsafe { GetWindowRect(tooltip, &mut rect) }.is_err() {
         return;
     }
-    let [left, top, right, _] = ICON.each_ref().map(|v| v.load(Relaxed));
+    let i = icon();
+    let work = crate::input::anchor_for(i).work;
     let (width, height) = (rect.right - rect.left, rect.bottom - rect.top);
-    let x = (left + right) / 2 - width / 2;
-    let y = top - height - GAP;
+    let (center_x, center_y) = ((i.left + i.right) / 2 - width / 2, (i.top + i.bottom) / 2 - height / 2);
+    let (x, y) = if i.bottom <= work.top {
+        (center_x, i.bottom + GAP)
+    } else if i.right <= work.left {
+        (i.right + GAP, center_y)
+    } else if i.left >= work.right {
+        (i.left - width - GAP, center_y)
+    } else {
+        (center_x, i.top - height - GAP)
+    };
     let point = ((y as u16 as u32) << 16 | x as u16 as u32) as isize;
     unsafe {
         SendMessageW(tooltip, TTM_TRACKPOSITION, None, Some(LPARAM(point)));
