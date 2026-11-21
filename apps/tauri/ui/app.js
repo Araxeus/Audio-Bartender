@@ -653,9 +653,26 @@ function reportSize(withPanel) {
   });
 }
 
-// A pinned flyout can be dragged by its header, like a title bar.
+// A pinned flyout can be dragged by its header, like a title bar. The drag starts once
+// the pointer moves with the button held: started on a plain click, Windows would wait
+// in its move loop and swallow the next click, such as one on a header button.
+let dragFrom = null;
 $("controls").addEventListener("mousedown", (event) => {
-  if (pinned && event.button === 0 && !event.target.closest("button")) invoke("start_drag");
+  dragFrom = pinned && event.button === 0 && !event.target.closest("button") ? { x: event.screenX, y: event.screenY } : null;
+});
+document.addEventListener("mousemove", (event) => {
+  if (!dragFrom) return;
+  if (!(event.buttons & 1)) {
+    dragFrom = null;
+    return;
+  }
+  if (Math.hypot(event.screenX - dragFrom.x, event.screenY - dragFrom.y) > 3) {
+    dragFrom = null;
+    invoke("start_drag");
+  }
+});
+document.addEventListener("mouseup", () => {
+  dragFrom = null;
 });
 
 follow(volumes, render);
