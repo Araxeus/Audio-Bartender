@@ -45,6 +45,7 @@ const WM_REDRAW: u32 = WM_APP + 3;
 const WM_WHEEL: u32 = WM_APP + 4;
 const WM_MENU_WHEEL: u32 = WM_APP + 5;
 const WM_PREVIEW: u32 = WM_APP + 6;
+const WM_MENU_MUTE: u32 = WM_APP + 7;
 
 /// Polls the pointer while our tooltip outlives the shell's hover.
 const TIMER_TOOLTIP: usize = 1;
@@ -73,6 +74,15 @@ const MENU_STEP: f32 = 0.02;
 
 /// Volume id of the master volume in the menu.
 const MASTER: &str = "master";
+
+/// The menu entry a left click started on, while the click is held back from the
+/// menu so it stays open. Zero when none.
+static MENU_PRESS: AtomicU32 = AtomicU32::new(0);
+
+/// Menu entries a click mutes rather than picks: the master volume and other apps.
+fn mutes_on_click(command: u32) -> bool {
+    command as usize == ID_MASTER || command as usize >= ID_MIXER
+}
 
 /// How long after the pointer last hovered the icon its cached position is trusted.
 const HOVER_TRUST_MS: u64 = 30_000;
@@ -414,6 +424,28 @@ unsafe extern "system" fn keyboard_hook(code: i32, wparam: WPARAM, lparam: LPARA
 /// Turns the wheel over the tray icon into master volume. The shell never forwards
 /// wheel events to tray icons, so this is the only way to get them.
 unsafe extern "system" fn mouse_hook(code: i32, wparam: WPARAM, lparam: LPARAM) -> LRESULT {
+    // A click on a volume entry of the open menu mutes it. The menu never sees the
+    // click, so it stays open.
+    let button = wparam.0 as u32;
+    let menu = HMENU(MENU.load(Relaxed) as _);
+    if code == HC_ACTION as i32 && (button == WM_LBUTTONDOWN || button == WM_LBUTTONUP) && !menu.is_invalid() {
+        let event = unsafe { &*(lparam.0 as *const MSLLHOOKSTRUCT) };
+        let position = unsafe { MenuItemFromPoint(None, menu, event.pt) };
+        let command = if position >= 0 { unsafe { GetMenuItemID(menu, position) } } else { 0 };
+        if button == WM_LBUTTONDOWN && mutes_on_click(command) {
+            MENU_PRESS.store(command, Relaxed);
+            return LRESULT(1);
+        }
+        if button == WM_LBUTTONUP {
+            let pressed = MENU_PRESS.swap(0, Relaxed);
+            if pressed != 0 {
+                if pressed == command {
+                    post_with(WM_MENU_MUTE, 0, command as isize);
+                }
+                return LRESULT(1);
+            }
+        }
+    }
     if code == HC_ACTION as i32 && wparam.0 as u32 == WM_MOUSEWHEEL {
         let event = unsafe { &*(lparam.0 as *const MSLLHOOKSTRUCT) };
         let delta = (event.mouseData >> 16) as i16;
@@ -495,6 +527,7 @@ unsafe extern "system" fn wndproc(hwnd: HWND, msg: u32, wparam: WPARAM, lparam: 
             }
         }
         WM_MENU_WHEEL => unsafe { menu_wheel(lparam.0 as u32, wparam.0 as u16 as i16) },
+        WM_MENU_MUTE => unsafe { menu_mute(lparam.0 as u32) },
         WM_TIMER if wparam.0 == TIMER_TOOLTIP => {
             if tooltip::visible() && keep_tooltip() {
                 return LRESULT(0);
@@ -911,13 +944,36 @@ unsafe fn menu_wheel(command: u32, delta: i16) {
         volume::level(&sessions, &volume::exes_for(&id))
     };
     shared().send(Cmd::RefreshAudio { devices: false });
-    let Some((level, muted)) = level else { return };
+    if let Some((level, muted)) = level {
+        unsafe { relabel_menu_item(command, &name, level, muted) };
+    }
+}
 
+/// Mutes or unmutes a menu entry and rewrites its label while the menu stays open.
+unsafe fn menu_mute(command: u32) {
+    let item = MENU_WHEEL.lock().unwrap().iter().find(|w| w.command == command).map(|w| (w.id.clone(), w.name.clone()));
+    let Some((id, name)) = item else { return };
+    let level = if id == MASTER {
+        audio::toggle_master_mute();
+        audio::adjust_master(0.0)
+    } else {
+        volume::toggle_mute(&id);
+        let sessions = volume::sessions(&crate::util::processes());
+        volume::level(&sessions, &volume::exes_for(&id))
+    };
+    shared().send(Cmd::RefreshAudio { devices: false });
+    if let Some((level, muted)) = level {
+        unsafe { relabel_menu_item(command, &name, level, muted) };
+    }
+}
+
+/// Shows a menu entry's new volume while the menu is open.
+unsafe fn relabel_menu_item(command: u32, name: &str, level: f32, muted: bool) {
     let menu = HMENU(MENU.load(Relaxed) as _);
     if menu.is_invalid() {
         return;
     }
-    let mut text = crate::util::wide(&volume_label(&name, level, muted));
+    let mut text = crate::util::wide(&volume_label(name, level, muted));
     let info = MENUITEMINFOW {
         cbSize: size_of::<MENUITEMINFOW>() as u32,
         fMask: MIIM_STRING,
