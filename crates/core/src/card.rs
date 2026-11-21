@@ -947,7 +947,8 @@ impl Painter {
                 bar(3., 2., 6.6, 14., 1.2);
                 bar(9.4, 2., 13., 14., 1.2);
             }
-            MediaKey::PlayPause => self.polygon(&[at(4.5, 2.4), at(14.2, 8.), at(4.5, 13.6)], rgb, alpha),
+            // Centered by its edges: as far from the left as its tip is from the right.
+            MediaKey::PlayPause => self.polygon(&[at(3.15, 2.4), at(12.85, 8.), at(3.15, 13.6)], rgb, alpha),
             MediaKey::Previous => {
                 bar(2., 2.5, 4., 13.5, 1.);
                 self.polygon(&[at(14., 2.8), at(5., 8.), at(14., 13.2)], rgb, alpha);

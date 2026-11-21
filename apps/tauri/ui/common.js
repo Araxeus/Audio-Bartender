@@ -37,8 +37,8 @@ const STROKES = {
   speaker: '<rect width="16" height="20" x="4" y="2" rx="2"/><circle cx="12" cy="14" r="4"/><path d="M12 6h.01"/>',
   prev: '<path d="M19 20 9 12l10-8zM5 19V5"/>',
   next: '<path d="m5 4 10 8-10 8zM19 5v14"/>',
-  // Right of center, because a triangle's weight sits on its wide side.
-  play: '<path d="M7.5 3l14 9-14 9z"/>',
+  // Shifted so its left and right edges sit the same distance from the button's.
+  play: '<path d="M5.25 3l14 9-14 9z"/>',
   pause: '<rect x="6" y="4" width="4" height="16" rx="1"/><rect x="14" y="4" width="4" height="16" rx="1"/>',
   pin: PIN,
   pinOff: PIN + '<path d="M2 2l20 20"/>',

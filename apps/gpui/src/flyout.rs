@@ -1097,12 +1097,7 @@ impl Flyout {
                 .bg(bg)
                 .cursor_pointer()
                 .hover(move |st| st.bg(hover))
-                // A triangle's weight sits on its wide side, so play shifts right to look centered.
-                .child(
-                    div()
-                        .when(matches!(icon, IconName::Play), |d| d.relative().left(px(1.)))
-                        .child(Icon::new(icon).size(icon_size).text_color(color)),
-                )
+                .child(Icon::new(icon).size(icon_size).text_color(color))
                 .on_mouse_down(MouseButton::Left, move |_, _, cx| {
                     match &target {
                         Some(target) => core.press_for(target, key),

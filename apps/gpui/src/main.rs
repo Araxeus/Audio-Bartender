@@ -41,6 +41,10 @@ gpui_kit::assets::icon_assets!(
     ]
 );
 
+/// Lucide's play, moved one unit left. Lucide's spans x 4 to 22 with its stroke, so it sits
+/// right of center; this one spans 3 to 21, so its left and right edges match.
+const PLAY: &[u8] = br#"<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 5a2 2 0 0 1 3.008-1.728l11.997 6.998a2 2 0 0 1 .003 3.458l-12 7A2 2 0 0 1 4 19z"/></svg>"#;
+
 /// The component defaults plus the app's own icons.
 struct AppAssets;
 
@@ -49,6 +53,9 @@ impl AssetSource for AppAssets {
         // The Back Bar mark, in its small-size cut.
         if path == "brand/glyph.svg" {
             return Ok(Some(Cow::Borrowed(include_bytes!("../../../assets/logo/glyph-small.svg"))));
+        }
+        if path == "icons/play.svg" {
+            return Ok(Some(Cow::Borrowed(PLAY)));
         }
         if let Some(bytes) = AppIcons.load(path)? {
             return Ok(Some(bytes));
