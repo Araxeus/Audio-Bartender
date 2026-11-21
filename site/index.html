@@ -93,18 +93,21 @@ nav .links a { text-decoration: none; }
 nav .links a:hover { color: var(--fg); }
 
 /* Hero */
-.hero { position: relative; overflow: hidden; padding-block: 40px 0; }
+.hero { position: relative; padding-block: 40px 0; }
+/* The glow sits behind the demo and fades out well inside the hero, so it never meets an edge. */
 .hero::before {
-  content: ""; position: absolute; inset: auto 0 0; height: 70%;
-  background: radial-gradient(60% 60% at 70% 80%, var(--glow), transparent 70%);
+  content: ""; position: absolute; inset: 0;
+  background: radial-gradient(closest-side at 66% 50%, var(--glow), transparent);
   pointer-events: none;
 }
+.hero + section { border-top: 0; }
 .hero .wrap { position: relative; }
 .hero-text { max-width: 760px; }
 /* Wide screens: the headline beside the live desktop, so both fit without scrolling.
    Only where the desktop still gets 1040 px, so it stays life size. */
 @media (min-width: 1600px) {
-  .hero { padding-block: 8px 96px; }
+  /* Centered in the window when there's room: 80 px of nav, 800 px of desktop. */
+  .hero { padding-block: max(8px, calc((100vh - 880px) / 2)) 96px; }
   nav .wrap, .hero .hero-grid { max-width: 1880px; }
   .hero .hero-grid { display: grid; grid-template-columns: clamp(360px, 24vw, 470px) minmax(0, 1fr); gap: 56px; align-items: center; }
   .hero h1 { font-size: clamp(48px, 3.9vw, 64px); }
