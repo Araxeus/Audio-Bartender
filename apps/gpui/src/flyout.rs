@@ -230,6 +230,15 @@ impl Mode {
     }
 }
 
+/// The Automatic row's line, naming the app Windows sends media keys to now.
+fn windows_decides(state: &State) -> String {
+    let current = state.current.as_deref().and_then(|id| state.targets.iter().find(|t| t.id == id));
+    match current {
+        Some(target) => format!("Windows decides · {}", target.name),
+        None => "Windows decides".into(),
+    }
+}
+
 /// What the media keys control right now, for the banner and the dock.
 struct NowPlaying {
     title: String,
@@ -240,8 +249,7 @@ struct NowPlaying {
 
 impl NowPlaying {
     fn new(state: &State) -> NowPlaying {
-        let selected = state.selected.as_deref().and_then(|id| state.targets.iter().find(|t| t.id == id));
-        let Some(target) = selected else {
+        let Some(target) = state.now_playing() else {
             return NowPlaying {
                 title: "Automatic".into(),
                 subtitle: "Media keys go where Windows decides".into(),
@@ -740,13 +748,30 @@ impl Flyout {
 
     /// Previous, play/pause and next. With `target` they control that app; without,
     /// wherever media keys go.
-    fn transport(&self, id: &str, target: Option<String>, playing: bool, small: bool) -> Div {
+    /// Drawn here rather than with `Button`, which keeps the arrow cursor on top of a
+    /// clickable row.
+    fn transport(&self, id: &str, target: Option<String>, playing: bool, small: bool, theme: &Theme) -> Div {
+        let (size, icon_size) = if small { (px(22.), px(14.)) } else { (px(28.), px(16.)) };
         let button = |name: &str, key: MediaKey, icon: IconName, primary: bool| {
             let (core, target) = (self.core.clone(), target.clone());
-            Button::new(SharedString::from(format!("{id}-{name}")))
-                .map(|b| if small { b.xsmall() } else { b.small() })
-                .map(|b| if primary { b.primary() } else { b.ghost() })
-                .icon(icon)
+            let (bg, hover) = if primary {
+                (theme.primary, theme.primary_hover)
+            } else {
+                (transparent_black(), theme.secondary_hover)
+            };
+            let color = if primary { white() } else { theme.foreground.opacity(0.8) };
+            div()
+                .id(SharedString::from(format!("{id}-{name}")))
+                .flex_none()
+                .size(size)
+                .flex()
+                .items_center()
+                .justify_center()
+                .rounded(theme.radius)
+                .bg(bg)
+                .cursor_pointer()
+                .hover(move |st| st.bg(hover))
+                .child(Icon::new(icon).size(icon_size).text_color(color))
                 .on_click(move |_, _, cx| {
                     match &target {
                         Some(target) => core.press_for(target, key),
@@ -789,7 +814,7 @@ impl Flyout {
                     .child(div().text_sm().font_semibold().truncate().child(now.title))
                     .child(subtitle),
             )
-            .child(self.transport("now-playing", None, now.playing, false))
+            .child(self.transport("now-playing", None, now.playing, false, theme))
     }
 
     fn device_header(&self, state: &State, theme: &Theme, cx: &mut Context<Self>) -> Stateful<Div> {
@@ -927,6 +952,8 @@ impl Flyout {
         let mut rows = Vec::new();
 
         let automatic = state.selected.is_none();
+        // In Automatic the buttons reach Windows' current session, so show its state.
+        let automatic_playing = state.now_playing().is_some_and(|t| t.running && t.playback == Playback::Playing);
         rows.push(
             Self::row(&theme, "automatic".into(), automatic, true)
                 .on_click(self.select_on_click(None))
@@ -940,15 +967,18 @@ impl Flyout {
                                 .child(Icon::new(IconName::Sparkles).small().text_color(white())),
                         )
                         .child(
-                            v_flex()
-                                .flex_1()
-                                .child(div().text_size(px(13.)).font_semibold().child("Automatic"))
-                                .child(div().text_xs().text_color(theme.muted_foreground).child("Windows decides")),
+                            v_flex().flex_1().child(div().text_size(px(13.)).font_semibold().child("Automatic")).child(
+                                div()
+                                    .text_xs()
+                                    .text_color(theme.muted_foreground)
+                                    .truncate()
+                                    .child(windows_decides(state)),
+                            ),
                         )
                         .child(Self::radio("automatic", &theme, automatic, &self.core, None)),
                 )
                 .when(automatic && controls == MediaControls::Row, |d| {
-                    d.child(Self::row_controls(self.transport("automatic", None, false, false)))
+                    d.child(Self::row_controls(self.transport("automatic", None, automatic_playing, false, &theme)))
                 })
                 .into_any_element(),
         );
@@ -998,7 +1028,13 @@ impl Flyout {
                                             let hovered = self.hovered.as_ref() == Some(&target.id);
                                             let line = if hovered {
                                                 let playing = target.playback == Playback::Playing;
-                                                self.transport(&target.id, Some(target.id.clone()), playing, true)
+                                                self.transport(
+                                                    &target.id,
+                                                    Some(target.id.clone()),
+                                                    playing,
+                                                    true,
+                                                    &theme,
+                                                )
                                             } else {
                                                 detail()
                                             };
@@ -1021,7 +1057,7 @@ impl Flyout {
                     )
                     .when(checked && controls == MediaControls::Row, |d| {
                         let playing = target.running && target.playback == Playback::Playing;
-                        d.child(Self::row_controls(self.transport(&target.id, None, playing, false)))
+                        d.child(Self::row_controls(self.transport(&target.id, None, playing, false, &theme)))
                     })
                     .when_some(slider, |d, slider| {
                         // Under the name, clear of the avatar.

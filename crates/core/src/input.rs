@@ -49,6 +49,8 @@ const WM_MENU_WHEEL: u32 = WM_APP + 5;
 const WM_PREVIEW: u32 = WM_APP + 6;
 const WM_SPEAKER_SLOT: u32 = WM_APP + 7;
 const WM_DISMISS: u32 = WM_APP + 8;
+const WM_MENU_MUTE: u32 = WM_APP + 9;
+const WM_MENU_SELECT: u32 = WM_APP + 10;
 
 /// Polls the pointer while our tooltip outlives the shell's hover.
 const TIMER_TOOLTIP: usize = 1;
@@ -79,6 +81,24 @@ const MENU_STEP: f32 = 0.02;
 /// Volume id of the master volume in the menu.
 const MASTER: &str = "master";
 
+/// The menu entry a left click started on, while the click is held back from the
+/// menu so it stays open. Zero when none.
+static MENU_PRESS: AtomicU32 = AtomicU32::new(0);
+
+/// The held click picks a media key app rather than muting.
+static MENU_PRESS_PICKS: AtomicBool = AtomicBool::new(false);
+
+/// Menu entries a left click picks for media keys: Automatic and each app.
+fn picks_on_click(command: u32) -> bool {
+    let command = command as usize;
+    command == ID_AUTOMATIC || (ID_TARGET..ID_MIXER).contains(&command)
+}
+
+/// Menu entries a left click mutes: the master volume and other apps.
+fn mutes_on_click(command: u32) -> bool {
+    command as usize == ID_MASTER || command as usize >= ID_MIXER
+}
+
 /// How long after the pointer last hovered the icon its cached position is trusted.
 const HOVER_TRUST_MS: u64 = 30_000;
 
@@ -93,6 +113,8 @@ static TASKBAR_CREATED: AtomicU32 = AtomicU32::new(0);
 /// The open context menu, for the mouse hook. Zero when no menu is open.
 static MENU: AtomicIsize = AtomicIsize::new(0);
 static MENU_WHEEL: Mutex<Vec<WheelItem>> = Mutex::new(Vec::new());
+/// The open menu's media key apps by position after `ID_TARGET`, for picking one.
+static MENU_TARGETS: Mutex<Vec<String>> = Mutex::new(Vec::new());
 static ROUTING: AtomicBool = AtomicBool::new(false);
 
 /// What the tray shows. The worker writes it; the tray thread draws it.
@@ -307,8 +329,7 @@ pub fn update_tray(state: &State) {
         tray.accent = state.settings.accent;
         tray.dark = state.settings.dark;
         tray.device = audio.device().map(|d| d.name.clone());
-        let selected = state.selected.as_deref().and_then(|id| state.targets.iter().find(|t| t.id == id));
-        tray.media = match selected {
+        tray.media = match state.now_playing() {
             Some(t) => card::Media {
                 app: Some(t.name.clone()),
                 playback: t.playback,
@@ -427,6 +448,39 @@ unsafe extern "system" fn keyboard_hook(code: i32, wparam: WPARAM, lparam: LPARA
 /// Turns the wheel over the tray icon into master volume. The shell never forwards
 /// wheel events to tray icons, so this is the only way to get them.
 unsafe extern "system" fn mouse_hook(code: i32, wparam: WPARAM, lparam: LPARAM) -> LRESULT {
+    // A click on a volume entry of the open menu mutes it: a left click on the master
+    // volume and other apps, a right click on any volume, media key apps included. The
+    // menu never sees the click, so it stays open.
+    let button = wparam.0 as u32;
+    let menu = HMENU(MENU.load(Relaxed) as _);
+    let clicks = [WM_LBUTTONDOWN, WM_LBUTTONUP, WM_RBUTTONDOWN, WM_RBUTTONUP];
+    if code == HC_ACTION as i32 && clicks.contains(&button) && !menu.is_invalid() {
+        let event = unsafe { &*(lparam.0 as *const MSLLHOOKSTRUCT) };
+        let position = unsafe { MenuItemFromPoint(None, menu, event.pt) };
+        let command = if position >= 0 { unsafe { GetMenuItemID(menu, position) } } else { 0 };
+        let has_volume = MENU_WHEEL.lock().unwrap().iter().any(|w| w.command == command);
+        let mutes = match button {
+            WM_LBUTTONDOWN => has_volume && mutes_on_click(command),
+            WM_RBUTTONDOWN => has_volume,
+            _ => false,
+        };
+        let picks = button == WM_LBUTTONDOWN && picks_on_click(command);
+        if mutes || picks {
+            MENU_PRESS.store(command, Relaxed);
+            MENU_PRESS_PICKS.store(picks, Relaxed);
+            return LRESULT(1);
+        }
+        if button == WM_LBUTTONUP || button == WM_RBUTTONUP {
+            let pressed = MENU_PRESS.swap(0, Relaxed);
+            if pressed != 0 {
+                if pressed == command {
+                    let message = if MENU_PRESS_PICKS.load(Relaxed) { WM_MENU_SELECT } else { WM_MENU_MUTE };
+                    post_with(message, 0, command as isize);
+                }
+                return LRESULT(1);
+            }
+        }
+    }
     if code == HC_ACTION as i32 {
         // When Explorer is above the overlay it receives the down event. Pair
         // it with its own up even if the shell changes stacking mid-click.
@@ -556,6 +610,8 @@ unsafe extern "system" fn wndproc(hwnd: HWND, msg: u32, wparam: WPARAM, lparam: 
             }
         }
         WM_MENU_WHEEL => unsafe { menu_wheel(lparam.0 as u32, wparam.0 as u16 as i16) },
+        WM_MENU_MUTE => unsafe { menu_mute(lparam.0 as u32) },
+        WM_MENU_SELECT => unsafe { menu_select(lparam.0 as u32) },
         WM_TIMER if wparam.0 == TIMER_TOOLTIP => {
             if tooltip::visible() && keep_tooltip() {
                 return LRESULT(0);
@@ -909,13 +965,21 @@ unsafe fn show_menu(hwnd: HWND) {
         let mut wheel = Vec::new();
 
         theme_menus(state.settings.dark);
-        add(MF_STRING, ID_OPEN, "Open Audio Bartender");
+        // The bold default item opens the flyout. It names the version and front end,
+        // so a bug report can say which one is running.
+        add(MF_STRING, ID_OPEN, &crate::update::app_label());
+        // From the top: other apps, media key apps, then the master volume right above
+        // the Windows links.
+        if !state.mixer.is_empty() {
+            add(MF_SEPARATOR, 0, "");
+            add(MF_STRING | MF_GRAYED, 0, "Other apps (click mutes)");
+            for (i, app) in state.mixer.iter().enumerate() {
+                wheel.push(WheelItem { command: (ID_MIXER + i) as u32, id: app.id.clone(), name: app.name.clone() });
+                add(MF_STRING, ID_MIXER + i, &volume_label(&app.name, app.volume, app.muted));
+            }
+        }
         add(MF_SEPARATOR, 0, "");
-        let audio = &state.audio;
-        add(MF_STRING, ID_MASTER, &volume_label("Volume", audio.volume, audio.muted));
-        wheel.push(WheelItem { command: ID_MASTER as u32, id: MASTER.into(), name: "Volume".into() });
-        add(MF_SEPARATOR, 0, "");
-        add(MF_STRING | MF_GRAYED, 0, "Send media keys to");
+        add(MF_STRING | MF_GRAYED, 0, "Send media keys to (right click mutes)");
         add(MF_STRING | check(state.selected.is_none()), ID_AUTOMATIC, "Automatic (Windows decides)");
         for (i, target) in state.targets.iter().enumerate() {
             let selected = state.selected.as_deref() == Some(target.id.as_str());
@@ -933,14 +997,10 @@ unsafe fn show_menu(hwnd: HWND) {
             };
             add(MF_STRING | check(selected), ID_TARGET + i, &label);
         }
-        if !state.mixer.is_empty() {
-            add(MF_SEPARATOR, 0, "");
-            add(MF_STRING | MF_GRAYED, 0, "Other apps (click mutes)");
-            for (i, app) in state.mixer.iter().enumerate() {
-                wheel.push(WheelItem { command: (ID_MIXER + i) as u32, id: app.id.clone(), name: app.name.clone() });
-                add(MF_STRING, ID_MIXER + i, &volume_label(&app.name, app.volume, app.muted));
-            }
-        }
+        add(MF_SEPARATOR, 0, "");
+        let audio = &state.audio;
+        add(MF_STRING, ID_MASTER, &volume_label("Volume", audio.volume, audio.muted));
+        wheel.push(WheelItem { command: ID_MASTER as u32, id: MASTER.into(), name: "Volume".into() });
         add(MF_STRING | MF_GRAYED, 0, "Scroll over a volume to change it");
         // The same Windows links as the Windows volume icon's menu.
         add(MF_SEPARATOR, 0, "");
@@ -954,6 +1014,7 @@ unsafe fn show_menu(hwnd: HWND) {
         let _ = SetMenuDefaultItem(menu, ID_OPEN as u32, 0);
 
         *MENU_WHEEL.lock().unwrap() = wheel;
+        *MENU_TARGETS.lock().unwrap() = state.targets.iter().map(|t| t.id.clone()).collect();
         MENU.store(menu.0 as isize, Relaxed);
 
         let mut at = POINT::default();
@@ -1028,13 +1089,57 @@ unsafe fn menu_wheel(command: u32, delta: i16) {
         volume::level(&sessions, &volume::exes_for(&id))
     };
     shared().send(Cmd::RefreshAudio { devices: false });
-    let Some((level, muted)) = level else { return };
+    if let Some((level, muted)) = level {
+        unsafe { relabel_menu_item(command, &name, level, muted) };
+    }
+}
 
+/// Mutes or unmutes a menu entry and rewrites its label while the menu stays open.
+unsafe fn menu_mute(command: u32) {
+    let item = MENU_WHEEL.lock().unwrap().iter().find(|w| w.command == command).map(|w| (w.id.clone(), w.name.clone()));
+    let Some((id, name)) = item else { return };
+    let level = if id == MASTER {
+        audio::toggle_master_mute();
+        audio::adjust_master(0.0)
+    } else {
+        volume::toggle_mute(&id);
+        let sessions = volume::sessions(&crate::util::processes());
+        volume::level(&sessions, &volume::exes_for(&id))
+    };
+    shared().send(Cmd::RefreshAudio { devices: false });
+    if let Some((level, muted)) = level {
+        unsafe { relabel_menu_item(command, &name, level, muted) };
+    }
+}
+
+/// Picks where media keys go and moves the check mark while the menu stays open.
+unsafe fn menu_select(command: u32) {
+    let targets = MENU_TARGETS.lock().unwrap().clone();
+    let picked = (command as usize).checked_sub(ID_TARGET).and_then(|i| targets.get(i).cloned());
+    shared().send(Cmd::Select(picked));
     let menu = HMENU(MENU.load(Relaxed) as _);
     if menu.is_invalid() {
         return;
     }
-    let mut text = crate::util::wide(&volume_label(&name, level, muted));
+    let check = |id: usize| if id == command as usize { MF_CHECKED.0 } else { MF_UNCHECKED.0 };
+    unsafe {
+        let _ = CheckMenuItem(menu, ID_AUTOMATIC as u32, check(ID_AUTOMATIC));
+        for i in 0..targets.len() {
+            let _ = CheckMenuItem(menu, (ID_TARGET + i) as u32, check(ID_TARGET + i));
+        }
+        if let Ok(popup) = FindWindowW(w!("#32768"), None) {
+            let _ = InvalidateRect(Some(popup), None, true);
+        }
+    }
+}
+
+/// Shows a menu entry's new volume while the menu is open.
+unsafe fn relabel_menu_item(command: u32, name: &str, level: f32, muted: bool) {
+    let menu = HMENU(MENU.load(Relaxed) as _);
+    if menu.is_invalid() {
+        return;
+    }
+    let mut text = crate::util::wide(&volume_label(name, level, muted));
     let info = MENUITEMINFOW {
         cbSize: size_of::<MENUITEMINFOW>() as u32,
         fMask: MIIM_STRING,

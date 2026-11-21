@@ -52,6 +52,19 @@ pub fn set_flavor(flavor: Flavor) {
     let _ = FLAVOR.set(flavor);
 }
 
+/// The running front end's name, for telling the two apart in bug reports.
+pub fn front_end() -> &'static str {
+    match FLAVOR.get() {
+        Some(Flavor::Web) => "Tauri",
+        _ => "GPUI",
+    }
+}
+
+/// "Audio Bartender 0.1.0 · GPUI": the app, its version and its front end.
+pub fn app_label() -> String {
+    format!("Audio Bartender {} · {}", env!("CARGO_PKG_VERSION"), front_end())
+}
+
 fn portable_asset() -> &'static str {
     match FLAVOR.get() {
         Some(Flavor::Web) => "AudioBartender-web-portable.exe",
@@ -101,7 +114,7 @@ impl UpdateStatus {
 }
 
 fn summary(status: &UpdateStatus) -> String {
-    let version = format!("Version {}", env!("CARGO_PKG_VERSION"));
+    let version = format!("Version {} · {}", env!("CARGO_PKG_VERSION"), front_end());
     let checked = match status.checked_at {
         0 => "not checked yet".to_owned(),
         at => match now_ms().saturating_sub(at) / DAY_MS {

@@ -44,6 +44,8 @@ const POLL: Duration = Duration::from_secs(2);
 /// report the new title first and the matching thumbnail a moment later, so an
 /// early fetch can return nothing or the previous track's art.
 const ART_SETTLE: Duration = Duration::from_secs(8);
+/// How often a track that settled without art is asked for it again.
+const ART_RETRY: Duration = Duration::from_secs(10);
 
 /// Album art above this size is skipped to keep state snapshots small.
 const MAX_ART_BYTES: u64 = 512 * 1024;
@@ -83,9 +85,9 @@ struct Worker {
     devices: Vec<Device>,
     /// Exe icons by exe name. `None` marks an exe without a usable icon.
     icons: HashMap<String, Option<AppIcon>>,
-    /// Album art by target id: the key it was fetched for, the art, and when that
-    /// track was first seen.
-    art: HashMap<String, (String, Option<AppIcon>, Instant)>,
+    /// Album art by target id: the key it was fetched for, the art, when that track
+    /// was first seen, and when its art was last fetched.
+    art: HashMap<String, (String, Option<AppIcon>, Instant, Instant)>,
     last_refresh: Instant,
 }
 
@@ -296,8 +298,11 @@ impl Worker {
             for m in &media {
                 let (Some(key), Some(props)) = (&m.art_key, &m.props) else { continue };
                 let since = match self.art.get(&m.target.id) {
-                    Some((cached, _, since)) if cached == key => {
-                        if since.elapsed() > ART_SETTLE {
+                    Some((cached, art, since, tried)) if cached == key => {
+                        // A track still without art keeps being asked, more slowly, since
+                        // some apps attach it long after the track starts.
+                        let settled = since.elapsed() > ART_SETTLE;
+                        if settled && (art.is_some() || tried.elapsed() < ART_RETRY) {
                             continue;
                         }
                         *since
@@ -306,10 +311,13 @@ impl Worker {
                 };
                 let fetched = read_art(props);
                 // Keep earlier art if a later fetch comes back empty.
-                let previous =
-                    self.art.get(&m.target.id).filter(|(cached, ..)| cached == key).and_then(|(_, art, _)| art.clone());
+                let previous = self
+                    .art
+                    .get(&m.target.id)
+                    .filter(|(cached, ..)| cached == key)
+                    .and_then(|(_, art, ..)| art.clone());
                 let art = fetched.or(previous);
-                self.art.insert(m.target.id.clone(), (key.clone(), art, since));
+                self.art.insert(m.target.id.clone(), (key.clone(), art, since, Instant::now()));
             }
         }
 
@@ -360,7 +368,16 @@ impl Worker {
         let mut settings = self.config.settings.clone();
         settings.autostart = crate::autostart::enabled();
 
+        // Windows' current session is what media keys reach in Automatic.
+        let current = self
+            .manager
+            .as_ref()
+            .and_then(|m| m.GetCurrentSession().ok())
+            .and_then(|s| s.SourceAppUserModelId().ok())
+            .map(|aumid| format!("smtc:{aumid}"))
+            .filter(|id| targets.iter().any(|t| &t.id == id));
         let state = State {
+            current,
             targets,
             mixer,
             audio: Audio { devices: self.devices.clone(), volume, muted },
@@ -383,7 +400,7 @@ impl Worker {
 
     fn art_for(&self, m: &MediaTarget) -> Option<AppIcon> {
         let key = m.art_key.as_ref()?;
-        let (cached, art, _) = self.art.get(&m.target.id)?;
+        let (cached, art, ..) = self.art.get(&m.target.id)?;
         if cached == key { art.clone() } else { None }
     }
 

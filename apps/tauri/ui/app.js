@@ -126,9 +126,16 @@ function transport(playing, id = null, size = "small") {
   );
 }
 
+/** The Automatic row's line, naming the app Windows sends media keys to now. */
+function windowsDecides(state) {
+  const current = state.targets.find((t) => t.id === state.current);
+  return current ? `Windows decides · ${current.name}` : "Windows decides";
+}
+
 /** What the media keys control right now, for the banner and the dock. */
 function nowPlaying(state) {
-  const t = state.targets.find((t) => t.id === state.selected);
+  // Without a chosen target, Windows' current session is what the keys reach.
+  const t = state.targets.find((t) => t.id === (state.selected ?? state.current));
   if (!t) return { title: "Automatic", subtitle: "Media keys go where Windows decides", playing: false, target: null };
   if (!t.running) return { title: t.name, subtitle: "Not running", playing: false, target: t };
   const playing = t.playback === "playing";
@@ -231,10 +238,14 @@ function targets(state) {
     automatic,
     true,
     logo("avatar small"),
-    el("div", "text", el("div", "name small", "Automatic"), el("div", "detail", "Windows decides")),
+    el("div", "text", el("div", "name small", "Automatic"), el("div", "detail", windowsDecides(state))),
     radio(automatic, null),
   );
-  if (automatic && mode === "row") auto.append(el("div", "row-controls", transport(false)));
+  if (automatic && mode === "row") {
+    // The buttons reach Windows' current session, so show its state.
+    const current = state.targets.find((t) => t.id === state.current);
+    auto.append(el("div", "row-controls", transport(current?.running && current.playback === "playing")));
+  }
   selectable(auto, null);
   const rows = [auto];
   for (const t of state.targets) {
