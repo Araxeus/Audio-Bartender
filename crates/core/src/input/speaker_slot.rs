@@ -448,7 +448,28 @@ pub(super) fn place() -> bool {
             physical(|| {
                 let Some(tile) = rect() else { return false };
                 let center = POINT { x: (tile.left + tile.right) / 2, y: (tile.top + tile.bottom) / 2 };
-                unsafe { WindowFromPoint(center) == hwnd }
+                unsafe {
+                    let hit = WindowFromPoint(center);
+                    if hit == hwnd {
+                        return true;
+                    }
+                    let Some(p) = found else { return false };
+                    let taskbar = HWND(p.taskbar as _);
+                    if !reachable() || before != Some(hwnd) || hit.is_invalid() || GetAncestor(hit, GA_ROOT) == taskbar
+                    {
+                        return false;
+                    }
+                    // A top-level window can legitimately cover the taskbar (e.g.
+                    // the input switcher's click-away surface). Keep the existing
+                    // placement only if the tile still wins the taskbar's own hit test.
+                    let mut point = [center];
+                    windows::Win32::Graphics::Gdi::MapWindowPoints(None, Some(taskbar), &mut point);
+                    ChildWindowFromPointEx(
+                        taskbar,
+                        point[0],
+                        CWP_SKIPINVISIBLE | CWP_SKIPDISABLED | CWP_SKIPTRANSPARENT,
+                    ) == hwnd
+                }
             })
         });
     REACHABLE.swap(reachable, Relaxed) != reachable
