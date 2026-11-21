@@ -37,6 +37,29 @@ const WINDOW_PLAYERS: &[&str] = &[
     "foobar2000.exe",
 ];
 
+/// The name each window player puts after what it plays in its title, as
+/// "<track> - VLC media player". A title of only the name means nothing is open.
+const WINDOW_TITLES: &[(&str, &str)] = &[
+    ("vlc.exe", "VLC media player"),
+    ("mpc-hc64.exe", "MPC-HC"),
+    ("mpc-hc.exe", "MPC-HC"),
+    ("mpc-be64.exe", "MPC-BE"),
+    ("mpc-be.exe", "MPC-BE"),
+    ("aimp.exe", "AIMP"),
+    ("musicbee.exe", "MusicBee"),
+    ("winamp.exe", "Winamp"),
+    ("potplayermini64.exe", "PotPlayer"),
+    ("potplayermini.exe", "PotPlayer"),
+];
+
+/// Media file extensions a player shows when a file has no title tag.
+const MEDIA_EXTENSIONS: &[&str] =
+    &["mp3", "flac", "wav", "m4a", "aac", "ogg", "opus", "wma", "mp4", "mkv", "avi", "webm", "mov", "wmv", "m4v"];
+
+/// How long a window player's state follows the key we sent it, before its audio
+/// session is trusted again. Some players stop their stream seconds after pausing.
+const EXPECTED_HOLD: Duration = Duration::from_secs(4);
+
 /// Window-only players and app volumes change without events, so they are polled.
 const POLL: Duration = Duration::from_secs(2);
 
@@ -85,6 +108,8 @@ struct Worker {
     devices: Vec<Device>,
     /// Exe icons by exe name. `None` marks an exe without a usable icon.
     icons: HashMap<String, Option<AppIcon>>,
+    /// The window player we last sent a key, whether it should now play, and when.
+    expected: Option<(String, bool, Instant)>,
     /// Album art by target id: the key it was fetched for, the art, when that track
     /// was first seen, and when its art was last fetched.
     art: HashMap<String, (String, Option<AppIcon>, Instant, Instant)>,
@@ -117,6 +142,7 @@ impl Worker {
             media: Vec::new(),
             devices: Vec::new(),
             icons: HashMap::new(),
+            expected: None,
             art: HashMap::new(),
             last_refresh: Instant::now(),
             routed: HashMap::new(),
@@ -339,12 +365,11 @@ impl Worker {
 
         for exe in WINDOW_PLAYERS {
             let has_session = media.iter().any(|m| m.target.id.to_lowercase() == format!("smtc:{exe}"));
-            let windowed = procs.iter().any(|p| p.exe == *exe && main_window(p.pid).is_some());
-            if has_session || !windowed {
-                continue;
-            }
+            let window = procs.iter().filter(|p| p.exe == *exe).find_map(|p| main_window(p.pid));
+            let Some(window) = window.filter(|_| !has_session) else { continue };
             let name = self.names.for_exe(exe, &procs);
-            let target = target(format!("exe:{exe}"), name, Playback::Unknown, None, true, true);
+            let track = title_track(exe, &crate::util::window_title(window));
+            let target = target(format!("exe:{exe}"), name, Playback::Unknown, track, true, true);
             media.push(MediaTarget { target, art_key: None, props: None });
         }
 
@@ -405,11 +430,16 @@ impl Worker {
                     target.volume = Some(level);
                     target.muted = muted;
                 }
-                // Window-message players report no playback, but stop their audio stream when paused.
-                if target.via_window
-                    && let Some(playing) = volume::playing(&sessions, &exes)
-                {
-                    target.playback = if playing { Playback::Playing } else { Playback::Paused };
+                // Window-message players report no playback, but stop their audio stream when
+                // paused. Right after we send one a key, show what the key does instead.
+                if target.via_window {
+                    let expected =
+                        self.expected.as_ref().filter(|(id, _, at)| *id == target.id && at.elapsed() < EXPECTED_HOLD);
+                    if let Some(playing) =
+                        expected.map(|(_, playing, _)| *playing).or_else(|| volume::playing(&sessions, &exes))
+                    {
+                        target.playback = if playing { Playback::Playing } else { Playback::Paused };
+                    }
                 }
                 let art = if self.config.settings.album_art { self.art_for(&self.media[i]) } else { None };
                 target.icon = art.or_else(|| self.icon_for(&exes, &procs));
@@ -536,10 +566,17 @@ impl Worker {
         match target {
             Some(target) if target.via_window => {
                 press_window(&target.id["exe:".len()..], key);
-                // The player starts or stops its audio stream shortly after, which sets its play state.
+                let playing = match key {
+                    MediaKey::PlayPause => target.playback != Playback::Playing,
+                    MediaKey::Next | MediaKey::Previous => true,
+                    MediaKey::Stop => false,
+                };
+                self.expected = Some((target.id.clone(), playing, Instant::now()));
+                // Show the new state now, and the player's own once the hold ends.
+                let _ = self.tx.send(Cmd::RefreshAudio { devices: false });
                 let tx = self.tx.clone();
                 std::thread::spawn(move || {
-                    std::thread::sleep(Duration::from_millis(400));
+                    std::thread::sleep(EXPECTED_HOLD + Duration::from_millis(200));
                     let _ = tx.send(Cmd::RefreshAudio { devices: false });
                 });
             }
@@ -646,6 +683,32 @@ fn press_session(session: &Session, key: MediaKey) {
     crate::util::log(format!("  smtc {key:?}: {result:?}"));
 }
 
+/// What a window player is playing, from its title, or `None` when the title has
+/// only the player's name or a format this doesn't know.
+fn title_track(exe: &str, title: &str) -> Option<String> {
+    let track = if exe == "foobar2000.exe" {
+        title.strip_suffix("  [foobar2000]").or_else(|| title.strip_suffix(" [foobar2000]"))?
+    } else {
+        let (_, name) = WINDOW_TITLES.iter().find(|(e, _)| *e == exe)?;
+        let (track, rest) = title.rsplit_once(" - ")?;
+        if !rest.starts_with(name) {
+            return None;
+        }
+        track
+    };
+    // Winamp numbers the playlist entry: "12. Artist - Title".
+    let track = match track.split_once(". ") {
+        Some((n, rest)) if exe == "winamp.exe" && n.chars().all(|c| c.is_ascii_digit()) => rest,
+        _ => track,
+    };
+    let track = match track.rsplit_once('.') {
+        Some((stem, ext)) if MEDIA_EXTENSIONS.contains(&ext.to_lowercase().as_str()) => stem,
+        _ => track,
+    };
+    let track = track.trim();
+    (!track.is_empty()).then(|| track.to_owned())
+}
+
 fn press_window(exe: &str, key: MediaKey) {
     // APPCOMMAND_MEDIA_* values from winuser.h.
     let command: isize = match key {
@@ -670,5 +733,33 @@ fn press_window(exe: &str, key: MediaKey) {
             )
         };
         crate::util::log(format!("  window {key:?} to {exe}: {}", sent.0 != 0));
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::title_track;
+
+    #[test]
+    fn titles_give_the_track() {
+        assert_eq!(title_track("vlc.exe", "tone.wav - VLC media player").as_deref(), Some("tone"));
+        assert_eq!(title_track("mpc-be64.exe", "Film (2024).mkv - MPC-BE x64 1.9.3").as_deref(), Some("Film (2024)"));
+        assert_eq!(title_track("vlc.exe", "Artist - Song - VLC media player").as_deref(), Some("Artist - Song"));
+        assert_eq!(title_track("winamp.exe", "12. Artist - Song - Winamp").as_deref(), Some("Artist - Song"));
+        assert_eq!(title_track("foobar2000.exe", "Artist - Song  [foobar2000]").as_deref(), Some("Artist - Song"));
+    }
+
+    #[test]
+    fn idle_and_unknown_titles_give_none() {
+        assert_eq!(title_track("vlc.exe", "VLC media player"), None);
+        assert_eq!(title_track("mpc-be64.exe", "MPC-BE x64 1.9.3"), None);
+        assert_eq!(title_track("vlc.exe", "Some dialog - Settings"), None);
+        assert_eq!(title_track("foobar2000.exe", "foobar2000 v2.1"), None);
+    }
+
+    #[test]
+    fn a_dot_that_is_not_an_extension_stays() {
+        assert_eq!(title_track("vlc.exe", "Mr. Brightside - VLC media player").as_deref(), Some("Mr. Brightside"));
+        assert_eq!(title_track("vlc.exe", "Version 2.0 - VLC media player").as_deref(), Some("Version 2.0"));
     }
 }

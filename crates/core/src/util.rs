@@ -6,7 +6,7 @@ use windows::Win32::System::Threading::{
     OpenProcess, PROCESS_NAME_WIN32, PROCESS_QUERY_LIMITED_INFORMATION, QueryFullProcessImageNameW,
 };
 use windows::Win32::UI::WindowsAndMessaging::{
-    EnumWindows, GW_OWNER, GetWindow, GetWindowTextLengthW, GetWindowThreadProcessId, IsWindowVisible,
+    EnumWindows, GW_OWNER, GetWindow, GetWindowTextLengthW, GetWindowTextW, GetWindowThreadProcessId, IsWindowVisible,
 };
 use windows::core::{BOOL, PWSTR};
 
@@ -376,6 +376,13 @@ pub fn process_path(pid: u32) -> Option<String> {
         ok.ok()?;
         Some(String::from_utf16_lossy(&buf[..len as usize]))
     }
+}
+
+/// The window's title bar text.
+pub fn window_title(hwnd: HWND) -> String {
+    let mut buf = [0u16; 512];
+    let len = unsafe { GetWindowTextW(hwnd, &mut buf) }.max(0) as usize;
+    String::from_utf16_lossy(&buf[..len])
 }
 
 /// The first visible, titled, unowned top-level window of `pid`.
