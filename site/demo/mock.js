@@ -35,6 +35,8 @@
     if (!images.has(url)) {
       const img = new Image();
       img.src = url;
+      // Decoded ahead too, so showing it later costs nothing.
+      img.decode().catch(() => {});
       images.set(url, img);
     }
     return images.get(url);
@@ -52,7 +54,7 @@
 
   // A page can bring its own tracks through the host, as { id: [[track, cover], ...] }.
   // Spotify plays albums, Chrome plays YouTube videos (Blender's open movies are CC BY).
-  const TRACKS = host?.tracks ?? {
+  const DEFAULT_TRACKS = {
     "smtc:Spotify": [
       ["After Hours — The Weeknd", "../covers/album-1.jpg"],
       ["1989 (Taylor's Version) — Taylor Swift", "../covers/album-2.jpg"],
@@ -102,7 +104,27 @@
       ["Me at the zoo — jawed", "../covers/video-21.jpg"],
     ],
   };
+  /** A shuffled copy, so each visit starts on different covers. */
+  function shuffled(list) {
+    const out = [...list];
+    for (let i = out.length - 1; i > 0; i--) {
+      const j = Math.floor(Math.random() * (i + 1));
+      [out[i], out[j]] = [out[j], out[i]];
+    }
+    return out;
+  }
+  const TRACKS =
+    host?.tracks ?? Object.fromEntries(Object.entries(DEFAULT_TRACKS).map(([id, list]) => [id, shuffled(list)]));
   const trackIndex = Object.fromEntries(Object.keys(TRACKS).map((id) => [id, 0]));
+
+  /** Loads the covers around an app's current track, so next and previous show at once. */
+  function preload(id) {
+    const list = TRACKS[id];
+    for (const step of [0, 1, 2, -1, -2]) {
+      imageFor(urlOf(list[(((trackIndex[id] + step) % list.length) + list.length) % list.length][1]));
+    }
+  }
+  Object.keys(TRACKS).forEach(preload);
 
   // Accents, as crates/core/src/lib.rs defines them.
   const ACCENTS = [
@@ -239,6 +261,7 @@
     if (key === "stop") t.playback = "stopped";
     if (key === "next" || key === "previous") {
       trackIndex[t.id] = (trackIndex[t.id] + (key === "next" ? 1 : list.length - 1)) % list.length;
+      preload(t.id);
       t.playback = "playing";
     }
     // Windows' current session follows whatever last started playing.
@@ -448,6 +471,7 @@
     play: (id, index) => {
       if (!TRACKS[id]) return;
       trackIndex[id] = index;
+      preload(id);
       const t = state.targets.find((t) => t.id === id);
       t.playback = "playing";
       state.current = id;
