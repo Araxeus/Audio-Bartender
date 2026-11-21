@@ -1729,21 +1729,24 @@ impl Flyout {
             .enumerate()
             .map(|(i, (setting, name, _, on))| chip(format!("mode-{}-{i}", mode.title()), setting, name, on))
             .collect();
-        // Many options wrap. The tray styles go three to a row, one family each.
-        let per_row = match mode {
-            Mode::TrayIcon => 3,
-            _ if buttons.len() > 6 => 4,
-            _ => buttons.len().max(1),
+        // The tray styles go in two rows: the ones with a middle, then the rest.
+        let sizes: &[usize] = match mode {
+            Mode::TrayIcon => &[3, 4],
+            _ => &[usize::MAX],
         };
         let mut rows = Vec::new();
-        while !buttons.is_empty() {
-            let rest = buttons.split_off(per_row.min(buttons.len()));
+        for size in sizes.iter().cycle() {
+            if buttons.is_empty() {
+                break;
+            }
+            let rest = buttons.split_off((*size).min(buttons.len()));
             rows.push(h_flex().gap(px(2.)).children(buttons));
             buttons = rest;
         }
         // What goes inside a ring, a dial or a plain icon.
         let middle = (matches!(mode, Mode::TrayIcon) && s.tray_style.has_middle()).then(|| {
-            let chips = TrayMiddle::ALL.map(|m| {
+            // Album art comes only with the setting that fetches it.
+            let chips = TrayMiddle::ALL.into_iter().filter(|m| *m != TrayMiddle::AlbumArt || s.album_art).map(|m| {
                 chip(format!("tray-middle-{}", m.name()), Setting::TrayMiddle(m), m.label(), s.tray_middle == m)
             });
             h_flex()

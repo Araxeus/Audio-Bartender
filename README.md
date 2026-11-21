@@ -58,7 +58,8 @@ This uses the same private Windows interface as EarTrumpet and Windows' own "App
 
 - Shows the master volume and follows the taskbar's light or dark theme. The styles:
   - Ring and Dial fill with the volume around a middle, and Plain is the middle alone. The middle is a speaker, the play state of what the media keys control, its album art in color, the volume as a number, or a dot that pulses with the sound.
-  - Waves (Windows' own icon), Graded waves, Live waves, Fill, Steps and Equalizer stand on their own.
+  - Native (Windows' own icon), Live waves, Steps and Equalizer stand on their own.
+  - The pulse is a Dot that swells with the bass, Rays, an Orbit of dots, or a circular Spectrum.
   - Live waves, Equalizer and the pulse move with the sound playing. While one of them is picked, a loopback capture of the default output feeds an FFT that splits the sound into 12 bands; nothing leaves the app. They redraw about 15 times a second while sound plays.
 - Wheel over the icon: master volume, 2% per notch, with a live tooltip. Middle click: mute.
 - Right click opens a quick menu in the app's theme: master volume, targets and other apps with their volumes, the Windows volume icon's links (Sound settings, Volume mixer, Sounds, troubleshooter), settings and quit. Scrolling over a volume entry changes it while the menu stays open; clicking an app in Other apps mutes it.
@@ -82,7 +83,7 @@ Stored in `%APPDATA%\AudioBartender\config.ini` and shared by both front ends. T
 - Tray icon placement on Windows 11, or links to the notification area and system icon settings on Windows 10
 - Theme: System, Light, Dark
 - Accent color: Blue, Cyan (default), Teal, Purple, Hot pink or Orange. The core owns the palette, so both front ends and the tooltip cards match
-- Tray icon: Ring, Dial, Plain, Waves, Graded, Live waves, Fill, Steps or Equalizer, and for Ring, Dial and Plain what goes in the middle: Speaker, Play, Art, Number or Pulse
+- Tray icon: Ring, Dial, Plain, Native, Live waves, Steps or Equalizer, and for Ring, Dial and Plain what goes in the middle: Speaker, Play, Art (with album art on), Number or Pulse, and how the pulse looks
 - Tooltip: Now playing, Compact or Text
 - Tooltip buttons: None, Hover (default), Inline, Capsule or Player. Cards with buttons stay open while hovered and change the volume on scroll
 - Media controls: None, Banner, Row, Dock or Hover (default, on each app's row and for that app)

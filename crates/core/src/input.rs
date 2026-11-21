@@ -780,10 +780,10 @@ unsafe extern "system" fn wndproc(hwnd: HWND, msg: u32, wparam: WPARAM, lparam: 
                 let pairs =
                     now.bands.iter().zip(drawn.bands).chain([(&now.bass, drawn.bass), (&now.level, drawn.level)]);
                 let changed = pairs.into_iter().any(|(a, b)| (a - b).abs() > 0.01);
-                // Ripples and orbit also move with time while sound plays.
+                // The orbit also turns with time while sound plays.
                 let timed = {
                     let tray = TRAY_STATE.lock().unwrap();
-                    tray.middle == TrayMiddle::Pulse && matches!(tray.pulse, PulseStyle::Ripples | PulseStyle::Orbit)
+                    tray.middle == TrayMiddle::Pulse && tray.pulse == PulseStyle::Orbit
                 };
                 if changed || (timed && now.level > 0.01) {
                     *drawn = now;

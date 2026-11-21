@@ -457,14 +457,12 @@ const MODES = {
       ["ring", "Ring", "A ring that fills with the volume"],
       ["dial", "Dial", "A dial that fills with the volume"],
       ["plain", "Plain", "Only the middle, without the volume"],
-      ["speakerWaves", "Waves", "Windows' volume icon, with up to three waves"],
-      ["gradedWaves", "Graded", "Waves that spread and brighten with the volume"],
+      ["native", "Native", "Windows' own volume icon"],
       ["liveWaves", "Live waves", "Waves that ripple with the sound playing"],
-      ["fillingSpeaker", "Fill", "A speaker that fills from left to right"],
       ["signalSteps", "Steps", "Four bars that fill as the volume climbs"],
       ["equalizer", "Equalizer", "Bars that bounce with the sound"],
     ],
-    columns: 3,
+    rows: [3, 4],
   },
   trayMiddle: {
     title: "Middle",
@@ -481,7 +479,6 @@ const MODES = {
     options: [
       ["dot", "Dot"],
       ["rays", "Rays"],
-      ["ripples", "Ripples"],
       ["orbit", "Orbit"],
       ["spectrum", "Spectrum"],
     ],
@@ -562,15 +559,17 @@ function showParts(s) {
 
 /** A setting's name, a segmented control of its modes, and a line about the current one. */
 function segmented(s, key) {
-  const { title, options, columns } = MODES[key];
+  const { title, options, rows } = MODES[key];
   const current = options.find(([value]) => value === s[key]);
   const chips = (key, options) => options.map(([value, name]) => button(s[key] === value ? "on" : "", null, name, () => setting(key, value)));
-  const grid = el("div", columns ? "segmented grid" : "segmented", ...chips(key, options));
-  if (columns) grid.style.gridTemplateColumns = `repeat(${columns}, 1fr)`;
+  // The tray styles go in two rows: the ones with a middle, then the rest.
+  const grid = rows
+    ? el("div", "segmented rows", ...rows.map((size, i) => el("div", "row", ...chips(key, options.slice(rows.slice(0, i).reduce((a, b) => a + b, 0)).slice(0, size)))))
+    : el("div", "segmented", ...chips(key, options));
   // What goes inside a ring, a dial or a plain icon.
   const middle =
     key === "trayStyle" && ["ring", "dial", "plain"].includes(s.trayStyle)
-      ? el("div", "mode-middle", el("span", "", MODES.trayMiddle.title), el("div", "segmented", ...chips("trayMiddle", MODES.trayMiddle.options)))
+      ? el("div", "mode-middle", el("span", "", MODES.trayMiddle.title), el("div", "segmented", ...chips("trayMiddle", MODES.trayMiddle.options.filter(([value]) => value !== "albumArt" || s.albumArt))))
       : null;
   // How the pulse moves, while trying the variants out.
   const pulse =

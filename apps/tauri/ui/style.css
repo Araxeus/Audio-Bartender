@@ -279,7 +279,8 @@ body[data-panel="right"] .settings-panel { order: 1; }
 .mode-about { height: 16px; color: var(--muted); font-size: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .segmented { display: flex; gap: 2px; padding: 2px; border-radius: 7px; background: var(--bg); }
 .segmented button { flex: 1; min-width: 0; height: 24px; padding: 0 4px; border: 0; border-radius: 5px; background: transparent; color: var(--muted); font-size: 12px; white-space: nowrap; cursor: pointer; }
-.segmented.grid { display: grid; grid-template-columns: repeat(4, 1fr); }
+.segmented.rows { flex-direction: column; }
+.segmented.rows .row { display: flex; gap: 2px; }
 .mode-middle { display: flex; align-items: center; gap: 8px; }
 .mode-middle > span { width: 44px; flex: none; font-size: 12px; color: var(--muted); }
 .mode-middle .segmented { flex: 1; min-width: 0; }

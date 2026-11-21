@@ -105,13 +105,7 @@ fn alpha(look: &Look, size: i32) -> Option<Vec<f32>> {
     }
     Some(match look.style {
         TrayStyle::Ring | TrayStyle::Dial | TrayStyle::Plain => unreachable!("drawn with a middle"),
-        TrayStyle::SpeakerWaves => glyph(size, [SPEAKER, WAVES[0], WAVES[1], WAVES[2]][steps(level)], 0.9, 0.0)?,
-        TrayStyle::GradedWaves => waves(size, |i| {
-            // A wave reaches its tips halfway through its third of the volume, then
-            // keeps brightening through the rest.
-            let f = (level * 3.0 - i as f32).clamp(0.0, 1.0);
-            ((f / 0.5).min(1.0), 0.55 + 0.45 * f, WAVE_TRACK)
-        })?,
+        TrayStyle::Native => glyph(size, [SPEAKER, WAVES[0], WAVES[1], WAVES[2]][steps(level)], 0.9, 0.0)?,
         TrayStyle::LiveWaves => {
             // The waves the volume shows light up from the speaker outward as the
             // sound rises, like a meter.
@@ -122,7 +116,6 @@ fn alpha(look: &Look, size: i32) -> Option<Vec<f32>> {
             })?
         }
         TrayStyle::SignalSteps => unit(&|x, y| signal_steps(x, y, level)),
-        TrayStyle::FillingSpeaker => unit(&|x, y| filling_speaker(x, y, level)),
         TrayStyle::Equalizer => {
             let heights = equalizer(level, &look.spectrum);
             unit(&|x, y| heights.iter().enumerate().map(|(i, h)| bar(x, y, i, *h)).fold(0.0, f32::max))
@@ -287,16 +280,6 @@ fn signal_steps(x: f32, y: f32, level: f32) -> f32 {
     0.0
 }
 
-/// A solid speaker, lit from the left up to the volume.
-fn filling_speaker(x: f32, y: f32, level: f32) -> f32 {
-    let body = (0.1..=0.34).contains(&x) && (0.36..=0.64).contains(&y);
-    let cone = (0.34..=0.84).contains(&x) && (y - 0.5).abs() <= 0.14 + (x - 0.34) / 0.5 * 0.26;
-    if !(body || cone) {
-        return 0.0;
-    }
-    if x <= 0.1 + level * 0.74 { 1.0 } else { TRACK_OPACITY }
-}
-
 /// Heights of the equalizer's four bars, from low to high frequencies, scaled by
 /// the volume.
 fn equalizer(level: f32, spectrum: &Spectrum) -> [f32; 4] {
@@ -353,19 +336,6 @@ fn pulse(style: PulseStyle, x: f32, y: f32, s: &Spectrum, t: f32) -> f32 {
                 let (px, py) = (dx - ux * along, dy - uy * along);
                 if px * px + py * py <= width * width {
                     best = 1.0;
-                }
-            }
-            best
-        }
-        PulseStyle::Ripples => {
-            // Rings spreading from a center that swells with the bass, faster and
-            // brighter when loud.
-            let mut best = disc(x, y, 0.05 + 0.07 * s.bass);
-            for j in 0..2 {
-                let p = (t * (0.5 + 1.0 * s.level) + j as f32 * 0.5).fract();
-                let radius = 0.1 + 0.22 * p;
-                if (r - radius).abs() <= 0.035 {
-                    best = best.max(s.level.max(0.15) * (1.0 - p));
                 }
             }
             best

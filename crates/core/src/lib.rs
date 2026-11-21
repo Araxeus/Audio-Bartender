@@ -223,14 +223,10 @@ pub enum TrayStyle {
     Dial,
     /// Only the middle.
     Plain,
-    /// Windows' volume icon: no waves at 0, then one to three.
-    SpeakerWaves,
-    /// Three faint waves, each spreading from its middle and brightening as the volume climbs.
-    GradedWaves,
+    /// Windows' own volume icon: no waves at 0, then one to three.
+    Native,
     /// Waves set by the volume, rippling outward with the sound playing.
     LiveWaves,
-    /// A speaker that fills from left to right.
-    FillingSpeaker,
     /// Four rising bars, filled in turn.
     SignalSteps,
     /// Bars bouncing with the sound, scaled by the volume.
@@ -238,15 +234,13 @@ pub enum TrayStyle {
 }
 
 impl TrayStyle {
-    /// In the order the settings show them: the styles with a middle, the waves, the rest.
-    pub const ALL: [TrayStyle; 9] = [
+    /// In the order the settings show them: the styles with a middle, then the rest.
+    pub const ALL: [TrayStyle; 7] = [
         TrayStyle::Ring,
         TrayStyle::Dial,
         TrayStyle::Plain,
-        TrayStyle::SpeakerWaves,
-        TrayStyle::GradedWaves,
+        TrayStyle::Native,
         TrayStyle::LiveWaves,
-        TrayStyle::FillingSpeaker,
         TrayStyle::SignalSteps,
         TrayStyle::Equalizer,
     ];
@@ -257,10 +251,8 @@ impl TrayStyle {
             TrayStyle::Ring => "ring",
             TrayStyle::Dial => "dial",
             TrayStyle::Plain => "plain",
-            TrayStyle::SpeakerWaves => "speaker_waves",
-            TrayStyle::GradedWaves => "graded_waves",
+            TrayStyle::Native => "native",
             TrayStyle::LiveWaves => "live_waves",
-            TrayStyle::FillingSpeaker => "filling_speaker",
             TrayStyle::SignalSteps => "signal_steps",
             TrayStyle::Equalizer => "equalizer",
         }
@@ -276,10 +268,8 @@ impl TrayStyle {
             TrayStyle::Ring => "Ring",
             TrayStyle::Dial => "Dial",
             TrayStyle::Plain => "Plain",
-            TrayStyle::SpeakerWaves => "Waves",
-            TrayStyle::GradedWaves => "Graded",
+            TrayStyle::Native => "Native",
             TrayStyle::LiveWaves => "Live waves",
-            TrayStyle::FillingSpeaker => "Fill",
             TrayStyle::SignalSteps => "Steps",
             TrayStyle::Equalizer => "Equalizer",
         }
@@ -291,10 +281,8 @@ impl TrayStyle {
             TrayStyle::Ring => "A ring that fills with the volume",
             TrayStyle::Dial => "A dial that fills with the volume",
             TrayStyle::Plain => "Only the middle, without the volume",
-            TrayStyle::SpeakerWaves => "Windows' volume icon, with up to three waves",
-            TrayStyle::GradedWaves => "Waves that spread and brighten with the volume",
+            TrayStyle::Native => "Windows' own volume icon",
             TrayStyle::LiveWaves => "Waves that ripple with the sound playing",
-            TrayStyle::FillingSpeaker => "A speaker that fills from left to right",
             TrayStyle::SignalSteps => "Four bars that fill as the volume climbs",
             TrayStyle::Equalizer => "Bars that bounce with the sound",
         }
@@ -362,8 +350,6 @@ pub enum PulseStyle {
     Dot,
     /// Spokes that stretch, each with its own band.
     Rays,
-    /// Rings that spread outward from the center.
-    Ripples,
     /// A circle of dots, each swelling with its own band.
     Orbit,
     /// Bars all around a circle, like a music video's visualizer.
@@ -371,15 +357,13 @@ pub enum PulseStyle {
 }
 
 impl PulseStyle {
-    pub const ALL: [PulseStyle; 5] =
-        [PulseStyle::Dot, PulseStyle::Rays, PulseStyle::Ripples, PulseStyle::Orbit, PulseStyle::Spectrum];
+    pub const ALL: [PulseStyle; 4] = [PulseStyle::Dot, PulseStyle::Rays, PulseStyle::Orbit, PulseStyle::Spectrum];
 
     /// The config file name.
     pub fn name(self) -> &'static str {
         match self {
             PulseStyle::Dot => "dot",
             PulseStyle::Rays => "rays",
-            PulseStyle::Ripples => "ripples",
             PulseStyle::Orbit => "orbit",
             PulseStyle::Spectrum => "spectrum",
         }
@@ -394,7 +378,6 @@ impl PulseStyle {
         match self {
             PulseStyle::Dot => "Dot",
             PulseStyle::Rays => "Rays",
-            PulseStyle::Ripples => "Ripples",
             PulseStyle::Orbit => "Orbit",
             PulseStyle::Spectrum => "Spectrum",
         }
