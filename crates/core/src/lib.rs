@@ -698,6 +698,8 @@ pub struct Settings {
     pub dark: Option<bool>,
     /// Show the current track's album art in place of the app icon.
     pub album_art: bool,
+    /// Keep the chosen app in the list while it's closed. Off, closing it goes back to Automatic.
+    pub keep_closed_target: bool,
     pub tray_style: TrayStyle,
     pub tray_middle: TrayMiddle,
     pub pulse_style: PulseStyle,
@@ -732,6 +734,7 @@ impl Default for Settings {
             auto_update: false,
             dark: None,
             album_art: false,
+            keep_closed_target: true,
             tray_style: TrayStyle::Ring,
             tray_middle: TrayMiddle::Speaker,
             pulse_style: PulseStyle::Dot,
@@ -758,6 +761,7 @@ pub enum Setting {
     AutoUpdate(bool),
     Dark(Option<bool>),
     AlbumArt(bool),
+    KeepClosedTarget(bool),
     TrayStyle(TrayStyle),
     TrayMiddle(TrayMiddle),
     PulseStyle(PulseStyle),
@@ -822,10 +826,13 @@ pub struct State {
 }
 
 impl State {
-    /// The target that media keys reach: the chosen one, or else Windows' current one.
+    /// The target that media keys reach: the chosen one while its app runs, or else
+    /// Windows' current one.
     pub fn now_playing(&self) -> Option<&Target> {
-        let id = self.selected.as_deref().or(self.current.as_deref())?;
-        self.targets.iter().find(|t| t.id == id)
+        self.routed().or_else(|| {
+            let id = self.current.as_deref()?;
+            self.targets.iter().find(|t| t.id == id)
+        })
     }
 
     /// The target that currently receives media keys, if routing is active.

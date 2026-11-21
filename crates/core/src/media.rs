@@ -248,6 +248,7 @@ impl Worker {
                     Setting::AutoUpdate(on) => s.auto_update = on,
                     Setting::Dark(dark) => s.dark = dark,
                     Setting::AlbumArt(on) => s.album_art = on,
+                    Setting::KeepClosedTarget(on) => s.keep_closed_target = on,
                     Setting::SpeakerPosition(on) => s.speaker_position = on,
                     Setting::TrayStyle(style) => s.tray_style = style,
                     Setting::TrayMiddle(middle) => s.tray_middle = middle,
@@ -373,13 +374,25 @@ impl Worker {
             media.push(MediaTarget { target, art_key: None, props: None });
         }
 
-        // Keep a remembered target in the list while its app is closed.
-        if let Some(id) = &self.config.target
-            && !media.iter().any(|m| &m.target.id == id)
+        // The chosen app's media is gone. Keep it in the list while its app is closed, or
+        // hand the keys back to Windows. An app that still runs, such as a player hidden in
+        // the tray, keeps its place either way.
+        if let Some(id) = self.config.target.clone()
+            && !media.iter().any(|m| m.target.id == id)
         {
-            let name = self.config.target_name.clone().unwrap_or_else(|| id.clone());
-            let target = target(id.clone(), name, Playback::Unknown, None, false, id.starts_with("exe:"));
-            media.push(MediaTarget { target, art_key: None, props: None });
+            let exes = volume::exes_for(&id);
+            let alive = procs.iter().any(|p| exes.contains(&p.exe));
+            if self.config.settings.keep_closed_target || alive {
+                let name = self.config.target_name.clone().unwrap_or_else(|| id.clone());
+                let target = target(id.clone(), name, Playback::Unknown, None, false, id.starts_with("exe:"));
+                media.push(MediaTarget { target, art_key: None, props: None });
+            } else {
+                crate::util::log(format!("{id} closed, back to Automatic"));
+                self.config.target = None;
+                self.config.target_name = None;
+                self.config.target_path = None;
+                self.config.save();
+            }
         }
 
         if self.config.settings.album_art {

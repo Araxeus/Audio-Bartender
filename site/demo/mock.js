@@ -194,7 +194,7 @@
     selected: "smtc:Spotify",
     current: "smtc:Chrome",
     settings: {
-      autostart: true, autoUpdate: true, dark: null, albumArt: true,
+      autostart: true, autoUpdate: true, dark: null, albumArt: true, keepClosedTarget: true,
       trayStyle: "ring", trayMiddle: "speaker", pulseStyle: "dot", speakerPosition: false,
       volumeBars: "compact", tooltip: "nowPlaying", mediaButtons: "hover", mediaControls: "hover",
       levelMeters: "volume", deviceChip: "beside", showMediaKeys: true, showOtherApps: true, showVolume: true,

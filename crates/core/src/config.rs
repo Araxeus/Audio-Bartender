@@ -64,6 +64,7 @@ impl Config {
                 "target_path" if !value.is_empty() => cfg.target_path = Some(value.to_owned()),
                 "theme" => s.dark = matches!(value, "dark" | "light").then(|| value == "dark"),
                 "album_art" => s.album_art = flag(value),
+                "keep_closed_target" => s.keep_closed_target = flag(value),
                 "speaker_position" => s.speaker_position = flag(value),
                 // The number was a style of its own before it became a middle.
                 "tray_style" if value == "number" => {
@@ -113,11 +114,12 @@ impl Config {
             None => "",
         };
         let text = format!(
-            "target={}\ntarget_name={}\ntarget_path={}\ntheme={theme}\nalbum_art={}\nspeaker_position={}\ntray_style={}\ntray_middle={}\npulse_style={}\nvolume_bars={}\ntooltip={}\nmedia_buttons={}\nmedia_controls={}\nlevel_meters={}\ndevice_chip={}\nshow_media_keys={}\nshow_other_apps={}\nshow_volume={}\nauto_update={}\nlast_update_check={}\naccent={}\n",
+            "target={}\ntarget_name={}\ntarget_path={}\ntheme={theme}\nalbum_art={}\nkeep_closed_target={}\nspeaker_position={}\ntray_style={}\ntray_middle={}\npulse_style={}\nvolume_bars={}\ntooltip={}\nmedia_buttons={}\nmedia_controls={}\nlevel_meters={}\ndevice_chip={}\nshow_media_keys={}\nshow_other_apps={}\nshow_volume={}\nauto_update={}\nlast_update_check={}\naccent={}\n",
             self.target.as_deref().unwrap_or(""),
             self.target_name.as_deref().unwrap_or(""),
             self.target_path.as_deref().unwrap_or(""),
             s.album_art,
+            s.keep_closed_target,
             s.speaker_position,
             s.tray_style.name(),
             s.tray_middle.name(),

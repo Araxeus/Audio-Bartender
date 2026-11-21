@@ -132,10 +132,15 @@ function windowsDecides(state) {
   return current ? `Windows decides · ${current.name}` : "Windows decides";
 }
 
+/** The app media keys reach: the chosen one while it runs, else Windows' current one. */
+function keyTarget(state) {
+  return state.targets.find((t) => t.id === state.selected && t.running) ?? state.targets.find((t) => t.id === state.current);
+}
+
 /** What the media keys control right now, for the banner and the dock. */
 function nowPlaying(state) {
-  // Without a chosen target, Windows' current session is what the keys reach.
-  const t = state.targets.find((t) => t.id === (state.selected ?? state.current));
+  // Without a running chosen app, Windows' current session is what the keys reach.
+  const t = keyTarget(state);
   if (!t) return { title: "Automatic", subtitle: "Media keys go where Windows decides", playing: false, target: null };
   if (!t.running) return { title: t.name, subtitle: "Not running", playing: false, target: t };
   const playing = t.playback === "playing";
@@ -489,8 +494,7 @@ function traySwatch(look, selected, name, pick) {
 
 /** The URL of the cover the album art middle shows, to tell swatches apart. */
 function nowPlayingArt() {
-  const id = latest?.selected ?? latest?.current;
-  const icon = latest?.targets.find((t) => t.id === id)?.icon;
+  const icon = latest ? keyTarget(latest)?.icon : null;
   return icon?.art ? icon.url.length + icon.url.slice(-32) : "";
 }
 
@@ -669,6 +673,7 @@ function settingsPanel(state) {
     el("div", "section-label", "General"),
     row("Start with Windows", toggle(s.autostart, (on) => setting("autostart", on))),
     row("Album art as app icon", toggle(s.albumArt, (on) => setting("albumArt", on))),
+    row("Keep a closed app selected", toggle(s.keepClosedTarget, (on) => setting("keepClosedTarget", on))),
     row("Automatic updates", toggle(s.autoUpdate, (on) => setting("autoUpdate", on))),
     updateRow(state.update),
     el("div", "section-label", "Tray"),

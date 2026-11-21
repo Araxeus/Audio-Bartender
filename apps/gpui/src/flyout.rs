@@ -1948,6 +1948,10 @@ impl Flyout {
                 self.setting_switch("album-art", s.album_art, Setting::AlbumArt, theme),
             ))
             .child(row(
+                "Keep a closed app selected",
+                self.setting_switch("keep-closed", s.keep_closed_target, Setting::KeepClosedTarget, theme),
+            ))
+            .child(row(
                 "Automatic updates",
                 self.setting_switch("auto-update", s.auto_update, Setting::AutoUpdate, theme),
             ))
