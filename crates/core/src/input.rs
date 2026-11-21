@@ -29,13 +29,14 @@ use windows::Win32::UI::Shell::{
 use windows::Win32::UI::WindowsAndMessaging::*;
 use windows::core::{BOOL, GUID, PCSTR, PCWSTR, PWSTR, w};
 
+use crate::spectrum::Spectrum;
 use crate::tooltip;
 use crate::tooltip::Tip;
 use crate::tray_icon::{self, Look};
 use crate::util::{fill_wide, now_ms};
 use crate::{
-    Accent, Anchor, Cmd, Event, MediaButtons, MediaKey, Page, Playback, Rect, Shared, State, TooltipStyle, TrayMiddle,
-    TrayStyle, audio, card, volume,
+    Accent, Anchor, Cmd, Event, MediaButtons, MediaKey, Page, Playback, PulseStyle, Rect, Shared, State, TooltipStyle,
+    TrayMiddle, TrayStyle, audio, card, volume,
 };
 use windows::Win32::UI::Shell::ShellExecuteW;
 use windows::Win32::UI::WindowsAndMessaging::SW_SHOWNORMAL;
@@ -59,13 +60,8 @@ const TIMER_RESTORE_ICON: usize = 2;
 const TIMER_LIVE: usize = 3;
 const LIVE_FRAME_MS: u32 = 66;
 
-/// The sound the live tray icon last drew, as `f32` bits.
-static SOUND: AtomicU32 = AtomicU32::new(0);
-/// The loudest recent sound, as `f32` bits. It falls by `PEAK_FALL` each frame.
-static PEAK: AtomicU32 = AtomicU32::new(0);
-const PEAK_FALL: f32 = 0.97;
-/// Quiet audio below this still reads as quiet.
-const MIN_PEAK: f32 = 0.12;
+/// The sound the live tray icon last drew.
+static DRAWN: Mutex<Spectrum> = Mutex::new(Spectrum { bands: [0.0; crate::spectrum::BANDS], bass: 0.0, level: 0.0 });
 /// Whether `TIMER_LIVE` runs.
 static LIVE: AtomicBool = AtomicBool::new(false);
 
@@ -136,6 +132,7 @@ static TRAY_STATE: Mutex<TrayState> = Mutex::new(TrayState {
     muted: false,
     style: TrayStyle::Ring,
     middle: TrayMiddle::Speaker,
+    pulse: PulseStyle::Dot,
     tooltip: TooltipStyle::NowPlaying,
     buttons: MediaButtons::Hover,
     accent: Accent::Cyan,
@@ -149,6 +146,7 @@ struct TrayState {
     muted: bool,
     style: TrayStyle,
     middle: TrayMiddle,
+    pulse: PulseStyle,
     tooltip: TooltipStyle,
     buttons: MediaButtons,
     accent: Accent,
@@ -452,6 +450,7 @@ pub fn update_tray(state: &State) {
         tray.muted = audio.muted;
         tray.style = state.settings.tray_style;
         tray.middle = state.settings.tray_middle;
+        tray.pulse = state.settings.pulse_style;
         tray.tooltip = state.settings.tooltip;
         tray.buttons = state.settings.media_buttons;
         tray.accent = state.settings.accent;
@@ -775,15 +774,23 @@ unsafe extern "system" fn wndproc(hwnd: HWND, msg: u32, wparam: WPARAM, lparam: 
         }
         WM_TIMER if wparam.0 == TIMER_RESTORE_ICON => unsafe { set_icon(hwnd, NIM_MODIFY) },
         WM_TIMER if wparam.0 == TIMER_LIVE => {
-            // Against the recent peak, so quiet and loud audio both move the icon.
-            let raw = crate::meters::loudest();
-            let peak = raw.max(f32::from_bits(PEAK.load(Relaxed)) * PEAK_FALL);
-            PEAK.store(peak.to_bits(), Relaxed);
-            let sound = if raw > 0.005 { (raw / peak.max(MIN_PEAK)).min(1.0) } else { 0.0 };
-            let drawn = f32::from_bits(SOUND.load(Relaxed));
-            let moving = TRAY_STATE.lock().unwrap().style == TrayStyle::Equalizer && sound > 0.01;
-            if moving || (sound - drawn).abs() > 0.015 || (sound == 0.0 && drawn != 0.0) {
-                SOUND.store(sound.to_bits(), Relaxed);
+            let now = crate::spectrum::latest();
+            let redraw = {
+                let mut drawn = DRAWN.lock().unwrap();
+                let pairs =
+                    now.bands.iter().zip(drawn.bands).chain([(&now.bass, drawn.bass), (&now.level, drawn.level)]);
+                let changed = pairs.into_iter().any(|(a, b)| (a - b).abs() > 0.01);
+                // Ripples and orbit also move with time while sound plays.
+                let timed = {
+                    let tray = TRAY_STATE.lock().unwrap();
+                    tray.middle == TrayMiddle::Pulse && matches!(tray.pulse, PulseStyle::Ripples | PulseStyle::Orbit)
+                };
+                if changed || (timed && now.level > 0.01) {
+                    *drawn = now;
+                }
+                changed || (timed && now.level > 0.01)
+            };
+            if redraw {
                 unsafe { set_icon(hwnd, NIM_MODIFY) };
             }
         }
@@ -1010,8 +1017,9 @@ unsafe fn set_icon(hwnd: HWND, action: NOTIFY_ICON_MESSAGE) {
             muted: tray.muted,
             style: tray.style,
             middle: tray.middle,
+            pulse: tray.pulse,
             light_taskbar: tray_icon::light_taskbar(),
-            sound: f32::from_bits(SOUND.load(Relaxed)),
+            spectrum: *DRAWN.lock().unwrap(),
             playing,
             art: media.icon.clone().filter(|icon| icon.art),
             clock: now_ms(),
@@ -1026,7 +1034,7 @@ unsafe fn set_icon(hwnd: HWND, action: NOTIFY_ICON_MESSAGE) {
                 SetTimer(Some(hwnd), TIMER_LIVE, LIVE_FRAME_MS, None);
             } else {
                 let _ = KillTimer(Some(hwnd), TIMER_LIVE);
-                SOUND.store(0, Relaxed);
+                *DRAWN.lock().unwrap() = Spectrum::default();
             }
         }
     }

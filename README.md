@@ -59,7 +59,7 @@ This uses the same private Windows interface as EarTrumpet and Windows' own "App
 - Shows the master volume and follows the taskbar's light or dark theme. The styles:
   - Ring and Dial fill with the volume around a middle, and Plain is the middle alone. The middle is a speaker, the play state of what the media keys control, its album art in color, the volume as a number, or a dot that pulses with the sound.
   - Waves (Windows' own icon), Graded waves, Live waves, Fill, Steps and Equalizer stand on their own.
-  - Live waves, Equalizer and the pulse move with the sound playing, measured against its recent peak. They redraw about 15 times a second while sound plays.
+  - Live waves, Equalizer and the pulse move with the sound playing. While one of them is picked, a loopback capture of the default output feeds an FFT that splits the sound into 12 bands; nothing leaves the app. They redraw about 15 times a second while sound plays.
 - Wheel over the icon: master volume, 2% per notch, with a live tooltip. Middle click: mute.
 - Right click opens a quick menu in the app's theme: master volume, targets and other apps with their volumes, the Windows volume icon's links (Sound settings, Volume mixer, Sounds, troubleshooter), settings and quit. Scrolling over a volume entry changes it while the menu stays open; clicking an app in Other apps mutes it.
 - New tray icons start in the overflow area. On Windows 11, Settings → "Show icon on the taskbar" moves ours at once. On Windows 10, Windows lets only the user move icons, so Settings shows where ours is and opens the Windows pages to move it and hide the Windows volume icon.

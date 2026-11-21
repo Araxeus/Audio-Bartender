@@ -20,6 +20,7 @@ mod media;
 mod meters;
 mod names;
 mod route;
+mod spectrum;
 mod tooltip;
 mod tray_icon;
 mod update;
@@ -352,6 +353,54 @@ impl TrayMiddle {
     }
 }
 
+/// How the tray icon's pulse middle moves with the sound.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize), serde(rename_all = "camelCase"))]
+pub enum PulseStyle {
+    /// A dot that swells with the bass, its edge bulging with the spectrum.
+    #[default]
+    Dot,
+    /// Spokes that stretch, each with its own band.
+    Rays,
+    /// Rings that spread outward from the center.
+    Ripples,
+    /// A circle of dots, each swelling with its own band.
+    Orbit,
+    /// Bars all around a circle, like a music video's visualizer.
+    Spectrum,
+}
+
+impl PulseStyle {
+    pub const ALL: [PulseStyle; 5] =
+        [PulseStyle::Dot, PulseStyle::Rays, PulseStyle::Ripples, PulseStyle::Orbit, PulseStyle::Spectrum];
+
+    /// The config file name.
+    pub fn name(self) -> &'static str {
+        match self {
+            PulseStyle::Dot => "dot",
+            PulseStyle::Rays => "rays",
+            PulseStyle::Ripples => "ripples",
+            PulseStyle::Orbit => "orbit",
+            PulseStyle::Spectrum => "spectrum",
+        }
+    }
+
+    pub fn from_name(name: &str) -> Option<PulseStyle> {
+        PulseStyle::ALL.into_iter().find(|p| p.name() == name)
+    }
+
+    /// The name the settings show.
+    pub fn label(self) -> &'static str {
+        match self {
+            PulseStyle::Dot => "Dot",
+            PulseStyle::Rays => "Rays",
+            PulseStyle::Ripples => "Ripples",
+            PulseStyle::Orbit => "Orbit",
+            PulseStyle::Spectrum => "Spectrum",
+        }
+    }
+}
+
 /// Whether the tray icon moves with the sound playing.
 pub fn tray_icon_live(style: TrayStyle, middle: TrayMiddle) -> bool {
     matches!(style, TrayStyle::LiveWaves | TrayStyle::Equalizer) || (style.has_middle() && middle == TrayMiddle::Pulse)
@@ -668,6 +717,7 @@ pub struct Settings {
     pub album_art: bool,
     pub tray_style: TrayStyle,
     pub tray_middle: TrayMiddle,
+    pub pulse_style: PulseStyle,
     /// Draw our icon over the Windows 11 Quick Settings speaker.
     pub speaker_position: bool,
     pub volume_bars: VolumeBars,
@@ -701,6 +751,7 @@ impl Default for Settings {
             album_art: false,
             tray_style: TrayStyle::Ring,
             tray_middle: TrayMiddle::Speaker,
+            pulse_style: PulseStyle::Dot,
             speaker_position: false,
             volume_bars: VolumeBars::Compact,
             tooltip: TooltipStyle::NowPlaying,
@@ -726,6 +777,7 @@ pub enum Setting {
     AlbumArt(bool),
     TrayStyle(TrayStyle),
     TrayMiddle(TrayMiddle),
+    PulseStyle(PulseStyle),
     SpeakerPosition(bool),
     VolumeBars(VolumeBars),
     Tooltip(TooltipStyle),
@@ -1178,6 +1230,7 @@ pub fn preview_tray_icon(
     muted: bool,
     style: TrayStyle,
     middle: TrayMiddle,
+    pulse: PulseStyle,
     light_taskbar: bool,
     size: i32,
 ) -> Option<Vec<u8>> {
@@ -1186,8 +1239,13 @@ pub fn preview_tray_icon(
         muted,
         style,
         middle,
+        pulse,
         light_taskbar,
-        sound: 0.6,
+        spectrum: spectrum::Spectrum {
+            bands: std::array::from_fn(|b| (1.0 - b as f32 / 14.0) * (0.75 + 0.25 * (b as f32 * 1.9).sin())),
+            bass: 0.8,
+            level: 0.6,
+        },
         playing: Some(true),
         ..Default::default()
     };

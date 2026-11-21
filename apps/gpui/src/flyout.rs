@@ -8,7 +8,7 @@ use std::time::{Duration, Instant};
 
 use audio_bartender_core::{
     Accent, Anchor, Core, DeviceChip, DeviceKind, IconPage, LevelMeters, MediaButtons, MediaControls, MediaKey, Page,
-    Playback, Setting, Settings, State, Target, TooltipStyle, TrayMiddle, TrayStyle, VolumeBars,
+    Playback, PulseStyle, Setting, Settings, State, Target, TooltipStyle, TrayMiddle, TrayStyle, VolumeBars,
 };
 use gpui_kit::assets::IconName;
 use gpui_kit::base::{h_flex, v_flex};
@@ -1751,6 +1751,17 @@ impl Flyout {
                 .child(div().w(px(44.)).text_size(px(12.)).text_color(muted).child("Middle"))
                 .child(h_flex().flex_1().p(px(2.)).gap(px(2.)).rounded(px(7.)).bg(track).children(chips))
         });
+        // How the pulse moves, while trying the variants out.
+        let pulse = (matches!(mode, Mode::TrayIcon) && s.tray_style.has_middle() && s.tray_middle == TrayMiddle::Pulse)
+            .then(|| {
+                let chips = PulseStyle::ALL.map(|p| {
+                    chip(format!("pulse-style-{}", p.name()), Setting::PulseStyle(p), p.label(), s.pulse_style == p)
+                });
+                h_flex()
+                    .gap_2()
+                    .child(div().w(px(44.)).text_size(px(12.)).text_color(muted).child("Pulse"))
+                    .child(h_flex().flex_1().p(px(2.)).gap(px(2.)).rounded(px(7.)).bg(track).children(chips))
+            });
         v_flex()
             .mx_2()
             .px_2()
@@ -1760,6 +1771,7 @@ impl Flyout {
             .child(div().text_size(px(13.)).line_height(px(18.)).child(mode.title()))
             .child(v_flex().p(px(2.)).gap(px(2.)).rounded(px(7.)).bg(track).children(rows))
             .children(middle)
+            .children(pulse)
             .child(div().h(px(16.)).text_size(px(12.)).line_height(px(16.)).text_color(muted).truncate().child(about))
             .into_any_element()
     }

@@ -21,7 +21,8 @@ use windows::Win32::System::Registry::{HKEY_CURRENT_USER, RRF_RT_REG_DWORD, RegG
 use windows::Win32::UI::WindowsAndMessaging::{CreateIconIndirect, HICON, ICONINFO};
 use windows::core::{PCWSTR, w};
 
-use crate::{AppIcon, TrayMiddle, TrayStyle};
+use crate::spectrum::{BANDS, Spectrum};
+use crate::{AppIcon, PulseStyle, TrayMiddle, TrayStyle};
 
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct Look {
@@ -29,9 +30,10 @@ pub struct Look {
     pub muted: bool,
     pub style: TrayStyle,
     pub middle: TrayMiddle,
+    pub pulse: PulseStyle,
     pub light_taskbar: bool,
-    /// The sound playing against its recent peak, 0 to 1, for the live styles.
-    pub sound: f32,
+    /// The sound playing, for the live styles.
+    pub spectrum: Spectrum,
     /// Whether what the media keys control plays, or `None` without media.
     pub playing: Option<bool>,
     /// The cover of what's playing.
@@ -93,7 +95,7 @@ fn alpha(look: &Look, size: i32) -> Option<Vec<f32>> {
     let s = size as f32;
     let unit = |shape: &dyn Fn(f32, f32) -> f32| coverage(size, |x, y| shape(x / s, y / s));
     let level = look.level.clamp(0.0, 1.0);
-    let sound = look.sound.clamp(0.0, 1.0);
+    let sound = look.spectrum.level.clamp(0.0, 1.0);
     if look.style.has_middle() {
         let middle = middle(look, size)?;
         return Some(match frame(look, size) {
@@ -122,7 +124,7 @@ fn alpha(look: &Look, size: i32) -> Option<Vec<f32>> {
         TrayStyle::SignalSteps => unit(&|x, y| signal_steps(x, y, level)),
         TrayStyle::FillingSpeaker => unit(&|x, y| filling_speaker(x, y, level)),
         TrayStyle::Equalizer => {
-            let heights = equalizer(level, sound, look.clock);
+            let heights = equalizer(level, &look.spectrum);
             unit(&|x, y| heights.iter().enumerate().map(|(i, h)| bar(x, y, i, *h)).fold(0.0, f32::max))
         }
     })
@@ -176,8 +178,8 @@ fn middle(look: &Look, size: i32) -> Option<Vec<f32>> {
             number(size, value, scale)
         }
         TrayMiddle::Pulse => {
-            let r = 0.07 + 0.13 * look.sound.clamp(0.0, 1.0);
-            Some(scaled(&|x, y| disc(x, y, r)))
+            let t = clock_seconds(look.clock);
+            Some(scaled(&|x, y| pulse(look.pulse, x, y, &look.spectrum, t)))
         }
     }
 }
@@ -295,14 +297,10 @@ fn filling_speaker(x: f32, y: f32, level: f32) -> f32 {
     if x <= 0.1 + level * 0.74 { 1.0 } else { TRACK_OPACITY }
 }
 
-/// Heights of the equalizer's four bars. Each sways at its own pace, so one level
-/// reads as a spread of bands.
-fn equalizer(level: f32, sound: f32, clock: u64) -> [f32; 4] {
-    const PACE: [f32; 4] = [9.0, 13.0, 7.0, 11.0];
-    const PHASE: [f32; 4] = [0.0, 1.7, 3.1, 4.4];
-    let t = (clock % 600_000) as f32 / 1000.0;
-    let loud = sound * level.sqrt();
-    std::array::from_fn(|i| 0.16 + 0.7 * loud * (0.5 + 0.5 * (t * PACE[i] + PHASE[i]).sin()))
+/// Heights of the equalizer's four bars, from low to high frequencies, scaled by
+/// the volume.
+fn equalizer(level: f32, spectrum: &Spectrum) -> [f32; 4] {
+    std::array::from_fn(|i| 0.16 + 0.7 * band_at(spectrum, i as f32 / 3.0) * level.sqrt())
 }
 
 /// Equalizer bar `i`, `height` tall with round ends, centered vertically.
@@ -311,6 +309,95 @@ fn bar(x: f32, y: f32, i: usize, height: f32) -> f32 {
     let reach = (height / 2.0 - r).max(0.0);
     let dy = ((y - 0.5).abs() - reach).max(0.0);
     if (x - cx).powi(2) + dy * dy <= r * r { 1.0 } else { 0.0 }
+}
+
+/// Seconds on a clock that wraps every ten minutes, for motion.
+fn clock_seconds(clock: u64) -> f32 {
+    (clock % 600_000) as f32 / 1000.0
+}
+
+/// The spectrum at `f`, from 0 (bass) to 1 (treble), between its bands.
+fn band_at(spectrum: &Spectrum, f: f32) -> f32 {
+    let at = f.clamp(0.0, 1.0) * (BANDS - 1) as f32;
+    let (low, part) = (at.floor() as usize, at.fract());
+    let high = (low + 1).min(BANDS - 1);
+    spectrum.bands[low] * (1.0 - part) + spectrum.bands[high] * part
+}
+
+/// Where an angle falls on a spectrum mirrored around the circle: bass at 12 o'clock,
+/// treble at 6, the same on both sides.
+fn mirrored(dx: f32, dy: f32) -> f32 {
+    dx.atan2(-dy).abs() / std::f32::consts::PI
+}
+
+/// The pulse middle at a point, inside the ring's opening (radius about 0.34).
+fn pulse(style: PulseStyle, x: f32, y: f32, s: &Spectrum, t: f32) -> f32 {
+    let (dx, dy) = (x - 0.5, y - 0.5);
+    let r = (dx * dx + dy * dy).sqrt();
+    match style {
+        PulseStyle::Dot => {
+            // Swells with the bass, its edge bulging with the spectrum around it.
+            let edge = 0.08 + 0.09 * s.bass + 0.045 * band_at(s, mirrored(dx, dy));
+            if r <= edge { 1.0 } else { 0.0 }
+        }
+        PulseStyle::Rays => {
+            // Six spokes, each stretching with its own band.
+            const SPOKES: usize = 6;
+            let width = 0.045;
+            let mut best = disc(x, y, 0.05);
+            for i in 0..SPOKES {
+                let a = i as f32 / SPOKES as f32 * TAU - TAU / 4.0;
+                let (ux, uy) = (a.cos(), a.sin());
+                let len = 0.02 + 0.2 * band_at(s, mirrored(ux, uy));
+                let along = (dx * ux + dy * uy).clamp(0.12, 0.12 + len);
+                let (px, py) = (dx - ux * along, dy - uy * along);
+                if px * px + py * py <= width * width {
+                    best = 1.0;
+                }
+            }
+            best
+        }
+        PulseStyle::Ripples => {
+            // Rings spreading from a center that swells with the bass, faster and
+            // brighter when loud.
+            let mut best = disc(x, y, 0.05 + 0.07 * s.bass);
+            for j in 0..2 {
+                let p = (t * (0.5 + 1.0 * s.level) + j as f32 * 0.5).fract();
+                let radius = 0.1 + 0.22 * p;
+                if (r - radius).abs() <= 0.035 {
+                    best = best.max(s.level.max(0.15) * (1.0 - p));
+                }
+            }
+            best
+        }
+        PulseStyle::Orbit => {
+            // Six dots on a slowly turning circle, each swelling with its own band.
+            const DOTS: usize = 6;
+            let mut best = 0.0f32;
+            for i in 0..DOTS {
+                let a = i as f32 / DOTS as f32 * TAU + t * 0.6;
+                let (cx, cy) = (0.2 * a.cos(), 0.2 * a.sin());
+                let size = 0.04 + 0.06 * band_at(s, i as f32 / (DOTS - 1) as f32);
+                if (dx - cx).powi(2) + (dy - cy).powi(2) <= size * size {
+                    best = 1.0;
+                }
+            }
+            best
+        }
+        PulseStyle::Spectrum => {
+            // Bars all around a circle, mirrored left and right like a music video's
+            // visualizer.
+            const BARS: f32 = 16.0;
+            let slot = TAU / BARS;
+            let a = dx.atan2(-dy).rem_euclid(TAU);
+            let center = ((a / slot).round() * slot) % TAU;
+            let (ux, uy) = (center.sin(), -center.cos());
+            let len = 0.03 + 0.18 * band_at(s, mirrored(ux, uy));
+            let along = (dx * ux + dy * uy).clamp(0.11, 0.11 + len);
+            let (px, py) = (dx - ux * along, dy - uy * along);
+            if px * px + py * py <= 0.028f32.powi(2) { 1.0 } else { 0.0 }
+        }
+    }
 }
 
 fn disc(x: f32, y: f32, r: f32) -> f32 {

@@ -7,8 +7,8 @@ use windows::Win32::System::Registry::{
 use windows::core::{PCWSTR, w};
 
 use crate::{
-    Accent, DeviceChip, LevelMeters, MediaButtons, MediaControls, Settings, TooltipStyle, TrayMiddle, TrayStyle,
-    VolumeBars,
+    Accent, DeviceChip, LevelMeters, MediaButtons, MediaControls, PulseStyle, Settings, TooltipStyle, TrayMiddle,
+    TrayStyle, VolumeBars,
 };
 
 const RUN_KEY: PCWSTR = w!("Software\\Microsoft\\Windows\\CurrentVersion\\Run");
@@ -68,6 +68,7 @@ impl Config {
                 }
                 "tray_style" => s.tray_style = TrayStyle::from_name(value).unwrap_or_default(),
                 "tray_middle" => s.tray_middle = TrayMiddle::from_name(value).unwrap_or_default(),
+                "pulse_style" => s.pulse_style = PulseStyle::from_name(value).unwrap_or_default(),
                 "level_meters" => s.level_meters = LevelMeters::from_name(value).unwrap_or_default(),
                 "device_chip" => s.device_chip = DeviceChip::from_name(value).unwrap_or_default(),
                 "show_media_keys" => s.show_media_keys = flag(value),
@@ -109,13 +110,14 @@ impl Config {
             None => "",
         };
         let text = format!(
-            "target={}\ntarget_name={}\ntheme={theme}\nalbum_art={}\nspeaker_position={}\ntray_style={}\ntray_middle={}\nvolume_bars={}\ntooltip={}\nmedia_buttons={}\nmedia_controls={}\nlevel_meters={}\ndevice_chip={}\nshow_media_keys={}\nshow_other_apps={}\nshow_volume={}\nauto_update={}\nlast_update_check={}\naccent={}\n",
+            "target={}\ntarget_name={}\ntheme={theme}\nalbum_art={}\nspeaker_position={}\ntray_style={}\ntray_middle={}\npulse_style={}\nvolume_bars={}\ntooltip={}\nmedia_buttons={}\nmedia_controls={}\nlevel_meters={}\ndevice_chip={}\nshow_media_keys={}\nshow_other_apps={}\nshow_volume={}\nauto_update={}\nlast_update_check={}\naccent={}\n",
             self.target.as_deref().unwrap_or(""),
             self.target_name.as_deref().unwrap_or(""),
             s.album_art,
             s.speaker_position,
             s.tray_style.name(),
             s.tray_middle.name(),
+            s.pulse_style.name(),
             match s.volume_bars {
                 VolumeBars::None => "none",
                 VolumeBars::Compact => "compact",

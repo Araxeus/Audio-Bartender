@@ -476,6 +476,16 @@ const MODES = {
       ["pulse", "Pulse"],
     ],
   },
+  pulseStyle: {
+    title: "Pulse",
+    options: [
+      ["dot", "Dot"],
+      ["rays", "Rays"],
+      ["ripples", "Ripples"],
+      ["orbit", "Orbit"],
+      ["spectrum", "Spectrum"],
+    ],
+  },
   tooltip: {
     title: "Tooltip",
     options: [
@@ -562,7 +572,12 @@ function segmented(s, key) {
     key === "trayStyle" && ["ring", "dial", "plain"].includes(s.trayStyle)
       ? el("div", "mode-middle", el("span", "", MODES.trayMiddle.title), el("div", "segmented", ...chips("trayMiddle", MODES.trayMiddle.options)))
       : null;
-  return el("div", "mode", el("span", "mode-title", title), grid, ...(middle ? [middle] : []), el("span", "mode-about", current?.[2] ?? ""));
+  // How the pulse moves, while trying the variants out.
+  const pulse =
+    middle && s.trayMiddle === "pulse"
+      ? el("div", "mode-middle", el("span", "", MODES.pulseStyle.title), el("div", "segmented", ...chips("pulseStyle", MODES.pulseStyle.options)))
+      : null;
+  return el("div", "mode", el("span", "mode-title", title), grid, middle, pulse, el("span", "mode-about", current?.[2] ?? ""));
 }
 
 /** The update status line with a button to check now. */
