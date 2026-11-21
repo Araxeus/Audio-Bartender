@@ -140,12 +140,12 @@
       // A desktop screen keeps one size, like a monitor. Phones get a narrow screen
       // and switch to the wide one only while the settings panel needs the room.
       const avail = root.clientWidth || 1100;
-      const wide = avail >= 720 || size.panel != null;
+      const wide = avail >= 600 || size.panel != null;
       width = wide ? 1100 : 440;
       scale = avail / width;
       const h = Math.max(size.flyout, size.panel ?? 0) + 8 + 12;
       const height = Math.max(HEIGHT, h + TASKBAR + 16);
-      screen.classList.toggle("narrow", width < 720);
+      screen.classList.toggle("narrow", width < 600);
       screen.style.width = `${width}px`;
       screen.style.height = `${height}px`;
       screen.style.transform = `scale(${scale})`;

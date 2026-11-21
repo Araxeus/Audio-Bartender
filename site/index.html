@@ -101,6 +101,17 @@ nav .links a:hover { color: var(--fg); }
 }
 .hero .wrap { position: relative; }
 .hero-text { max-width: 760px; }
+/* Wide screens: the headline beside the live desktop, so both fit without scrolling. */
+@media (min-width: 1180px) {
+  .hero { padding-block: 24px 96px; }
+  nav .wrap, .hero .hero-grid { max-width: 1440px; }
+  .hero .hero-grid { display: grid; grid-template-columns: clamp(340px, 30vw, 470px) minmax(0, 1fr); gap: 56px; align-items: center; }
+  .hero h1 { font-size: clamp(48px, 3.9vw, 64px); }
+  .hero .cta { margin-bottom: 36px; }
+  .hero .try { flex-direction: column; align-items: start; margin-bottom: 0; }
+  .hero .pad { justify-items: start; }
+  .hero .demo { margin-bottom: 0; }
+}
 .eyebrow { font: 500 13px var(--mono); color: var(--cyan); letter-spacing: .04em; }
 h1 {
   font: 800 clamp(44px, 7vw, 84px)/.95 var(--display);
@@ -216,7 +227,7 @@ footer .credit { width: 100%; font-size: 12px; }
 </nav>
 
 <header class="hero">
-  <div class="wrap">
+  <div class="wrap hero-grid">
     <div class="hero-text">
       <div class="eyebrow">FOR WINDOWS 10 &amp; 11</div>
       <h1>The volume mixer <em>Windows was missing.</em></h1>
@@ -229,18 +240,16 @@ footer .credit { width: 100%; font-size: 12px; }
         <a class="btn btn-ghost" href="#download">Portable versions</a>
         <div class="meta">Free · 6 MB installer · No account needed</div>
       </div>
-    </div>
-  </div>
-  <div class="wrap">
-    <div class="try">
-      <p><b>Try it.</b> This is the real app, running in your browser. Click the tray icon, scroll it, right-click an app, open settings.</p>
-      <div class="pad">
-        <div class="keys-row" role="group" aria-label="Media keys">
-          <button class="key" data-k="previous" aria-label="Previous track"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M6 5h2v14H6zM9.5 12 18 5v14z"/></svg></button>
-          <button class="key" data-k="playPause" aria-label="Play or pause"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M5 5l8 7-8 7zM14 5h2v14h-2zM18 5h2v14h-2z"/></svg></button>
-          <button class="key" data-k="next" aria-label="Next track"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M16 5h2v14h-2zM14.5 12 6 19V5z"/></svg></button>
+      <div class="try">
+        <p><b>Try it.</b> This is the real app, running in your browser. Click the tray icon, scroll it, right-click an app, open settings.</p>
+        <div class="pad">
+          <div class="keys-row" role="group" aria-label="Media keys">
+            <button class="key" data-k="previous" aria-label="Previous track"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M6 5h2v14H6zM9.5 12 18 5v14z"/></svg></button>
+            <button class="key" data-k="playPause" aria-label="Play or pause"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M5 5l8 7-8 7zM14 5h2v14h-2zM18 5h2v14h-2z"/></svg></button>
+            <button class="key" data-k="next" aria-label="Next track"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M16 5h2v14h-2zM14.5 12 6 19V5z"/></svg></button>
+          </div>
+          <span class="hint" id="hint" aria-live="polite">Your media keys. Press one.</span>
         </div>
-        <span class="hint" id="hint" aria-live="polite">Your media keys. Press one.</span>
       </div>
     </div>
     <div id="demo" class="demo"></div>
