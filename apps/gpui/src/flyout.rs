@@ -665,7 +665,7 @@ impl Flyout {
         let dark = theme.is_dark();
         let settings_open = self.page == Page::Settings;
         let icon_color = theme.foreground.opacity(0.8);
-        let (core_theme, core_quit) = (self.core.clone(), self.core.clone());
+        let core_quit = self.core.clone();
         h_flex()
             .justify_between()
             .h(px(HEADER))
@@ -687,15 +687,6 @@ impl Flyout {
             .child(
                 h_flex()
                     .gap_1()
-                    .child(
-                        Button::new("theme")
-                            .small()
-                            .ghost()
-                            .icon(Icon::new(if dark { IconName::Sun } else { IconName::Moon }).text_color(icon_color))
-                            .tooltip("Toggle dark mode")
-                            .tooltip_placement(Placement::Bottom)
-                            .on_click(move |_, _, _| core_theme.set(Setting::Dark(Some(!dark)))),
-                    )
                     .child(
                         Button::new("settings")
                             .small()

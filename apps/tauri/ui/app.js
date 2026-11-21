@@ -161,13 +161,11 @@ function brandMark() {
 }
 
 function controls() {
-  const dark = isDark();
   return [
     el("div", "brand", brandMark(), el("span", "", "Audio Bartender")),
     el(
       "div",
       "transport",
-      button("icon ghost small", "Toggle dark mode", icon(dark ? "sun" : "moon"), () => setting("dark", !dark)),
       button("icon ghost small" + (page === "settings" ? " active" : ""), "Settings", icon("settings"), () => {
         page = page === "settings" ? "apps" : "settings";
         devicesOpen = false;
