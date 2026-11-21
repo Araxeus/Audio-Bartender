@@ -14,7 +14,6 @@ use windows::Win32::Graphics::Gdi::{
 };
 use windows::Win32::System::Com::{CLSCTX_INPROC_SERVER, CoCreateInstance};
 use windows::Win32::System::LibraryLoader::GetModuleHandleW;
-use windows::Win32::System::SystemInformation::GetWindowsDirectoryW;
 use windows::Win32::System::Variant::VARIANT;
 use windows::Win32::UI::Accessibility::{
     CUIAutomation, IUIAutomation, IUIAutomationCacheRequest, IUIAutomationElement, TreeScope_Descendants,
@@ -27,7 +26,7 @@ use windows::Win32::UI::HiDpi::{
 };
 use windows::Win32::UI::Input::KeyboardAndMouse::{TME_HOVER, TME_LEAVE, TRACKMOUSEEVENT, TrackMouseEvent};
 use windows::Win32::UI::Shell::{
-    ABM_GETSTATE, ABS_AUTOHIDE, APPBARDATA, NIN_POPUPCLOSE, NIN_POPUPOPEN, SHAppBarMessage, SHLoadIndirectString,
+    ABM_GETSTATE, ABS_AUTOHIDE, APPBARDATA, NIN_POPUPCLOSE, NIN_POPUPOPEN, SHAppBarMessage,
 };
 use windows::Win32::UI::WindowsAndMessaging::*;
 use windows::core::{PCWSTR, w};
@@ -69,7 +68,7 @@ pub(super) fn enable(on: bool) {
                     SetThreadDpiAwarenessContext(DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2);
                 }
                 let mut automation = None;
-                let label = volume_label();
+                let label = super::system_tray_label("AutomationName_VolumeStateButton", "Volume");
                 loop {
                     if ENABLED.load(Relaxed) {
                         if automation.is_none() {
@@ -95,24 +94,6 @@ pub(super) fn enable(on: bool) {
     *FOUND.lock().unwrap() = None;
     let _ = wake.send(());
     post(WM_SPEAKER_SLOT, 0);
-}
-
-/// Read the same localized prefix Explorer uses in the speaker's accessible
-/// name. Earlier shell packages can still be recognized on English Windows.
-fn volume_label() -> String {
-    let mut dir = [0; 260];
-    let len = unsafe { GetWindowsDirectoryW(Some(&mut dir)) } as usize;
-    let mut label = [0; 128];
-    if len > 0 && len < dir.len() {
-        let source = util::wide(&format!(
-            "@{{{}\\SystemApps\\MicrosoftWindows.Client.Core_cw5n1h2txyewy\\resources.pri?ms-resource://MicrosoftWindows.Client.Core/SystemTray/Resources/AutomationName_VolumeStateButton}}",
-            util::from_wide(&dir)
-        ));
-        if unsafe { SHLoadIndirectString(PCWSTR(source.as_ptr()), &mut label, None) }.is_ok() && label[0] != 0 {
-            return util::from_wide(&label);
-        }
-    }
-    "Volume".into()
 }
 
 fn named_speaker(name: &str, label: &str) -> bool {

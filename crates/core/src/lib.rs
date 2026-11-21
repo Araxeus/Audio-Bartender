@@ -992,6 +992,7 @@ pub enum Event {
 }
 
 pub(crate) enum Cmd {
+    ToggleOverflowFlyout(Anchor),
     Refresh {
         resubscribe: bool,
     },

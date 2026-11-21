@@ -247,8 +247,66 @@ fn tooltip_covers_flyout(tip: &Tip, icon: RECT) -> bool {
     tip.left < shown.right && tip.right > shown.left && tip.top < shown.bottom && tip.bottom > shown.top
 }
 
-/// Closes the Windows 10 tray overflow. On Windows 11, Explorer dismisses the
-/// overflow when the flyout takes focus and updates the caret itself.
+/// Resolves the same localized accessibility label as Explorer's system tray.
+fn system_tray_label(resource: &str, fallback: &str) -> String {
+    use crate::util::{from_wide, wide};
+    use windows::Win32::System::SystemInformation::GetWindowsDirectoryW;
+    use windows::Win32::UI::Shell::SHLoadIndirectString;
+
+    let mut dir = [0; 260];
+    let len = unsafe { GetWindowsDirectoryW(Some(&mut dir)) } as usize;
+    let mut label = [0; 128];
+    if len > 0 && len < dir.len() {
+        let source = wide(&format!(
+            "@{{{}\\SystemApps\\MicrosoftWindows.Client.Core_cw5n1h2txyewy\\resources.pri?ms-resource://MicrosoftWindows.Client.Core/SystemTray/Resources/{resource}}}",
+            from_wide(&dir)
+        ));
+        if unsafe { SHLoadIndirectString(PCWSTR(source.as_ptr()), &mut label, None) }.is_ok() && label[0] != 0 {
+            return from_wide(&label);
+        }
+    }
+    fallback.into()
+}
+
+fn visible_xaml_overflow() -> Option<HWND> {
+    unsafe {
+        FindWindowW(w!("TopLevelWindowForOverflowXamlIsland"), None).ok().filter(|&w| IsWindowVisible(w).as_bool())
+    }
+}
+
+/// Invoke Explorer's own caret before showing the flyout. Looking it up on the
+/// windowless COM worker keeps the tray callback free to answer Explorer.
+pub(crate) fn close_xaml_overflow() -> windows::core::Result<()> {
+    use windows::Win32::System::Com::{CLSCTX_INPROC_SERVER, CoCreateInstance};
+    use windows::Win32::System::Variant::VARIANT;
+    use windows::Win32::UI::Accessibility::{
+        CUIAutomation, IUIAutomation, IUIAutomationInvokePattern, PropertyConditionFlags,
+        PropertyConditionFlags_IgnoreCase, PropertyConditionFlags_MatchSubstring, TreeScope_Descendants,
+        UIA_AutomationIdPropertyId, UIA_InvokePatternId, UIA_NamePropertyId,
+    };
+
+    let Some(overflow) = visible_xaml_overflow() else { return Ok(()) };
+    unsafe {
+        let ui: IUIAutomation = CoCreateInstance(&CUIAutomation, None, CLSCTX_INPROC_SERVER)?;
+        let bar = ui.ElementFromHandle(FindWindowW(w!("Shell_TrayWnd"), None)?)?;
+        let icon = ui.CreatePropertyCondition(UIA_AutomationIdPropertyId, &VARIANT::from("SystemTrayIcon"))?;
+        // The expanded button's accessible name can include the localized "Hide" suffix.
+        let label = system_tray_label("AutomationName_ChevronButton", "Show hidden icons");
+        let name = ui.CreatePropertyConditionEx(
+            UIA_NamePropertyId,
+            &VARIANT::from(label.as_str()),
+            PropertyConditionFlags(PropertyConditionFlags_IgnoreCase.0 | PropertyConditionFlags_MatchSubstring.0),
+        )?;
+        let caret = bar.FindFirst(TreeScope_Descendants, &ui.CreateAndCondition(&icon, &name)?)?;
+        let invoke: IUIAutomationInvokePattern = caret.GetCurrentPatternAs(UIA_InvokePatternId)?;
+        if IsWindowVisible(overflow).as_bool() {
+            invoke.Invoke()?;
+        }
+    }
+    Ok(())
+}
+
+/// Closes the classic Windows 10 tray overflow.
 fn close_overflow() {
     use windows::Win32::UI::WindowsAndMessaging::FindWindowExW;
     unsafe {
@@ -657,8 +715,12 @@ unsafe extern "system" fn wndproc(hwnd: HWND, msg: u32, wparam: WPARAM, lparam: 
             }
             WM_LBUTTONUP => {
                 tooltip::hide();
-                close_overflow();
-                shared().emit(Event::Flyout { anchor: anchor(hwnd), page: Page::Apps, toggle: true });
+                if visible_xaml_overflow().is_some() {
+                    shared().send(Cmd::ToggleOverflowFlyout(anchor(hwnd)));
+                } else {
+                    close_overflow();
+                    shared().emit(Event::Flyout { anchor: anchor(hwnd), page: Page::Apps, toggle: true });
+                }
             }
             WM_MBUTTONUP => {
                 audio::toggle_master_mute();

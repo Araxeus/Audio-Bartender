@@ -173,6 +173,12 @@ impl Worker {
 
     fn handle(&mut self, cmd: Cmd) {
         match cmd {
+            Cmd::ToggleOverflowFlyout(anchor) => {
+                if let Err(err) = input::close_xaml_overflow() {
+                    crate::util::log(format!("could not invoke the tray overflow caret: {err}"));
+                }
+                self.shared.emit(Event::Flyout { anchor, page: crate::Page::Apps, toggle: true });
+            }
             Cmd::Refresh { resubscribe } => self.refresh(resubscribe),
             Cmd::RefreshAudio { devices } => {
                 if devices {
