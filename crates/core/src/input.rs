@@ -46,6 +46,7 @@ const WM_WHEEL: u32 = WM_APP + 4;
 const WM_MENU_WHEEL: u32 = WM_APP + 5;
 const WM_PREVIEW: u32 = WM_APP + 6;
 const WM_MENU_MUTE: u32 = WM_APP + 7;
+const WM_MENU_SELECT: u32 = WM_APP + 8;
 
 /// Polls the pointer while our tooltip outlives the shell's hover.
 const TIMER_TOOLTIP: usize = 1;
@@ -79,8 +80,16 @@ const MASTER: &str = "master";
 /// menu so it stays open. Zero when none.
 static MENU_PRESS: AtomicU32 = AtomicU32::new(0);
 
-/// Menu entries a left click mutes rather than picks: the master volume and other
-/// apps. A left click on a media key app picks it.
+/// The held click picks a media key app rather than muting.
+static MENU_PRESS_PICKS: AtomicBool = AtomicBool::new(false);
+
+/// Menu entries a left click picks for media keys: Automatic and each app.
+fn picks_on_click(command: u32) -> bool {
+    let command = command as usize;
+    command == ID_AUTOMATIC || (ID_TARGET..ID_MIXER).contains(&command)
+}
+
+/// Menu entries a left click mutes: the master volume and other apps.
 fn mutes_on_click(command: u32) -> bool {
     command as usize == ID_MASTER || command as usize >= ID_MIXER
 }
@@ -95,6 +104,8 @@ static TASKBAR_CREATED: AtomicU32 = AtomicU32::new(0);
 /// The open context menu, for the mouse hook. Zero when no menu is open.
 static MENU: AtomicIsize = AtomicIsize::new(0);
 static MENU_WHEEL: Mutex<Vec<WheelItem>> = Mutex::new(Vec::new());
+/// The open menu's media key apps by position after `ID_TARGET`, for picking one.
+static MENU_TARGETS: Mutex<Vec<String>> = Mutex::new(Vec::new());
 static ROUTING: AtomicBool = AtomicBool::new(false);
 
 /// What the tray shows. The worker writes it; the tray thread draws it.
@@ -441,15 +452,18 @@ unsafe extern "system" fn mouse_hook(code: i32, wparam: WPARAM, lparam: LPARAM) 
             WM_RBUTTONDOWN => has_volume,
             _ => false,
         };
-        if mutes {
+        let picks = button == WM_LBUTTONDOWN && picks_on_click(command);
+        if mutes || picks {
             MENU_PRESS.store(command, Relaxed);
+            MENU_PRESS_PICKS.store(picks, Relaxed);
             return LRESULT(1);
         }
         if button == WM_LBUTTONUP || button == WM_RBUTTONUP {
             let pressed = MENU_PRESS.swap(0, Relaxed);
             if pressed != 0 {
                 if pressed == command {
-                    post_with(WM_MENU_MUTE, 0, command as isize);
+                    let message = if MENU_PRESS_PICKS.load(Relaxed) { WM_MENU_SELECT } else { WM_MENU_MUTE };
+                    post_with(message, 0, command as isize);
                 }
                 return LRESULT(1);
             }
@@ -537,6 +551,7 @@ unsafe extern "system" fn wndproc(hwnd: HWND, msg: u32, wparam: WPARAM, lparam: 
         }
         WM_MENU_WHEEL => unsafe { menu_wheel(lparam.0 as u32, wparam.0 as u16 as i16) },
         WM_MENU_MUTE => unsafe { menu_mute(lparam.0 as u32) },
+        WM_MENU_SELECT => unsafe { menu_select(lparam.0 as u32) },
         WM_TIMER if wparam.0 == TIMER_TOOLTIP => {
             if tooltip::visible() && keep_tooltip() {
                 return LRESULT(0);
@@ -893,6 +908,7 @@ unsafe fn show_menu(hwnd: HWND) {
         let _ = SetMenuDefaultItem(menu, ID_OPEN as u32, 0);
 
         *MENU_WHEEL.lock().unwrap() = wheel;
+        *MENU_TARGETS.lock().unwrap() = state.targets.iter().map(|t| t.id.clone()).collect();
         MENU.store(menu.0 as isize, Relaxed);
 
         let mut at = POINT::default();
@@ -975,6 +991,27 @@ unsafe fn menu_mute(command: u32) {
     shared().send(Cmd::RefreshAudio { devices: false });
     if let Some((level, muted)) = level {
         unsafe { relabel_menu_item(command, &name, level, muted) };
+    }
+}
+
+/// Picks where media keys go and moves the check mark while the menu stays open.
+unsafe fn menu_select(command: u32) {
+    let targets = MENU_TARGETS.lock().unwrap().clone();
+    let picked = (command as usize).checked_sub(ID_TARGET).and_then(|i| targets.get(i).cloned());
+    shared().send(Cmd::Select(picked));
+    let menu = HMENU(MENU.load(Relaxed) as _);
+    if menu.is_invalid() {
+        return;
+    }
+    let check = |id: usize| if id == command as usize { MF_CHECKED.0 } else { MF_UNCHECKED.0 };
+    unsafe {
+        let _ = CheckMenuItem(menu, ID_AUTOMATIC as u32, check(ID_AUTOMATIC));
+        for i in 0..targets.len() {
+            let _ = CheckMenuItem(menu, (ID_TARGET + i) as u32, check(ID_TARGET + i));
+        }
+        if let Ok(popup) = FindWindowW(w!("#32768"), None) {
+            let _ = InvalidateRect(Some(popup), None, true);
+        }
     }
 }
 
