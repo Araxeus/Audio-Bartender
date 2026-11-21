@@ -181,20 +181,10 @@ impl Mode {
                 (Setting::Dark(Some(false)), "Light", "Always light", s.dark == Some(false)),
                 (Setting::Dark(Some(true)), "Dark", "Always dark", s.dark == Some(true)),
             ],
-            Mode::TrayIcon => vec![
-                (
-                    Setting::TrayStyle(TrayStyle::Ring),
-                    "Ring",
-                    "A ring that fills with the volume",
-                    s.tray_style == TrayStyle::Ring,
-                ),
-                (
-                    Setting::TrayStyle(TrayStyle::Number),
-                    "Number",
-                    "The volume as a number",
-                    s.tray_style == TrayStyle::Number,
-                ),
-            ],
+            Mode::TrayIcon => TrayStyle::ALL
+                .into_iter()
+                .map(|t| (Setting::TrayStyle(t), t.label(), t.about(), s.tray_style == t))
+                .collect(),
             Mode::Tooltip => vec![
                 (
                     Setting::Tooltip(TooltipStyle::NowPlaying),
@@ -1734,6 +1724,15 @@ impl Flyout {
                 .child(name)
                 .on_click(move |_, _, _| core.set(setting.clone()))
         });
+        // Many options wrap, four to a row.
+        let mut buttons: Vec<_> = buttons.collect();
+        let per_row = if buttons.len() > 6 { 4 } else { buttons.len().max(1) };
+        let mut rows = Vec::new();
+        while !buttons.is_empty() {
+            let rest = buttons.split_off(per_row.min(buttons.len()));
+            rows.push(h_flex().gap(px(2.)).children(buttons));
+            buttons = rest;
+        }
         v_flex()
             .mx_2()
             .px_2()
@@ -1741,7 +1740,7 @@ impl Flyout {
             .pb_2()
             .gap(px(6.))
             .child(div().text_size(px(13.)).line_height(px(18.)).child(mode.title()))
-            .child(h_flex().p(px(2.)).gap(px(2.)).rounded(px(7.)).bg(track).children(buttons))
+            .child(v_flex().p(px(2.)).gap(px(2.)).rounded(px(7.)).bg(track).children(rows))
             .child(div().h(px(16.)).text_size(px(12.)).line_height(px(16.)).text_color(muted).truncate().child(about))
             .into_any_element()
     }

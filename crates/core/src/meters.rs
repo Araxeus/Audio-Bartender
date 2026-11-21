@@ -31,6 +31,12 @@ pub fn level(id: &str) -> f32 {
     exes.iter().filter_map(|exe| levels.get(exe)).fold(0., |a, b| a.max(*b))
 }
 
+/// The loudest app's live level, 0 to 1.
+pub fn loudest() -> f32 {
+    want();
+    LEVELS.lock().unwrap().values().fold(0., |a, b| a.max(*b))
+}
+
 fn want() {
     WANTED_MS.store(now_ms(), Relaxed);
     let thread = THREAD.get_or_init(|| {

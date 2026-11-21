@@ -55,6 +55,14 @@ const WM_MENU_SELECT: u32 = WM_APP + 10;
 /// Polls the pointer while our tooltip outlives the shell's hover.
 const TIMER_TOOLTIP: usize = 1;
 const TIMER_RESTORE_ICON: usize = 2;
+/// Redraws a live tray icon with the sound playing.
+const TIMER_LIVE: usize = 3;
+const LIVE_FRAME_MS: u32 = 66;
+
+/// The sound the live tray icon last drew, as `f32` bits.
+static SOUND: AtomicU32 = AtomicU32::new(0);
+/// Whether `TIMER_LIVE` runs.
+static LIVE: AtomicBool = AtomicBool::new(false);
 
 /// How long a card with buttons stays while the pointer is on neither it nor the
 /// icon, so the pointer can cross the taskbar to reach it.
@@ -693,6 +701,15 @@ unsafe extern "system" fn wndproc(hwnd: HWND, msg: u32, wparam: WPARAM, lparam: 
             }
         }
         WM_TIMER if wparam.0 == TIMER_RESTORE_ICON => unsafe { set_icon(hwnd, NIM_MODIFY) },
+        WM_TIMER if wparam.0 == TIMER_LIVE => {
+            let sound = crate::meters::loudest();
+            let drawn = f32::from_bits(SOUND.load(Relaxed));
+            let moving = TRAY_STATE.lock().unwrap().style == TrayStyle::Equalizer && sound > 0.01;
+            if moving || (sound - drawn).abs() > 0.015 || (sound == 0.0 && drawn != 0.0) {
+                SOUND.store(sound.to_bits(), Relaxed);
+                unsafe { set_icon(hwnd, NIM_MODIFY) };
+            }
+        }
         WM_SHOW => show(Page::Apps),
         WM_DISMISS => shared().emit(Event::DismissFlyout),
         WM_SPEAKER_SLOT => {
@@ -904,10 +921,36 @@ fn identifier(hwnd: HWND) -> NOTIFYICONIDENTIFIER {
 unsafe fn set_icon(hwnd: HWND, action: NOTIFY_ICON_MESSAGE) {
     let (look, tip) = {
         let tray = TRAY_STATE.lock().unwrap();
-        let look =
-            Look { level: tray.level, muted: tray.muted, style: tray.style, light_taskbar: tray_icon::light_taskbar() };
+        let media = &tray.media;
+        let playing = match media.playback {
+            _ if !media.running => None,
+            Playback::Playing => Some(true),
+            Playback::Paused | Playback::Stopped => Some(false),
+            Playback::Unknown => None,
+        };
+        let look = Look {
+            level: tray.level,
+            muted: tray.muted,
+            style: tray.style,
+            light_taskbar: tray_icon::light_taskbar(),
+            sound: if tray.style.live() { f32::from_bits(SOUND.load(Relaxed)) } else { 0.0 },
+            playing,
+            art: media.icon.clone().filter(|icon| icon.art),
+            clock: now_ms(),
+        };
         (look, (tray.text(), tray.tip()))
     };
+    // Live styles keep a timer that redraws them with the sound.
+    if look.style.live() != LIVE.swap(look.style.live(), Relaxed) {
+        unsafe {
+            if look.style.live() {
+                SetTimer(Some(hwnd), TIMER_LIVE, LIVE_FRAME_MS, None);
+            } else {
+                let _ = KillTimer(Some(hwnd), TIMER_LIVE);
+                SOUND.store(0, Relaxed);
+            }
+        }
+    }
     let (text, tip) = tip;
     let slot = speaker_slot::visible_window();
     let size = slot.map_or_else(|| unsafe { GetSystemMetrics(SM_CXSMICON) }, speaker_slot::icon_size);

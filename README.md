@@ -56,7 +56,10 @@ This uses the same private Windows interface as EarTrumpet and Windows' own "App
 
 ## Tray icon
 
-- Shows the master volume: a ring that fills around a speaker, or the number. It follows the taskbar's light or dark theme.
+- Shows the master volume in one of twelve styles, and follows the taskbar's light or dark theme.
+  - Volume: Ring, Number, Waves (Windows' own icon), Graded waves, Steps, Dial and Fill.
+  - Live, moving with the sound playing: Live waves, Equalizer and Pulse. They redraw about 15 times a second while sound plays.
+  - Media: Transport shows the play state of what the media keys control. Album art shows its cover in color.
 - Wheel over the icon: master volume, 2% per notch, with a live tooltip. Middle click: mute.
 - Right click opens a quick menu in the app's theme: master volume, targets and other apps with their volumes, the Windows volume icon's links (Sound settings, Volume mixer, Sounds, troubleshooter), settings and quit. Scrolling over a volume entry changes it while the menu stays open; clicking an app in Other apps mutes it.
 - New tray icons start in the overflow area. On Windows 11, Settings → "Show icon on the taskbar" moves ours at once. On Windows 10, Windows lets only the user move icons, so Settings shows where ours is and opens the Windows pages to move it and hide the Windows volume icon.
@@ -79,7 +82,7 @@ Stored in `%APPDATA%\AudioBartender\config.ini` and shared by both front ends. T
 - Tray icon placement on Windows 11, or links to the notification area and system icon settings on Windows 10
 - Theme: System, Light, Dark
 - Accent color: Blue, Cyan (default), Teal, Purple, Hot pink or Orange. The core owns the palette, so both front ends and the tooltip cards match
-- Tray icon: Ring or Number
+- Tray icon: Ring, Number, Waves, Graded, Live waves, Steps, Dial, Fill, Equalizer, Pulse, Transport or Album art
 - Tooltip: Now playing, Compact or Text
 - Tooltip buttons: None, Hover (default), Inline, Capsule or Player. Cards with buttons stay open while hovered and change the volume on scroll
 - Media controls: None, Banner, Row, Dock or Hover (default, on each app's row and for that app)

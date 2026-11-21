@@ -456,6 +456,16 @@ const MODES = {
     options: [
       ["ring", "Ring", "A ring that fills with the volume"],
       ["number", "Number", "The volume as a number"],
+      ["speakerWaves", "Waves", "Windows' volume icon, with up to three waves"],
+      ["gradedWaves", "Graded", "Waves that spread and brighten with the volume"],
+      ["liveWaves", "Live waves", "Waves that light up with the sound playing"],
+      ["signalSteps", "Steps", "Four bars that fill as the volume climbs"],
+      ["dial", "Dial", "A speaker inside a dial"],
+      ["fillingSpeaker", "Fill", "A speaker that fills from left to right"],
+      ["equalizer", "Equalizer", "Bars that bounce with the sound"],
+      ["pulseRing", "Pulse", "A ring around a dot that swells with the sound"],
+      ["transportRing", "Transport", "A ring around the media app's play state"],
+      ["albumArt", "Album art", "A ring around the cover of what's playing"],
     ],
   },
   tooltip: {
@@ -540,7 +550,7 @@ function segmented(s, key) {
     "div",
     "mode",
     el("span", "mode-title", title),
-    el("div", "segmented", ...options.map(([value, name]) => button(s[key] === value ? "on" : "", null, name, () => setting(key, value)))),
+    el("div", options.length > 6 ? "segmented grid" : "segmented", ...options.map(([value, name]) => button(s[key] === value ? "on" : "", null, name, () => setting(key, value)))),
     el("span", "mode-about", current?.[2] ?? ""),
   );
 }

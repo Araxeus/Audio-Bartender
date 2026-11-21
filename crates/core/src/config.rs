@@ -61,7 +61,7 @@ impl Config {
                 "theme" => s.dark = matches!(value, "dark" | "light").then(|| value == "dark"),
                 "album_art" => s.album_art = flag(value),
                 "speaker_position" => s.speaker_position = flag(value),
-                "tray_style" => s.tray_style = if value == "number" { TrayStyle::Number } else { TrayStyle::Ring },
+                "tray_style" => s.tray_style = TrayStyle::from_name(value).unwrap_or_default(),
                 "level_meters" => s.level_meters = LevelMeters::from_name(value).unwrap_or_default(),
                 "device_chip" => s.device_chip = DeviceChip::from_name(value).unwrap_or_default(),
                 "show_media_keys" => s.show_media_keys = flag(value),
@@ -108,7 +108,7 @@ impl Config {
             self.target_name.as_deref().unwrap_or(""),
             s.album_art,
             s.speaker_position,
-            if s.tray_style == TrayStyle::Number { "number" } else { "ring" },
+            s.tray_style.name(),
             match s.volume_bars {
                 VolumeBars::None => "none",
                 VolumeBars::Compact => "compact",

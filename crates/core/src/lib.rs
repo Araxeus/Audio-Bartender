@@ -220,6 +220,106 @@ pub enum TrayStyle {
     Ring,
     /// The volume as a number.
     Number,
+    /// Windows' volume icon: no waves at 0, then one to three.
+    SpeakerWaves,
+    /// Three faint waves, each spreading from its middle and brightening as the volume climbs.
+    GradedWaves,
+    /// Waves set by the volume, each lit by the sound playing.
+    LiveWaves,
+    /// Four rising bars, filled in turn.
+    SignalSteps,
+    /// A speaker inside a 270° dial.
+    Dial,
+    /// A speaker that fills from left to right.
+    FillingSpeaker,
+    /// Bars bouncing with the sound, scaled by the volume.
+    Equalizer,
+    /// The ring around a dot that swells with the sound.
+    PulseRing,
+    /// The ring around the play state of what the media keys control.
+    TransportRing,
+    /// The ring around the cover of what's playing.
+    AlbumArt,
+}
+
+impl TrayStyle {
+    pub const ALL: [TrayStyle; 12] = [
+        TrayStyle::Ring,
+        TrayStyle::Number,
+        TrayStyle::SpeakerWaves,
+        TrayStyle::GradedWaves,
+        TrayStyle::LiveWaves,
+        TrayStyle::SignalSteps,
+        TrayStyle::Dial,
+        TrayStyle::FillingSpeaker,
+        TrayStyle::Equalizer,
+        TrayStyle::PulseRing,
+        TrayStyle::TransportRing,
+        TrayStyle::AlbumArt,
+    ];
+
+    /// The config file name.
+    pub fn name(self) -> &'static str {
+        match self {
+            TrayStyle::Ring => "ring",
+            TrayStyle::Number => "number",
+            TrayStyle::SpeakerWaves => "speaker_waves",
+            TrayStyle::GradedWaves => "graded_waves",
+            TrayStyle::LiveWaves => "live_waves",
+            TrayStyle::SignalSteps => "signal_steps",
+            TrayStyle::Dial => "dial",
+            TrayStyle::FillingSpeaker => "filling_speaker",
+            TrayStyle::Equalizer => "equalizer",
+            TrayStyle::PulseRing => "pulse_ring",
+            TrayStyle::TransportRing => "transport_ring",
+            TrayStyle::AlbumArt => "album_art",
+        }
+    }
+
+    pub fn from_name(name: &str) -> Option<TrayStyle> {
+        TrayStyle::ALL.into_iter().find(|s| s.name() == name)
+    }
+
+    /// The name the settings show.
+    pub fn label(self) -> &'static str {
+        match self {
+            TrayStyle::Ring => "Ring",
+            TrayStyle::Number => "Number",
+            TrayStyle::SpeakerWaves => "Waves",
+            TrayStyle::GradedWaves => "Graded",
+            TrayStyle::LiveWaves => "Live waves",
+            TrayStyle::SignalSteps => "Steps",
+            TrayStyle::Dial => "Dial",
+            TrayStyle::FillingSpeaker => "Fill",
+            TrayStyle::Equalizer => "Equalizer",
+            TrayStyle::PulseRing => "Pulse",
+            TrayStyle::TransportRing => "Transport",
+            TrayStyle::AlbumArt => "Album art",
+        }
+    }
+
+    /// What the settings say about it.
+    pub fn about(self) -> &'static str {
+        match self {
+            TrayStyle::Ring => "A ring that fills with the volume",
+            TrayStyle::Number => "The volume as a number",
+            TrayStyle::SpeakerWaves => "Windows' volume icon, with up to three waves",
+            TrayStyle::GradedWaves => "Waves that spread and brighten with the volume",
+            TrayStyle::LiveWaves => "Waves that light up with the sound playing",
+            TrayStyle::SignalSteps => "Four bars that fill as the volume climbs",
+            TrayStyle::Dial => "A speaker inside a dial",
+            TrayStyle::FillingSpeaker => "A speaker that fills from left to right",
+            TrayStyle::Equalizer => "Bars that bounce with the sound",
+            TrayStyle::PulseRing => "A ring around a dot that swells with the sound",
+            TrayStyle::TransportRing => "A ring around the media app's play state",
+            TrayStyle::AlbumArt => "A ring around the cover of what's playing",
+        }
+    }
+
+    /// Whether the icon moves with the sound playing.
+    pub fn live(self) -> bool {
+        matches!(self, TrayStyle::LiveWaves | TrayStyle::Equalizer | TrayStyle::PulseRing)
+    }
 }
 
 /// How app rows show their volume.
@@ -1035,7 +1135,8 @@ impl Core {
 /// Renders the tray icon as PNG, for previews and tests.
 #[doc(hidden)]
 pub fn preview_tray_icon(level: f32, muted: bool, style: TrayStyle, light_taskbar: bool, size: i32) -> Option<Vec<u8>> {
-    let look = tray_icon::Look { level, muted, style, light_taskbar };
+    let look =
+        tray_icon::Look { level, muted, style, light_taskbar, sound: 0.5, playing: Some(true), ..Default::default() };
     let mut pixels = tray_icon::bgra(&look, size)?;
     pixels.as_chunks_mut::<4>().0.iter_mut().for_each(|px| px.swap(0, 2));
     Some(icon::encode_png(size as u32, size as u32, &pixels))
