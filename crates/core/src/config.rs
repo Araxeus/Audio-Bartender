@@ -26,6 +26,8 @@ pub struct Config {
     pub target: Option<String>,
     /// Display name of `target`, shown while its app is closed.
     pub target_name: Option<String>,
+    /// Exe path of `target`, for its icon while its app is closed.
+    pub target_path: Option<String>,
     /// When the last update check finished, in ms since the epoch.
     pub last_update_check: u64,
     pub settings: Settings,
@@ -59,6 +61,7 @@ impl Config {
             match key {
                 "target" if !value.is_empty() => cfg.target = Some(value.to_owned()),
                 "target_name" if !value.is_empty() => cfg.target_name = Some(value.to_owned()),
+                "target_path" if !value.is_empty() => cfg.target_path = Some(value.to_owned()),
                 "theme" => s.dark = matches!(value, "dark" | "light").then(|| value == "dark"),
                 "album_art" => s.album_art = flag(value),
                 "speaker_position" => s.speaker_position = flag(value),
@@ -110,9 +113,10 @@ impl Config {
             None => "",
         };
         let text = format!(
-            "target={}\ntarget_name={}\ntheme={theme}\nalbum_art={}\nspeaker_position={}\ntray_style={}\ntray_middle={}\npulse_style={}\nvolume_bars={}\ntooltip={}\nmedia_buttons={}\nmedia_controls={}\nlevel_meters={}\ndevice_chip={}\nshow_media_keys={}\nshow_other_apps={}\nshow_volume={}\nauto_update={}\nlast_update_check={}\naccent={}\n",
+            "target={}\ntarget_name={}\ntarget_path={}\ntheme={theme}\nalbum_art={}\nspeaker_position={}\ntray_style={}\ntray_middle={}\npulse_style={}\nvolume_bars={}\ntooltip={}\nmedia_buttons={}\nmedia_controls={}\nlevel_meters={}\ndevice_chip={}\nshow_media_keys={}\nshow_other_apps={}\nshow_volume={}\nauto_update={}\nlast_update_check={}\naccent={}\n",
             self.target.as_deref().unwrap_or(""),
             self.target_name.as_deref().unwrap_or(""),
+            self.target_path.as_deref().unwrap_or(""),
             s.album_art,
             s.speaker_position,
             s.tray_style.name(),

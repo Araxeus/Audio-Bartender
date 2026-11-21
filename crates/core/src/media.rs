@@ -11,7 +11,7 @@ use windows::Media::Control::{
 };
 use windows::Storage::Streams::DataReader;
 use windows::Win32::Foundation::{LPARAM, WPARAM};
-use windows::Win32::UI::WindowsAndMessaging::{PostMessageW, WM_APPCOMMAND};
+use windows::Win32::UI::WindowsAndMessaging::{SMTO_ABORTIFHUNG, SendMessageTimeoutW, WM_APPCOMMAND};
 use windows::core::RuntimeType;
 
 use crate::config::Config;
@@ -192,6 +192,8 @@ impl Worker {
                     .and_then(|id| self.media.iter().find(|m| &m.target.id == id))
                     .map(|m| m.target.name.clone());
                 self.config.target = id;
+                // Found again from the running app by the next publish.
+                self.config.target_path = None;
                 self.config.save();
                 self.refresh(false);
             }
@@ -403,9 +405,20 @@ impl Worker {
                     target.volume = Some(level);
                     target.muted = muted;
                 }
+                // Window-message players report no playback, but stop their audio stream when paused.
+                if target.via_window
+                    && let Some(playing) = volume::playing(&sessions, &exes)
+                {
+                    target.playback = if playing { Playback::Playing } else { Playback::Paused };
+                }
                 let art = if self.config.settings.album_art { self.art_for(&self.media[i]) } else { None };
                 target.icon = art.or_else(|| self.icon_for(&exes, &procs));
+                if self.config.target.as_ref() == Some(&target.id) {
+                    self.remember_path(&exes, &procs);
+                }
                 covered.extend(exes);
+            } else if let Some(path) = self.config.target_path.clone() {
+                target.icon = self.icon_at(&path);
             }
             target.route = self.config.routes.get(&target.id).cloned();
             targets.push(target);
@@ -480,6 +493,27 @@ impl Worker {
         icon
     }
 
+    /// The icon of the exe at `path`, extracted once.
+    fn icon_at(&mut self, path: &str) -> Option<AppIcon> {
+        if let Some(icon) = self.icons.get(path) {
+            return icon.clone();
+        }
+        let icon = icon::extract(path);
+        self.icons.insert(path.to_owned(), icon.clone());
+        icon
+    }
+
+    /// Saves where the chosen app's exe lives, so its icon still shows while it's closed.
+    fn remember_path(&mut self, exes: &[String], procs: &[Process]) {
+        let Some(path) = procs.iter().find(|p| exes.contains(&p.exe)).and_then(|p| process_path(p.pid)) else {
+            return;
+        };
+        if self.config.target_path.as_deref() != Some(path.as_str()) {
+            self.config.target_path = Some(path);
+            self.config.save();
+        }
+    }
+
     fn resubscribe(&mut self, sessions: &[Session]) {
         for sub in self.subscriptions.drain(..) {
             let _ = sub.session.RemovePlaybackInfoChanged(sub.tokens[0]);
@@ -500,7 +534,15 @@ impl Worker {
     fn press(&mut self, target: Option<&Target>, key: MediaKey) {
         crate::util::log(format!("press {key:?} -> {:?}", target.map(|t| &t.id)));
         match target {
-            Some(target) if target.via_window => press_window(&target.id["exe:".len()..], key),
+            Some(target) if target.via_window => {
+                press_window(&target.id["exe:".len()..], key);
+                // The player starts or stops its audio stream shortly after, which sets its play state.
+                let tx = self.tx.clone();
+                std::thread::spawn(move || {
+                    std::thread::sleep(Duration::from_millis(400));
+                    let _ = tx.send(Cmd::RefreshAudio { devices: false });
+                });
+            }
             Some(target) => {
                 let aumid = &target.id["smtc:".len()..];
                 let matching: Vec<Session> = self
@@ -614,8 +656,19 @@ fn press_window(exe: &str, key: MediaKey) {
     };
     let window = processes().into_iter().filter(|p: &Process| p.exe == exe).find_map(|p| main_window(p.pid));
     if let Some(hwnd) = window {
-        unsafe {
-            let _ = PostMessageW(Some(hwnd), WM_APPCOMMAND, WPARAM(hwnd.0 as usize), LPARAM(command << 16));
-        }
+        // Sent, not posted, as Windows delivers a real media key. Qt passes a posted
+        // message's handler no result pointer, and VLC 3 crashes writing through it.
+        let sent = unsafe {
+            SendMessageTimeoutW(
+                hwnd,
+                WM_APPCOMMAND,
+                WPARAM(hwnd.0 as usize),
+                LPARAM(command << 16),
+                SMTO_ABORTIFHUNG,
+                1000,
+                None,
+            )
+        };
+        crate::util::log(format!("  window {key:?} to {exe}: {}", sent.0 != 0));
     }
 }

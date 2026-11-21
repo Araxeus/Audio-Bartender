@@ -5,8 +5,8 @@ use std::collections::HashMap;
 
 use windows::Win32::Media::Audio::Endpoints::IAudioMeterInformation;
 use windows::Win32::Media::Audio::{
-    AudioSessionStateExpired, DEVICE_STATE_ACTIVE, IAudioSessionControl2, IAudioSessionManager2, ISimpleAudioVolume,
-    eRender,
+    AudioSessionStateActive, AudioSessionStateExpired, DEVICE_STATE_ACTIVE, IAudioSessionControl2,
+    IAudioSessionManager2, ISimpleAudioVolume, eRender,
 };
 use windows::Win32::System::Com::CLSCTX_ALL;
 use windows::core::Interface;
@@ -17,6 +17,8 @@ pub struct Session {
     /// Lowercased exe name of the process that owns the session.
     pub exe: String,
     pub pid: u32,
+    /// The session's stream is running. Players stop it when paused.
+    pub active: bool,
     volume: ISimpleAudioVolume,
     meter: Option<IAudioMeterInformation>,
 }
@@ -62,7 +64,8 @@ pub fn sessions(procs: &[Process]) -> Vec<Session> {
             let Ok(list) = manager.GetSessionEnumerator() else { continue };
             for i in 0..list.GetCount().unwrap_or(0) {
                 let Ok(control) = list.GetSession(i) else { continue };
-                if control.GetState().is_ok_and(|s| s == AudioSessionStateExpired) {
+                let Ok(state) = control.GetState() else { continue };
+                if state == AudioSessionStateExpired {
                     continue;
                 }
                 let Ok(control2) = control.cast::<IAudioSessionControl2>() else { continue };
@@ -73,11 +76,19 @@ pub fn sessions(procs: &[Process]) -> Vec<Session> {
                 let Some(exe) = exe_of.get(&pid) else { continue };
                 let Ok(volume) = control.cast::<ISimpleAudioVolume>() else { continue };
                 let meter = control.cast::<IAudioMeterInformation>().ok();
-                out.push(Session { exe: (*exe).to_owned(), pid, volume, meter });
+                let active = state == AudioSessionStateActive;
+                out.push(Session { exe: (*exe).to_owned(), pid, active, volume, meter });
             }
         }
     }
     out
+}
+
+/// Whether any audio session of `exes` is playing, or `None` when they have none.
+pub fn playing(sessions: &[Session], exes: &[String]) -> Option<bool> {
+    let mut mine = sessions.iter().filter(|s| exes.contains(&s.exe)).peekable();
+    mine.peek()?;
+    Some(mine.any(|s| s.active))
 }
 
 /// Exe names whose audio sessions belong to a target.
