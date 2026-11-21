@@ -241,7 +241,11 @@ function targets(state) {
     el("div", "text", el("div", "name small", "Automatic"), el("div", "detail", windowsDecides(state))),
     radio(automatic, null),
   );
-  if (automatic && mode === "row") auto.append(el("div", "row-controls", transport(false)));
+  if (automatic && mode === "row") {
+    // The buttons reach Windows' current session, so show its state.
+    const current = state.targets.find((t) => t.id === state.current);
+    auto.append(el("div", "row-controls", transport(current?.running && current.playback === "playing")));
+  }
   selectable(auto, null);
   const rows = [auto];
   for (const t of state.targets) {
