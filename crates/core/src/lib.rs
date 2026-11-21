@@ -827,8 +827,9 @@ impl Core {
         }
         let (tx, rx) = mpsc::channel();
         let shared = Arc::new(Shared { state: Mutex::new(State::default()), on_event: Box::new(on_event), tx });
-        input::spawn(shared.clone());
-        media::spawn(shared.clone(), rx);
+        let config = config::Config::load();
+        input::spawn(shared.clone(), config.settings.speaker_position);
+        media::spawn(shared.clone(), rx, config);
         Some(Core { shared })
     }
 

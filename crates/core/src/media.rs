@@ -48,12 +48,12 @@ const ART_SETTLE: Duration = Duration::from_secs(8);
 /// Album art above this size is skipped to keep state snapshots small.
 const MAX_ART_BYTES: u64 = 512 * 1024;
 
-pub fn spawn(shared: Arc<Shared>, rx: Receiver<Cmd>) {
+pub fn spawn(shared: Arc<Shared>, rx: Receiver<Cmd>, config: Config) {
     std::thread::Builder::new()
         .name("bartender-media".into())
         .spawn(move || {
             crate::util::com_init();
-            Worker::new(shared).run(rx);
+            Worker::new(shared, config).run(rx);
         })
         .expect("spawn media thread");
 }
@@ -90,7 +90,7 @@ struct Worker {
 }
 
 impl Worker {
-    fn new(shared: Arc<Shared>) -> Worker {
+    fn new(shared: Arc<Shared>, config: Config) -> Worker {
         let tx = shared.tx.clone();
         let manager = Manager::RequestAsync().and_then(|op| op.join()).ok();
         if let Some(manager) = &manager {
@@ -107,7 +107,7 @@ impl Worker {
             manager,
             subscriptions: Vec::new(),
             watcher,
-            config: Config::load(),
+            config,
             names: Names::default(),
             media: Vec::new(),
             devices: Vec::new(),

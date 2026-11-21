@@ -260,8 +260,9 @@ pub fn claim_single_instance() -> bool {
     }
 }
 
-pub fn spawn(shared: Arc<Shared>) {
+pub fn spawn(shared: Arc<Shared>, speaker_position: bool) {
     let _ = SHARED.set(shared);
+    speaker_slot::enable(speaker_position && crate::util::windows_11());
     std::thread::Builder::new().name("bartender-hook".into()).spawn(run_hook).expect("spawn hook thread");
     std::thread::Builder::new().name("bartender-tray".into()).spawn(run_tray).expect("spawn tray thread");
 }
@@ -324,13 +325,14 @@ pub fn update_tray(state: &State) {
 pub fn remove_tray() {
     let hwnd = HWND(TRAY.load(Relaxed) as _);
     if !hwnd.is_invalid() {
-        let mut data =
-            NOTIFYICONDATAW { cbSize: size_of::<NOTIFYICONDATAW>() as u32, hWnd: hwnd, ..Default::default() };
-        identify(&mut data);
-        unsafe {
-            let _ = Shell_NotifyIconW(NIM_DELETE, &data);
-        }
+        delete_icon(hwnd);
     }
+}
+
+fn delete_icon(hwnd: HWND) -> bool {
+    let mut data = NOTIFYICONDATAW { cbSize: size_of::<NOTIFYICONDATAW>() as u32, hWnd: hwnd, ..Default::default() };
+    identify(&mut data);
+    unsafe { Shell_NotifyIconW(NIM_DELETE, &data).as_bool() }
 }
 
 fn post(msg: u32, wparam: usize) {
@@ -606,6 +608,9 @@ pub(crate) fn speaker_position_active() -> bool {
 /// Windows 11 keeps that in the registry. On Windows 10 the icon is on the taskbar
 /// when its rectangle lies inside the taskbar's.
 pub(crate) fn icon_on_taskbar() -> Option<bool> {
+    if speaker_slot::enabled() {
+        return None;
+    }
     if crate::util::windows_11() {
         return crate::util::tray_icon_promoted();
     }
@@ -711,14 +716,14 @@ pub(crate) fn anchor_for(icon: RECT) -> Anchor {
     }
 }
 
-/// False once the shell refused the GUID, so the icon falls back to the window and
-/// number identity rather than not showing.
+static BACKUP_ICON: AtomicBool = AtomicBool::new(false);
+/// Cleared when Explorer requires window-and-number identification for the current icon.
 static USE_GUID: AtomicBool = AtomicBool::new(true);
 
 /// The tray icon's fixed identity, which lets Windows remember where the user put it
 /// across restarts. It comes from the exe's path, because Windows binds a GUID to one
 /// path: each copy, and each front end, gets its own.
-fn icon_guid() -> GUID {
+pub(crate) fn ordinary_icon_guid() -> GUID {
     static ID: OnceLock<GUID> = OnceLock::new();
     *ID.get_or_init(|| {
         let name = std::env::current_exe().map(|p| p.to_string_lossy().to_lowercase()).unwrap_or_default();
@@ -728,8 +733,19 @@ fn icon_guid() -> GUID {
     })
 }
 
+/// Give the overflow backup its own identity so it never inherits the ordinary
+/// icon's pin. Changing modes restores the user's normal icon and placement.
+fn icon_guid() -> GUID {
+    let mut guid = ordinary_icon_guid();
+    if BACKUP_ICON.load(Relaxed) {
+        guid.data3 += 1;
+    }
+    guid
+}
+
 /// Marks `data` with the fixed identity while the shell accepts it.
 fn identify(data: &mut NOTIFYICONDATAW) {
+    data.uID = u32::from(BACKUP_ICON.load(Relaxed));
     if USE_GUID.load(Relaxed) {
         data.uFlags |= NIF_GUID;
         data.guidItem = icon_guid();
@@ -742,7 +758,7 @@ fn identifier(hwnd: HWND) -> NOTIFYICONIDENTIFIER {
         cbSize: size_of::<NOTIFYICONIDENTIFIER>() as u32,
         hWnd: hwnd,
         guidItem: guid,
-        ..Default::default()
+        uID: u32::from(BACKUP_ICON.load(Relaxed)),
     }
 }
 
@@ -762,6 +778,26 @@ unsafe fn set_icon(hwnd: HWND, action: NOTIFY_ICON_MESSAGE) {
         return;
     };
 
+    let backup = speaker_slot::enabled();
+    let action = if BACKUP_ICON.load(Relaxed) != backup {
+        if CURRENT_ICON.load(Relaxed) != 0
+            && !delete_icon(hwnd)
+            && unsafe { Shell_NotifyIconGetRect(&identifier(hwnd)) }.is_ok()
+        {
+            // Explorer still has the previous icon. Retry the switch without
+            // registering a second one in the meantime.
+            unsafe {
+                let _ = DestroyIcon(icon);
+                SetTimer(Some(hwnd), TIMER_RESTORE_ICON, 1000, None);
+            }
+            return;
+        }
+        BACKUP_ICON.store(backup, Relaxed);
+        USE_GUID.store(true, Relaxed);
+        NIM_ADD
+    } else {
+        action
+    };
     let mut data = NOTIFYICONDATAW {
         cbSize: size_of::<NOTIFYICONDATAW>() as u32,
         hWnd: hwnd,

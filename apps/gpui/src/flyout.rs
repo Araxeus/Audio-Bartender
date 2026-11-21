@@ -1251,7 +1251,7 @@ impl Flyout {
             let core = self.core.clone();
             let on = state.icon_on_taskbar.unwrap_or(false);
             row(
-                if s.speaker_position { "Show fallback icon on taskbar" } else { "Show icon on the taskbar" },
+                "Show icon on the taskbar",
                 Self::switch("icon-on-taskbar", on, theme, move |on| core.set_icon_on_taskbar(on)),
             )
         } else {
@@ -1328,7 +1328,7 @@ impl Flyout {
                 self.setting_switch("auto-update", s.auto_update, Setting::AutoUpdate, theme),
             ))
             .child(update)
-            .child(icon_row)
+            .when(!audio_bartender_core::windows_11() || !s.speaker_position, |panel| panel.child(icon_row))
             .child(volume_row)
             .child(Self::panel_label("LOOK", theme))
             .child(self.swatches(s.accent, theme))

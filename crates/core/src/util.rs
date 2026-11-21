@@ -158,6 +158,7 @@ fn our_icon_keys() -> Vec<Vec<u16>> {
     else {
         return Vec::new();
     };
+    let ordinary_guid = format!("{{{:?}}}", crate::input::ordinary_icon_guid());
     let root = wide(ICON_SETTINGS);
     let mut keys = Vec::new();
     unsafe {
@@ -194,7 +195,21 @@ fn our_icon_keys() -> Vec<Vec<u16>> {
                 Some(&mut size),
             );
             if found.is_ok() && from_wide(&path).to_lowercase().rsplit('\\').next() == Some(exe.as_str()) {
-                keys.push(sub);
+                // The separate speaker-mode backup always belongs in overflow.
+                let mut guid = [0u16; 40];
+                let mut size = size_of_val(&guid) as u32;
+                let read = RegGetValueW(
+                    HKEY_CURRENT_USER,
+                    windows::core::PCWSTR(sub.as_ptr()),
+                    windows::core::w!("IconGuid"),
+                    RRF_RT_REG_SZ,
+                    None,
+                    Some(guid.as_mut_ptr().cast()),
+                    Some(&mut size),
+                );
+                if read.is_err() || from_wide(&guid).eq_ignore_ascii_case(&ordinary_guid) {
+                    keys.push(sub);
+                }
             }
         }
         let _ = RegCloseKey(key);

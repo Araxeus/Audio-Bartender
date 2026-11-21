@@ -1,6 +1,6 @@
 //! Places an Audio Bartender window over the individual Quick Settings speaker.
 //! UI Automation reads Explorer on a windowless MTA thread. The tray thread
-//! paints and positions our popup and owns all of its input handling.
+//! paints and positions our child window and owns all of its input handling.
 
 use std::sync::atomic::{AtomicBool, AtomicIsize, AtomicU32, Ordering::Relaxed};
 use std::sync::mpsc::{self, Sender};
@@ -247,7 +247,9 @@ fn shell_hit(point: POINT, matches: impl FnOnce(Placement) -> bool) -> bool {
     physical(|| unsafe {
         let taskbar = HWND(p.taskbar as _);
         let mut bar = RECT::default();
-        GetAncestor(WindowFromPoint(point), GA_ROOT) == taskbar
+        let hit = WindowFromPoint(point);
+        hit != HWND(WINDOW.load(Relaxed) as _)
+            && GetAncestor(hit, GA_ROOT) == taskbar
             && GetWindowRect(taskbar, &mut bar).is_ok()
             && bar == p.bar
     })
@@ -255,6 +257,10 @@ fn shell_hit(point: POINT, matches: impl FnOnce(Placement) -> bool) -> bool {
 
 pub(super) fn native_speaker_at(point: POINT) -> bool {
     shell_hit(point, |p| inside(point, p.tile))
+}
+
+pub(super) fn enabled() -> bool {
+    ENABLED.load(Relaxed)
 }
 
 pub(super) fn reachable() -> bool {
@@ -303,10 +309,13 @@ pub(super) fn reset() {
     }
 }
 
-fn window() -> Option<HWND> {
+fn window(taskbar: HWND) -> Option<HWND> {
     let hwnd = HWND(WINDOW.load(Relaxed) as _);
     if !hwnd.is_invalid() {
-        return Some(hwnd);
+        if unsafe { GetParent(hwnd).ok() } == Some(taskbar) {
+            return Some(hwnd);
+        }
+        unsafe { DestroyWindow(hwnd) }.ok()?;
     }
     unsafe {
         let instance = GetModuleHandleW(None).ok()?;
@@ -319,20 +328,26 @@ fn window() -> Option<HWND> {
         };
         RegisterClassW(&class);
         let hwnd = CreateWindowExW(
-            WS_EX_TOOLWINDOW | WS_EX_NOACTIVATE,
+            WS_EX_LAYERED | WS_EX_NOPARENTNOTIFY | WS_EX_NOACTIVATE,
             CLASS,
             w!("Audio Bartender volume"),
-            WS_POPUP,
+            WS_CHILD | WS_CLIPSIBLINGS,
             0,
             0,
             0,
             0,
-            None,
+            Some(taskbar),
             None,
             Some(instance.into()),
             None,
         )
         .ok()?;
+        // A plain GDI child can receive input while Explorer's composited XAML
+        // still paints over it. Give the tile its own opaque composition surface.
+        if SetLayeredWindowAttributes(hwnd, COLORREF(0), 255, LWA_ALPHA).is_err() {
+            let _ = DestroyWindow(hwnd);
+            return None;
+        }
         WINDOW.store(hwnd.0 as isize, Relaxed);
         Some(hwnd)
     }
@@ -370,11 +385,11 @@ fn show(found: Placement) -> Option<()> {
             return None;
         }
         let tile = found.tile;
-        let hwnd = window()?;
+        let hwnd = window(taskbar)?;
         let edge = POINT { x: (tile.left + tile.right) / 2, y: (tile.top - 1).max(found.button.top) };
         let hit = WindowFromPoint(edge);
         // A tooltip or Quick Settings can cover this sample without moving the speaker.
-        if GetAncestor(hit, GA_ROOT) == taskbar {
+        if hit != hwnd && GetAncestor(hit, GA_ROOT) == taskbar {
             use windows::Win32::Graphics::Gdi::{GetDC, GetPixel, InvalidateRect, ReleaseDC};
             let dc = GetDC(None);
             let color = GetPixel(dc, edge.x, edge.y);
@@ -383,20 +398,23 @@ fn show(found: Placement) -> Option<()> {
                 let _ = InvalidateRect(Some(hwnd), None, false);
             }
         }
-        // Keep the popup immediately above the taskbar in Z order. Full-screen
-        // windows, menus and the mixer flyout can all cover it normally.
-        let previous = GetWindow(taskbar, GW_HWNDPREV).ok();
-        let mut flags = SWP_NOACTIVATE | SWP_SHOWWINDOW | SWP_NOOWNERZORDER;
-        if previous == Some(hwnd) {
-            flags |= SWP_NOZORDER;
-        }
         let size = tile.right - tile.left;
         let old = rect();
-        if old != Some(tile) || !flags.contains(SWP_NOZORDER) {
-            let after = previous.or_else(|| {
-                ((GetWindowLongPtrW(taskbar, GWL_EXSTYLE) as u32 & WS_EX_TOPMOST.0) != 0).then_some(HWND_TOPMOST)
-            });
-            SetWindowPos(hwnd, after, tile.left, tile.top, size, size, flags).ok()?;
+        // A real child moves with Explorer between the desktop and Quick Settings
+        // bands. Child coordinates are in the taskbar client area, including RTL.
+        if old != Some(tile) || GetTopWindow(Some(taskbar)).ok() != Some(hwnd) {
+            let mut corners = [POINT { x: tile.left, y: tile.top }, POINT { x: tile.right, y: tile.bottom }];
+            windows::Win32::Graphics::Gdi::MapWindowPoints(None, Some(taskbar), &mut corners);
+            SetWindowPos(
+                hwnd,
+                Some(HWND_TOP),
+                corners[0].x.min(corners[1].x),
+                corners[0].y,
+                size,
+                size,
+                SWP_SHOWWINDOW | SWP_NOACTIVATE,
+            )
+            .ok()?;
         }
         if old.is_none_or(|r| r.right - r.left != size) {
             let corner = (size / 3).max(2);
