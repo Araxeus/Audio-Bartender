@@ -332,7 +332,16 @@ impl NowPlaying {
                 Some((title, artist)) => (title.to_owned(), format!("{artist} · {}", target.name)),
                 None => (track.clone(), target.name.clone()),
             },
-            (None, true) => (target.name.clone(), "Nothing playing".into()),
+            // A player without track info can still say whether it plays.
+            (None, true) => (
+                target.name.clone(),
+                match target.playback {
+                    Playback::Playing => "Playing",
+                    Playback::Paused => "Paused",
+                    _ => "Nothing playing",
+                }
+                .into(),
+            ),
         };
         let playing = target.running && target.playback == Playback::Playing;
         NowPlaying { title, subtitle, playing, target: Some(target.clone()) }
@@ -1088,7 +1097,12 @@ impl Flyout {
                 .bg(bg)
                 .cursor_pointer()
                 .hover(move |st| st.bg(hover))
-                .child(Icon::new(icon).size(icon_size).text_color(color))
+                // A triangle's weight sits on its wide side, so play shifts right to look centered.
+                .child(
+                    div()
+                        .when(matches!(icon, IconName::Play), |d| d.relative().left(px(1.)))
+                        .child(Icon::new(icon).size(icon_size).text_color(color)),
+                )
                 .on_mouse_down(MouseButton::Left, move |_, _, cx| {
                     match &target {
                         Some(target) => core.press_for(target, key),

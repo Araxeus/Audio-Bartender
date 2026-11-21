@@ -139,7 +139,8 @@ function nowPlaying(state) {
   if (!t) return { title: "Automatic", subtitle: "Media keys go where Windows decides", playing: false, target: null };
   if (!t.running) return { title: t.name, subtitle: "Not running", playing: false, target: t };
   const playing = t.playback === "playing";
-  if (!t.track) return { title: t.name, subtitle: "Nothing playing", playing, target: t };
+  // A player without track info can still say whether it plays.
+  if (!t.track) return { title: t.name, subtitle: { playing: "Playing", paused: "Paused" }[t.playback] ?? "Nothing playing", playing, target: t };
   const [title, artist] = t.track.split(" \u2014 ");
   return { title, subtitle: artist ? `${artist} \u00b7 ${t.name}` : t.name, playing, target: t };
 }
