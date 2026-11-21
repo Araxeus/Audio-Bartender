@@ -589,6 +589,15 @@ unsafe extern "system" fn wndproc(hwnd: HWND, msg: u32, wparam: WPARAM, lparam: 
             }
         }
         WM_REDRAW => unsafe { set_icon(hwnd, NIM_MODIFY) },
+        WM_POWERBROADCAST if matches!(wparam.0 as u32, PBT_APMRESUMESUSPEND | PBT_APMRESUMEAUTOMATIC) => {
+            speaker_slot::reset();
+            unsafe { set_icon(hwnd, NIM_MODIFY) };
+            return LRESULT(1);
+        }
+        WM_DISPLAYCHANGE if speaker_slot::enabled() => {
+            speaker_slot::reset();
+            unsafe { set_icon(hwnd, NIM_MODIFY) };
+        }
         WM_SETTINGCHANGE => unsafe { set_icon(hwnd, NIM_MODIFY) },
         _ if msg == TASKBAR_CREATED.load(Relaxed) => {
             speaker_slot::reset();
@@ -716,7 +725,6 @@ pub(crate) fn anchor_for(icon: RECT) -> Anchor {
     }
 }
 
-static BACKUP_ICON: AtomicBool = AtomicBool::new(false);
 /// Cleared when Explorer requires window-and-number identification for the current icon.
 static USE_GUID: AtomicBool = AtomicBool::new(true);
 
@@ -733,33 +741,17 @@ pub(crate) fn ordinary_icon_guid() -> GUID {
     })
 }
 
-/// Give the overflow backup its own identity so it never inherits the ordinary
-/// icon's pin. Changing modes restores the user's normal icon and placement.
-fn icon_guid() -> GUID {
-    let mut guid = ordinary_icon_guid();
-    if BACKUP_ICON.load(Relaxed) {
-        guid.data3 += 1;
-    }
-    guid
-}
-
 /// Marks `data` with the fixed identity while the shell accepts it.
 fn identify(data: &mut NOTIFYICONDATAW) {
-    data.uID = u32::from(BACKUP_ICON.load(Relaxed));
     if USE_GUID.load(Relaxed) {
         data.uFlags |= NIF_GUID;
-        data.guidItem = icon_guid();
+        data.guidItem = ordinary_icon_guid();
     }
 }
 
 fn identifier(hwnd: HWND) -> NOTIFYICONIDENTIFIER {
-    let guid = if USE_GUID.load(Relaxed) { icon_guid() } else { GUID::zeroed() };
-    NOTIFYICONIDENTIFIER {
-        cbSize: size_of::<NOTIFYICONIDENTIFIER>() as u32,
-        hWnd: hwnd,
-        guidItem: guid,
-        uID: u32::from(BACKUP_ICON.load(Relaxed)),
-    }
+    let guid = if USE_GUID.load(Relaxed) { ordinary_icon_guid() } else { GUID::zeroed() };
+    NOTIFYICONIDENTIFIER { cbSize: size_of::<NOTIFYICONIDENTIFIER>() as u32, hWnd: hwnd, guidItem: guid, uID: 0 }
 }
 
 /// Draws the current volume and pushes it to the shell with `action`.
@@ -778,26 +770,6 @@ unsafe fn set_icon(hwnd: HWND, action: NOTIFY_ICON_MESSAGE) {
         return;
     };
 
-    let backup = speaker_slot::enabled();
-    let action = if BACKUP_ICON.load(Relaxed) != backup {
-        if CURRENT_ICON.load(Relaxed) != 0
-            && !delete_icon(hwnd)
-            && unsafe { Shell_NotifyIconGetRect(&identifier(hwnd)) }.is_ok()
-        {
-            // Explorer still has the previous icon. Retry the switch without
-            // registering a second one in the meantime.
-            unsafe {
-                let _ = DestroyIcon(icon);
-                SetTimer(Some(hwnd), TIMER_RESTORE_ICON, 1000, None);
-            }
-            return;
-        }
-        BACKUP_ICON.store(backup, Relaxed);
-        USE_GUID.store(true, Relaxed);
-        NIM_ADD
-    } else {
-        action
-    };
     let mut data = NOTIFYICONDATAW {
         cbSize: size_of::<NOTIFYICONDATAW>() as u32,
         hWnd: hwnd,
@@ -809,9 +781,12 @@ unsafe fn set_icon(hwnd: HWND, action: NOTIFY_ICON_MESSAGE) {
         ..Default::default()
     };
     fill_wide(&mut data.szTip, &text);
-    // Explicitly clear the hidden flag left by older speaker-position builds.
+    // Keep the registration warm so fallback retains the saved pin.
     data.uFlags |= NIF_STATE;
     data.dwStateMask = NIS_HIDDEN;
+    if speaker_slot::reachable() && slot.is_some() {
+        data.dwState = NIS_HIDDEN;
+    }
     if let Some(slot) = slot {
         unsafe {
             let _ = InvalidateRect(Some(slot), None, false);

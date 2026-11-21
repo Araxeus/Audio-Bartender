@@ -41,6 +41,7 @@ static ENABLED: AtomicBool = AtomicBool::new(false);
 static WAKE: OnceLock<Sender<()>> = OnceLock::new();
 static WINDOW: AtomicIsize = AtomicIsize::new(0);
 static BACKGROUND: AtomicU32 = AtomicU32::new(0x303030);
+static PAINTED: AtomicBool = AtomicBool::new(false);
 static REACHABLE: AtomicBool = AtomicBool::new(false);
 static FOUND: Mutex<Option<Placement>> = Mutex::new(None);
 
@@ -297,6 +298,7 @@ pub(super) fn anchor() -> Option<crate::Anchor> {
 }
 
 pub(super) fn reset() {
+    PAINTED.store(false, Relaxed);
     REACHABLE.store(false, Relaxed);
     *FOUND.lock().unwrap() = None;
     if let Some(hwnd) = visible_window() {
@@ -436,17 +438,19 @@ pub(super) fn place() -> bool {
     if !(ENABLED.load(Relaxed) && found.and_then(|p| physical(|| show(p))).is_some())
         && let Some(hwnd) = before
     {
+        PAINTED.store(false, Relaxed);
         unsafe {
             let _ = ShowWindow(hwnd, SW_HIDE);
         }
     }
-    let reachable = visible_window().is_some_and(|hwnd| {
-        physical(|| {
-            let Some(tile) = rect() else { return false };
-            let center = POINT { x: (tile.left + tile.right) / 2, y: (tile.top + tile.bottom) / 2 };
-            unsafe { WindowFromPoint(center) == hwnd }
-        })
-    });
+    let reachable = PAINTED.load(Relaxed)
+        && visible_window().is_some_and(|hwnd| {
+            physical(|| {
+                let Some(tile) = rect() else { return false };
+                let center = POINT { x: (tile.left + tile.right) / 2, y: (tile.top + tile.bottom) / 2 };
+                unsafe { WindowFromPoint(center) == hwnd }
+            })
+        });
     REACHABLE.swap(reachable, Relaxed) != reachable
 }
 
@@ -458,7 +462,10 @@ unsafe extern "system" fn wndproc(hwnd: HWND, msg: u32, wp: WPARAM, lp: LPARAM) 
     static CLICKED: AtomicBool = AtomicBool::new(false);
     let event = match msg {
         WM_NCDESTROY => {
-            let _ = WINDOW.compare_exchange(hwnd.0 as isize, 0, Relaxed, Relaxed);
+            if WINDOW.compare_exchange(hwnd.0 as isize, 0, Relaxed, Relaxed).is_ok() {
+                post(WM_SPEAKER_SLOT, 0);
+            }
+            PAINTED.store(false, Relaxed);
             CLICKED.store(false, Relaxed);
             return unsafe { DefWindowProcW(hwnd, msg, wp, lp) };
         }
@@ -480,12 +487,16 @@ unsafe extern "system" fn wndproc(hwnd: HWND, msg: u32, wp: WPARAM, lp: LPARAM) 
                 FillRect(dc, &r, brush);
                 let _ = DeleteObject(brush.into());
                 let icon = HICON(CURRENT_ICON.load(Relaxed) as _);
+                let mut painted = false;
                 if !icon.is_invalid() {
                     let size = icon_size(hwnd).min(r.right);
                     let p = (r.right - size) / 2;
-                    let _ = DrawIconEx(dc, p, p, icon, size, size, 0, None, DI_NORMAL);
+                    painted = DrawIconEx(dc, p, p, icon, size, size, 0, None, DI_NORMAL).is_ok();
                 }
-                let _ = EndPaint(hwnd, &ps);
+                let finished = EndPaint(hwnd, &ps).as_bool() && painted;
+                if PAINTED.swap(finished, Relaxed) != finished {
+                    post(WM_SPEAKER_SLOT, 0);
+                }
             }
             return LRESULT(0);
         }
