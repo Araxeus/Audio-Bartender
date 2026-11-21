@@ -35,7 +35,9 @@
     neon: ["#ec4899", "#0f172a", "grid"],
     moss: ["#84cc16", "#14532d", "circle"],
     ember: ["#ef4444", "#facc15", "waves"],
-    video: ["#0f172a", "#334155", "play"],
+    // Video frames, as Chrome reports a video's thumbnail.
+    valley: ["#7dd3fc", "#f59e0b", "valley"],
+    studio: ["#334155", "#0f172a", "studio"],
   };
 
   function coverSvg([a, b, shape]) {
@@ -43,7 +45,8 @@
       circle: `<circle cx="64" cy="58" r="30" fill="#fff" fill-opacity=".85"/><rect y="92" width="128" height="36" fill="#000" fill-opacity=".25"/>`,
       waves: `<path d="M0 80q32-24 64 0t64 0v48H0z" fill="#fff" fill-opacity=".35"/><path d="M0 96q32-24 64 0t64 0v32H0z" fill="#fff" fill-opacity=".55"/>`,
       grid: `<path d="M0 88h128M0 104h128M0 120h128M32 72v56M64 72v56M96 72v56" stroke="#fff" stroke-opacity=".5" stroke-width="2"/><circle cx="64" cy="48" r="22" fill="#fff" fill-opacity=".9"/>`,
-      play: `<rect x="8" y="22" width="112" height="84" rx="10" fill="#1e293b"/><path d="M54 46l26 18-26 18z" fill="#fff"/>`,
+      valley: `<circle cx="90" cy="46" r="15" fill="#fef3c7"/><path d="M0 92l30-26 26 18 30-32 42 40v36H0z" fill="#15803d"/><path d="M0 108l40-16 34 12 54-18v42H0z" fill="#14532d"/>`,
+      studio: `<circle cx="64" cy="20" r="40" fill="#fbbf24" fill-opacity=".18"/><rect x="12" y="62" width="104" height="54" rx="5" fill="#1e293b"/><path d="M28 72v34M46 72v34M64 72v34M82 72v34M100 72v34" stroke="#64748b" stroke-width="3"/><rect x="22" y="78" width="12" height="7" rx="2" fill="#e2e8f0"/><rect x="40" y="94" width="12" height="7" rx="2" fill="#e2e8f0"/><rect x="58" y="84" width="12" height="7" rx="2" fill="#e2e8f0"/><rect x="76" y="98" width="12" height="7" rx="2" fill="#e2e8f0"/><rect x="94" y="80" width="12" height="7" rx="2" fill="#e2e8f0"/>`,
     }[shape];
     const svg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128"><defs><linearGradient id="g" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="${a}"/><stop offset="1" stop-color="${b}"/></linearGradient></defs><rect width="128" height="128" fill="url(#g)"/>${art}</svg>`;
     return "data:image/svg+xml;base64," + btoa(svg);
@@ -56,13 +59,25 @@
       grad.addColorStop(1, b);
       g.fillStyle = grad;
       g.fillRect(x, y, s, s);
+      if (shape === "valley") {
+        g.fillStyle = "#15803d";
+        g.beginPath();
+        g.moveTo(x, y + s * 0.72);
+        g.lineTo(x + s * 0.45, y + s * 0.5);
+        g.lineTo(x + s, y + s * 0.68);
+        g.lineTo(x + s, y + s);
+        g.lineTo(x, y + s);
+        g.fill();
+        return;
+      }
+      if (shape === "studio") {
+        g.fillStyle = "#e2e8f0";
+        [0.3, 0.5, 0.7].forEach((fx, i) => g.fillRect(x + s * fx - s * 0.06, y + s * (0.45 + 0.1 * i), s * 0.12, s * 0.08));
+        return;
+      }
       g.fillStyle = "rgba(255,255,255,.8)";
       g.beginPath();
-      if (shape === "play") {
-        g.moveTo(x + s * 0.4, y + s * 0.3);
-        g.lineTo(x + s * 0.7, y + s * 0.5);
-        g.lineTo(x + s * 0.4, y + s * 0.7);
-      } else g.arc(x + s / 2, y + s * 0.45, s * 0.22, 0, Math.PI * 2);
+      g.arc(x + s / 2, y + s * 0.45, s * 0.22, 0, Math.PI * 2);
       g.fill();
     };
   }
@@ -76,8 +91,8 @@
       ["Slow Burn — Ember Lane", "ember"],
     ],
     "smtc:Chrome": [
-      ["How speakers actually work — Sound Lab", "video"],
-      ["Mixing for beginners — Studio Notes", "video"],
+      ["How speakers actually work — Sound Lab", "valley"],
+      ["Mixing for beginners — Studio Notes", "studio"],
     ],
   };
   const trackIndex = { "smtc:Spotify": 0, "smtc:Chrome": 0 };
@@ -133,7 +148,7 @@
     targets: [
       target("smtc:Spotify", "Spotify", "playing", 0.8),
       target("smtc:Chrome", "Google Chrome", "paused", 1),
-      Object.assign(target("exe:vlc.exe", "VLC media player", "unknown", null, false), { viaWindow: true }),
+      Object.assign(target("exe:vlc.exe", "VLC media player", "unknown", 1), { viaWindow: true }),
     ],
     mixer: [
       { id: "exe:Discord.exe", name: "Discord", volume: 0.7, muted: false, icon: exeIcon("exe:Discord.exe"), route: null },
@@ -206,7 +221,12 @@
 
   function press(key, id = null) {
     const t = keyTarget(id);
-    if (!t || !TRACKS[t.id]) return null;
+    if (!t) return null;
+    // Window message players get the key but report no playback state back.
+    if (!TRACKS[t.id]) {
+      host?.pressed?.(key, t.name, null);
+      return t;
+    }
     const list = TRACKS[t.id];
     if (key === "playPause") t.playback = t.playback === "playing" ? "paused" : "playing";
     if (key === "stop") t.playback = "stopped";

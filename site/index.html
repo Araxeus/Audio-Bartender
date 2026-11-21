@@ -354,7 +354,8 @@ const verbs = { playPause: "Play/pause", next: "Next", previous: "Previous", sto
 const demo = AudioBartenderDemo.mount(document.getElementById("demo"), {
   theme: "auto",
   onPress: (key, app, playback) => {
-    hint.innerHTML = `${verbs[key]} went to <b>${app}</b>, now ${playback === "playing" ? "playing" : "paused"}.`;
+    const now = playback === "playing" ? ", now playing" : playback ? ", now paused" : "";
+    hint.innerHTML = `${verbs[key]} went to <b>${app}</b>${now}.`;
   },
 });
 // System, Light or Dark. The demo's taskbar and its System theme follow the page.
