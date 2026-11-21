@@ -197,13 +197,69 @@ pub(crate) fn preview_tooltip() {
     post(WM_PREVIEW, 0);
 }
 
-/// Set while the flyout shows its apps without the settings, so hovering the tray
-/// icon doesn't cover it with a tooltip.
+/// Set while the flyout shows its apps without the settings.
 static FLYOUT_QUIET: AtomicBool = AtomicBool::new(false);
 
 /// The page the flyout shows, or `None` once it closes.
 pub(crate) fn set_flyout_page(page: Option<Page>) {
     FLYOUT_QUIET.store(page == Some(Page::Apps), Relaxed);
+}
+
+/// Whether a tooltip by `icon` would cover the flyout's apps. A pinned flyout
+/// dragged away from the icon leaves room for the tooltip.
+fn tooltip_covers_flyout(icon: RECT) -> bool {
+    use windows::Win32::Graphics::Gdi::GetWindowRgnBox;
+    if !FLYOUT_QUIET.load(Relaxed) {
+        return false;
+    }
+    let flyout = HWND(FLYOUT_WINDOW.load(Relaxed) as _);
+    let (mut window, mut shown) = (RECT::default(), RECT::default());
+    if unsafe { GetWindowRect(flyout, &mut window) }.is_err() {
+        return true;
+    }
+    // The region holds only the visible cards, in window coordinates.
+    let shown = if unsafe { GetWindowRgnBox(flyout, &mut shown) }.0 > 1 {
+        RECT {
+            left: window.left + shown.left,
+            top: window.top + shown.top,
+            right: window.left + shown.right,
+            bottom: window.top + shown.bottom,
+        }
+    } else {
+        window
+    };
+    // Room for the largest tooltip on any side of the icon.
+    let reach = (TOOLTIP_REACH * anchor_for(icon).scale) as i32;
+    let (x, y) = ((icon.left + icon.right) / 2, (icon.top + icon.bottom) / 2);
+    shown.left < x + reach && shown.right > x - reach && shown.top < y + reach && shown.bottom > y - reach
+}
+
+/// How far a tooltip reaches from the icon's center, in logical pixels.
+const TOOLTIP_REACH: f32 = 260.;
+
+/// Closes the tray overflow, which stays on top of the flyout a click in it opens.
+/// Windows 10 closes it by its button, so the button knows it closed. Windows 11
+/// gives the button no window, so hide the overflow itself.
+fn close_overflow() {
+    use windows::Win32::UI::WindowsAndMessaging::FindWindowExW;
+    unsafe {
+        if let Ok(overflow) = FindWindowW(w!("NotifyIconOverflowWindow"), None)
+            && IsWindowVisible(overflow).as_bool()
+        {
+            let button = FindWindowW(w!("Shell_TrayWnd"), None)
+                .and_then(|bar| FindWindowExW(Some(bar), None, w!("TrayNotifyWnd"), None))
+                .and_then(|area| FindWindowExW(Some(area), None, w!("Button"), None));
+            match button {
+                Ok(button) => _ = PostMessageW(Some(button), BM_CLICK, WPARAM(0), LPARAM(0)),
+                Err(_) => _ = ShowWindow(overflow, SW_HIDE),
+            }
+        }
+        if let Ok(overflow) = FindWindowW(w!("TopLevelWindowForOverflowXamlIsland"), None)
+            && IsWindowVisible(overflow).as_bool()
+        {
+            let _ = ShowWindow(overflow, SW_HIDE);
+        }
+    }
 }
 
 /// True while the tooltip should stay: the pointer is on the icon, on a card with
@@ -574,10 +630,12 @@ unsafe extern "system" fn wndproc(hwnd: HWND, msg: u32, wparam: WPARAM, lparam: 
         // Version 4 callbacks carry the event in the low word.
         WM_TRAY => match lparam.0 as u32 & 0xFFFF {
             WM_MOUSEMOVE => remember_icon_rect(hwnd, false),
-            NIN_POPUPOPEN if FLYOUT_QUIET.load(Relaxed) => {}
             NIN_POPUPOPEN => {
-                let tip = TRAY_STATE.lock().unwrap().tip();
-                tooltip::show(&tip, icon_rect(hwnd).unwrap_or_else(cursor_rect));
+                let icon = icon_rect(hwnd).unwrap_or_else(cursor_rect);
+                if !tooltip_covers_flyout(icon) {
+                    let tip = TRAY_STATE.lock().unwrap().tip();
+                    tooltip::show(&tip, icon);
+                }
             }
             // Redrawing the icon also makes the shell close the tooltip, so while the
             // pointer stays on the icon, or heads for a card with buttons, keep it and
@@ -594,6 +652,7 @@ unsafe extern "system" fn wndproc(hwnd: HWND, msg: u32, wparam: WPARAM, lparam: 
             }
             WM_LBUTTONUP => {
                 tooltip::hide();
+                close_overflow();
                 shared().emit(Event::Flyout { anchor: anchor(hwnd), page: Page::Apps, toggle: true });
             }
             WM_MBUTTONUP => {
