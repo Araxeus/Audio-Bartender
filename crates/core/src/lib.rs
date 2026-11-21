@@ -19,6 +19,7 @@ mod input;
 mod media;
 mod meters;
 mod names;
+mod route;
 mod tooltip;
 mod tray_icon;
 mod update;
@@ -121,6 +122,8 @@ pub struct Target {
     pub muted: bool,
     /// Album art when [`Settings::album_art`] is on and the app has some, else the exe icon.
     pub icon: Option<AppIcon>,
+    /// The output device this app is sent to, when not the default.
+    pub route: Option<String>,
 }
 
 /// An app playing audio that isn't a media key target, as in the Volume Mixer.
@@ -133,6 +136,8 @@ pub struct MixerApp {
     pub volume: f32,
     pub muted: bool,
     pub icon: Option<AppIcon>,
+    /// The output device this app is sent to, when not the default.
+    pub route: Option<String>,
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -140,7 +145,55 @@ pub struct MixerApp {
 pub struct Device {
     pub id: String,
     pub name: String,
+    /// The name without its adapter, such as "Headphones" for "Headphones (WH-1000XM5)".
+    pub short: String,
+    pub kind: DeviceKind,
     pub default: bool,
+}
+
+/// What kind of output a device is, for its icon.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+#[cfg_attr(feature = "serde", derive(Serialize), serde(rename_all = "camelCase"))]
+pub enum DeviceKind {
+    #[default]
+    Speakers,
+    /// Headphones and headsets.
+    Headphones,
+    /// A TV or monitor over HDMI or DisplayPort.
+    Display,
+}
+
+/// How an app row shows that the app plays on another device.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize), serde(rename_all = "camelCase"))]
+pub enum DeviceChip {
+    /// Nothing on the row; the device list still shows every route.
+    None,
+    /// A chip with the device's name beside the app name.
+    #[default]
+    Beside,
+    /// The device's icon in place of the speaker in the row's volume control.
+    Volume,
+    /// The device's icon after the app name.
+    Icon,
+}
+
+impl DeviceChip {
+    pub const ALL: [DeviceChip; 4] = [DeviceChip::None, DeviceChip::Beside, DeviceChip::Volume, DeviceChip::Icon];
+
+    /// The config file name.
+    pub fn name(self) -> &'static str {
+        match self {
+            DeviceChip::None => "none",
+            DeviceChip::Beside => "beside",
+            DeviceChip::Volume => "volume",
+            DeviceChip::Icon => "icon",
+        }
+    }
+
+    pub fn from_name(name: &str) -> Option<DeviceChip> {
+        DeviceChip::ALL.into_iter().find(|c| c.name() == name)
+    }
 }
 
 /// The default output device's state plus the other devices.
@@ -486,6 +539,7 @@ pub struct Settings {
     pub media_buttons: MediaButtons,
     pub media_controls: MediaControls,
     pub level_meters: LevelMeters,
+    pub device_chip: DeviceChip,
     pub accent: Accent,
 }
 
@@ -503,6 +557,7 @@ impl Default for Settings {
             media_buttons: MediaButtons::Hover,
             media_controls: MediaControls::Hover,
             level_meters: LevelMeters::Volume,
+            device_chip: DeviceChip::Beside,
             accent: Accent::Cyan,
         }
     }
@@ -523,6 +578,7 @@ pub enum Setting {
     MediaButtons(MediaButtons),
     MediaControls(MediaControls),
     LevelMeters(LevelMeters),
+    DeviceChip(DeviceChip),
     Accent(Accent),
 }
 
@@ -536,6 +592,11 @@ pub enum IconPage {
     ShowOurs,
     /// System Icons: turn off the Windows volume icon.
     HideWindows,
+}
+
+/// Opens Windows' page of per-app volumes and devices.
+pub fn open_app_volume_settings() {
+    util::open_app_volume_settings();
 }
 
 /// Opens a Windows 10 page for arranging tray icons.
@@ -790,6 +851,11 @@ pub(crate) enum Cmd {
     /// A check finished at this time (ms since the epoch).
     UpdateChecked(u64),
     Set(Setting),
+    /// Send an app to an output device, or back to the default with `None`.
+    Route {
+        app: String,
+        device: Option<String>,
+    },
 }
 
 pub(crate) struct Shared {
@@ -863,6 +929,13 @@ impl Core {
             util::open_icon_page(IconPage::ShowOurs);
         }
         self.shared.send(Cmd::Refresh { resubscribe: false });
+    }
+
+    /// Sends the app with id `app` to the output device `device`, or back to the
+    /// default device with `None`. The choice is saved and applied again as the app
+    /// starts, since Windows doesn't always keep it.
+    pub fn set_route(&self, app: &str, device: Option<&str>) {
+        self.shared.send(Cmd::Route { app: app.to_owned(), device: device.map(str::to_owned) });
     }
 
     /// Checks GitHub for a newer release and installs it if there is one.

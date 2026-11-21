@@ -46,6 +46,32 @@ fn device_name(device: &IMMDevice) -> Option<String> {
     }
 }
 
+/// Headphones, a display, or speakers for everything else. The name decides first,
+/// because some adapters report the wrong form factor for their jacks.
+fn device_kind(device: &IMMDevice, name: &str) -> crate::DeviceKind {
+    let name = name.to_lowercase();
+    if ["headphone", "headset", "earbud", "earphone", "airpods"].iter().any(|w| name.contains(w)) {
+        return crate::DeviceKind::Headphones;
+    }
+    if name.contains("speaker") {
+        return crate::DeviceKind::Speakers;
+    }
+    use windows::Win32::Media::Audio::PKEY_AudioEndpoint_FormFactor;
+    use windows::Win32::System::Com::StructuredStorage::PropVariantToUInt32;
+    // EndpointFormFactor: Headphones 3, Headset 5, Handset 6, DigitalAudioDisplayDevice 9.
+    let factor = unsafe {
+        device
+            .OpenPropertyStore(STGM_READ)
+            .and_then(|store| store.GetValue(&PKEY_AudioEndpoint_FormFactor))
+            .and_then(|value| PropVariantToUInt32(&value))
+    };
+    match factor {
+        Ok(3 | 5 | 6) => crate::DeviceKind::Headphones,
+        Ok(9) => crate::DeviceKind::Display,
+        _ => crate::DeviceKind::Speakers,
+    }
+}
+
 /// Active output devices, with the default one marked.
 pub fn devices(enumerator: &IMMDeviceEnumerator) -> Vec<Device> {
     let default = default_device(enumerator).and_then(|d| device_id(&d));
@@ -56,7 +82,10 @@ pub fn devices(enumerator: &IMMDeviceEnumerator) -> Vec<Device> {
             let Ok(device) = list.Item(i) else { continue };
             let Some(id) = device_id(&device) else { continue };
             let name = device_name(&device).unwrap_or_else(|| "Unknown device".into());
-            out.push(Device { default: default.as_deref() == Some(id.as_str()), id, name });
+            // "Headphones (WH-1000XM5)" shortens to "Headphones".
+            let short = name.split_once(" (").map_or(name.as_str(), |(head, _)| head).to_owned();
+            let kind = device_kind(&device, &name);
+            out.push(Device { default: default.as_deref() == Some(id.as_str()), id, name, short, kind });
         }
     }
     out

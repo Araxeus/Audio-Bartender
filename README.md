@@ -43,9 +43,15 @@ The switch in Settings adds or removes `HKCU\...\Run\AudioBartender` with `--hid
 
 The flyout is the whole UI. Left-click the tray icon to open or close it; it also opens on launch, from the tray menu, and from a second launch. It closes when you click elsewhere unless it's pinned.
 
-- Top row: the app name, then theme, settings, pin (stay open) and quit.
-- Middle: the media key target list with each app's volume, then other apps playing audio, as in the Volume Mixer. Clicking a card (or its radio button) picks where media keys go. The wheel changes volume (2% per notch) only over a volume control and scrolls the list everywhere else. The settings page replaces this list.
-- Bottom, next to the tray: the output device (click to choose another) and the master volume.
+- Top row: the app name, then settings, pin (stay open) and quit.
+- Middle: the media key target list with each app's volume, then other apps playing audio, as in the Volume Mixer. Clicking a card (or its radio button) picks where media keys go. The wheel changes volume (2% per notch) only over a volume control and scrolls the list everywhere else.
+- Bottom, next to the tray: the output device (click to list devices) and the master volume.
+
+### Per-app output devices
+
+An app can play on another device than the default, such as music on headphones and a game on speakers. Right-click an app's row, or open the device list, where each device shows its apps and + sends another app there. Settings → Device chip picks how a row shows its device: beside the name, in the volume control, as an icon, or not at all.
+
+This uses the same private Windows interface as EarTrumpet and Windows' own "App volume and device preferences" page. Windows can forget the choice after a restart or a driver update, so the app saves it and applies it again whenever the app plays. Some games only switch after they restart their audio.
 
 ## Tray icon
 

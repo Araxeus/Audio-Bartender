@@ -167,7 +167,15 @@ impl Volumes {
 
     /// The "80%" on an app row, which turns into a slider while the row is hovered.
     /// `meter` washes it with the app's live level.
-    pub fn pill(&self, id: &str, level: f32, muted: bool, meter: Option<f32>, theme: &Theme) -> Div {
+    pub fn pill(
+        &self,
+        id: &str,
+        level: f32,
+        muted: bool,
+        meter: Option<f32>,
+        device: Option<IconName>,
+        theme: &Theme,
+    ) -> Div {
         h_flex()
             .relative()
             .flex_none()
@@ -191,7 +199,7 @@ impl Volumes {
                         .bg(theme.primary.opacity(0.18)),
                 )
             })
-            .child(Icon::new(volume_icon(level, muted)).xsmall())
+            .child(level_icon(level, muted, device, theme))
             .child(if muted { "Muted".to_owned() } else { format!("{}%", (level * 100.0).round()) })
             .on_scroll(self.on_wheel(id))
     }
@@ -204,7 +212,15 @@ impl Volumes {
     /// A small bar that fills with the volume. Dragging sets it, the wheel nudges
     /// it, and a click without dragging toggles mute.
     /// `meter` draws the app's live level over the volume fill.
-    pub fn bar(&self, id: &str, level: f32, muted: bool, meter: Option<f32>, theme: &Theme) -> Stateful<Div> {
+    pub fn bar(
+        &self,
+        id: &str,
+        level: f32,
+        muted: bool,
+        meter: Option<f32>,
+        device: Option<IconName>,
+        theme: &Theme,
+    ) -> Stateful<Div> {
         let level = self.shown(id, level);
         let fill = if muted { theme.muted_foreground.opacity(0.25) } else { theme.primary.opacity(0.3) };
         let key = format!("bar-{id}");
@@ -244,7 +260,7 @@ impl Volumes {
                     .gap_1()
                     .text_xs()
                     .text_color(if muted { theme.danger } else { theme.foreground })
-                    .child(Icon::new(volume_icon(level, muted)).xsmall())
+                    .child(level_icon(level, muted, device, theme))
                     .child(if muted { "Muted".to_owned() } else { format!("{}%", (level * 100.0).round()) }),
             )
             .child(self.track(key.clone()))
@@ -433,5 +449,14 @@ impl Render for DragVolume {
 fn notify(view: &AnyWeakEntity, cx: &mut App) {
     if let Some(view) = view.upgrade() {
         cx.notify(view.entity_id());
+    }
+}
+
+/// The speaker icon of a volume control, or the icon of the device the app plays on,
+/// in the accent color, while it isn't muted.
+fn level_icon(level: f32, muted: bool, device: Option<IconName>, theme: &Theme) -> Icon {
+    match device {
+        Some(icon) if !muted => Icon::new(icon).xsmall().text_color(theme.primary),
+        _ => Icon::new(volume_icon(level, muted)).xsmall(),
     }
 }

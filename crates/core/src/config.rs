@@ -1,3 +1,4 @@
+use std::collections::BTreeMap;
 use std::path::PathBuf;
 
 use windows::Win32::System::Registry::{
@@ -5,7 +6,9 @@ use windows::Win32::System::Registry::{
 };
 use windows::core::{PCWSTR, w};
 
-use crate::{Accent, LevelMeters, MediaButtons, MediaControls, Settings, TooltipStyle, TrayStyle, VolumeBars};
+use crate::{
+    Accent, DeviceChip, LevelMeters, MediaButtons, MediaControls, Settings, TooltipStyle, TrayStyle, VolumeBars,
+};
 
 const RUN_KEY: PCWSTR = w!("Software\\Microsoft\\Windows\\CurrentVersion\\Run");
 /// Where Task Manager keeps its Startup tab switch for each Run entry.
@@ -25,6 +28,8 @@ pub struct Config {
     /// When the last update check finished, in ms since the epoch.
     pub last_update_check: u64,
     pub settings: Settings,
+    /// Output device id by app id, for apps sent away from the default device.
+    pub routes: BTreeMap<String, String>,
 }
 
 fn path() -> Option<PathBuf> {
@@ -44,6 +49,12 @@ impl Config {
         let s = &mut cfg.settings;
         for line in text.lines() {
             let Some((key, value)) = line.split_once('=') else { continue };
+            if let Some(app) = key.strip_prefix("route.") {
+                if !app.is_empty() && !value.is_empty() {
+                    cfg.routes.insert(app.to_owned(), value.to_owned());
+                }
+                continue;
+            }
             match key {
                 "target" if !value.is_empty() => cfg.target = Some(value.to_owned()),
                 "target_name" if !value.is_empty() => cfg.target_name = Some(value.to_owned()),
@@ -52,6 +63,7 @@ impl Config {
                 "speaker_position" => s.speaker_position = flag(value),
                 "tray_style" => s.tray_style = if value == "number" { TrayStyle::Number } else { TrayStyle::Ring },
                 "level_meters" => s.level_meters = LevelMeters::from_name(value).unwrap_or_default(),
+                "device_chip" => s.device_chip = DeviceChip::from_name(value).unwrap_or_default(),
                 "media_controls" => s.media_controls = MediaControls::from_name(value).unwrap_or_default(),
                 "media_buttons" => s.media_buttons = MediaButtons::from_name(value).unwrap_or_default(),
                 "auto_update" => s.auto_update = flag(value),
@@ -88,7 +100,7 @@ impl Config {
             None => "",
         };
         let text = format!(
-            "target={}\ntarget_name={}\ntheme={theme}\nalbum_art={}\nspeaker_position={}\ntray_style={}\nvolume_bars={}\ntooltip={}\nmedia_buttons={}\nmedia_controls={}\nlevel_meters={}\nauto_update={}\nlast_update_check={}\naccent={}\n",
+            "target={}\ntarget_name={}\ntheme={theme}\nalbum_art={}\nspeaker_position={}\ntray_style={}\nvolume_bars={}\ntooltip={}\nmedia_buttons={}\nmedia_controls={}\nlevel_meters={}\ndevice_chip={}\nauto_update={}\nlast_update_check={}\naccent={}\n",
             self.target.as_deref().unwrap_or(""),
             self.target_name.as_deref().unwrap_or(""),
             s.album_art,
@@ -108,11 +120,13 @@ impl Config {
             s.media_buttons.name(),
             s.media_controls.name(),
             s.level_meters.name(),
+            s.device_chip.name(),
             s.auto_update,
             self.last_update_check,
             s.accent.name(),
         );
-        let _ = std::fs::write(path, text);
+        let routes: String = self.routes.iter().map(|(app, device)| format!("route.{app}={device}\n")).collect();
+        let _ = std::fs::write(path, text + &routes);
     }
 }
 

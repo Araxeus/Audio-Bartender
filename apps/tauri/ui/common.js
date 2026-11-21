@@ -27,6 +27,9 @@ const STROKES = {
   chevronLeft: '<path d="m15 18-6-6 6-6"/>',
   chevronRight: '<path d="m9 18 6-6-6-6"/>',
   close: '<path d="M18 6 6 18M6 6l12 12"/>',
+  headphones: '<path d="M3 14h3a2 2 0 0 1 2 2v3a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-7a9 9 0 0 1 18 0v7a2 2 0 0 1-2 2h-1a2 2 0 0 1-2-2v-3a2 2 0 0 1 2-2h3"/>',
+  tv: '<rect width="20" height="15" x="2" y="7" rx="2"/><path d="m17 2-5 5-5-5"/>',
+  plus: '<path d="M5 12h14M12 5v14"/>',
   settings: '<path d="M20 7h-9M14 17H5"/><circle cx="17" cy="17" r="3"/><circle cx="7" cy="7" r="3"/>',
   power: '<path d="M12 2v10"/><path d="M18.4 6.6a9 9 0 1 1-12.77.04"/>',
   moon: '<path d="M12 3a6 6 0 0 0 9 9 9 9 0 1 1-9-9Z"/>',
@@ -96,6 +99,16 @@ export function avatar(image, name, running = true) {
 export function logo(className = "avatar") {
   const box = el("span", className + " logo", icon("sparkles"));
   return box;
+}
+
+/** The speaker of a volume control, or the icon of the device the app plays on while it isn't muted. */
+function levelIcon(level, muted, device) {
+  if (device && !muted) {
+    const node = icon(device);
+    node.classList.add("routed");
+    return node;
+  }
+  return icon(volumeIcon(level, muted));
 }
 
 function volumeIcon(level, muted) {
@@ -175,8 +188,8 @@ export class Volumes {
   }
 
   /** The "80%" on an app row, which turns into a slider while the row is hovered. */
-  hoverControl(id, level, muted) {
-    const pill = el("span", "pill", icon(volumeIcon(level, muted)), muted ? "Muted" : `${Math.round(level * 100)}%`);
+  hoverControl(id, level, muted, device = null) {
+    const pill = el("span", "pill", levelIcon(level, muted, device), muted ? "Muted" : `${Math.round(level * 100)}%`);
     const node = el("span", "hover-volume", pill, this.range(id, level));
     this.wheel(node, id);
     this.grab(node);
@@ -187,8 +200,8 @@ export class Volumes {
    * A small bar that fills with the volume. Dragging sets it, the wheel nudges
    * it, and a click without dragging toggles mute.
    */
-  bar(id, level, muted) {
-    const node = el("span", "bar" + (muted ? " muted" : ""), icon(volumeIcon(level, muted)), muted ? "Muted" : `${Math.round(level * 100)}%`);
+  bar(id, level, muted, device = null) {
+    const node = el("span", "bar" + (muted ? " muted" : ""), levelIcon(level, muted, device), muted ? "Muted" : `${Math.round(level * 100)}%`);
     node.style.setProperty("--fill", `${Math.round(level * 100)}%`);
     node.title = "Drag or scroll to change, click to mute";
     this.wheel(node, id);

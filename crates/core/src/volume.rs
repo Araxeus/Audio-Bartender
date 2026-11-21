@@ -16,6 +16,7 @@ use crate::util::{Process, processes};
 pub struct Session {
     /// Lowercased exe name of the process that owns the session.
     pub exe: String,
+    pub pid: u32,
     volume: ISimpleAudioVolume,
     meter: Option<IAudioMeterInformation>,
 }
@@ -72,7 +73,7 @@ pub fn sessions(procs: &[Process]) -> Vec<Session> {
                 let Some(exe) = exe_of.get(&pid) else { continue };
                 let Ok(volume) = control.cast::<ISimpleAudioVolume>() else { continue };
                 let meter = control.cast::<IAudioMeterInformation>().ok();
-                out.push(Session { exe: (*exe).to_owned(), volume, meter });
+                out.push(Session { exe: (*exe).to_owned(), pid, volume, meter });
             }
         }
     }

@@ -42,6 +42,23 @@ pub fn com_init() {
     }
 }
 
+/// Opens Windows' "App volume and device preferences" page, which shows the same
+/// per-app devices this app sets.
+pub fn open_app_volume_settings() {
+    use windows::Win32::UI::Shell::ShellExecuteW;
+    use windows::Win32::UI::WindowsAndMessaging::SW_SHOWNORMAL;
+    unsafe {
+        ShellExecuteW(
+            None,
+            windows::core::w!("open"),
+            windows::core::w!("ms-settings:apps-volume"),
+            None,
+            None,
+            SW_SHOWNORMAL,
+        );
+    }
+}
+
 /// Opens the classic Notification Area Icons control panel, or its System Icons page.
 pub fn open_icon_page(page: crate::IconPage) {
     use windows::Win32::UI::Shell::ShellExecuteW;

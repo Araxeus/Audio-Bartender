@@ -89,6 +89,9 @@ struct Worker {
     /// was first seen, and when its art was last fetched.
     art: HashMap<String, (String, Option<AppIcon>, Instant, Instant)>,
     last_refresh: Instant,
+    /// The device each process was last sent to, so routes are applied once per
+    /// process and again when a process starts or a device returns.
+    routed: HashMap<u32, String>,
 }
 
 impl Worker {
@@ -116,6 +119,7 @@ impl Worker {
             icons: HashMap::new(),
             art: HashMap::new(),
             last_refresh: Instant::now(),
+            routed: HashMap::new(),
         }
     }
 
@@ -185,6 +189,7 @@ impl Worker {
                 self.config.save();
                 self.refresh(false);
             }
+            Cmd::Route { app, device } => self.route(app, device),
             Cmd::CheckUpdate => crate::update::check(self.tx.clone()),
             Cmd::UpdateChecked(at) => {
                 self.config.last_update_check = at;
@@ -215,6 +220,7 @@ impl Worker {
                     Setting::MediaButtons(buttons) => s.media_buttons = buttons,
                     Setting::MediaControls(controls) => s.media_controls = controls,
                     Setting::LevelMeters(meters) => s.level_meters = meters,
+                    Setting::DeviceChip(chip) => s.device_chip = chip,
                     Setting::Accent(accent) => s.accent = accent,
                 }
                 self.config.save();
@@ -231,6 +237,43 @@ impl Worker {
         if let Some(watcher) = &mut self.watcher {
             watcher.follow_default();
             self.devices = audio::devices(watcher.enumerator());
+        }
+        // A device that comes back gets its apps again.
+        self.routed.clear();
+    }
+
+    /// Saves where `app` plays and sends its running processes there.
+    fn route(&mut self, app: String, device: Option<String>) {
+        let exes = volume::exes_for(&app);
+        match &device {
+            Some(device) => _ = self.config.routes.insert(app, device.clone()),
+            None => _ = self.config.routes.remove(&app),
+        }
+        self.config.save();
+        // Windows takes a route only for a process with an audio session.
+        let sessions = volume::sessions(&processes());
+        for session in sessions.iter().filter(|s| exes.contains(&s.exe)) {
+            crate::route::set(session.pid, device.as_deref());
+            match &device {
+                Some(device) => _ = self.routed.insert(session.pid, device.clone()),
+                None => _ = self.routed.remove(&session.pid),
+            }
+        }
+        self.publish();
+    }
+
+    /// Sends each audio session of a routed app to its device, once per process, so
+    /// apps that start playing later and choices Windows forgot are covered. Windows
+    /// takes a route only for a process with an audio session, so this follows sessions.
+    fn apply_routes(&mut self, sessions: &[volume::Session]) {
+        self.routed.retain(|pid, _| sessions.iter().any(|s| s.pid == *pid));
+        for (app, device) in &self.config.routes {
+            let exes = volume::exes_for(app);
+            for session in sessions.iter().filter(|s| exes.contains(&s.exe)) {
+                if self.routed.get(&session.pid) != Some(device) && crate::route::set(session.pid, Some(device)) {
+                    self.routed.insert(session.pid, device.clone());
+                }
+            }
         }
     }
 
@@ -330,6 +373,7 @@ impl Worker {
     fn publish(&mut self) {
         let procs = processes();
         let sessions = volume::sessions(&procs);
+        self.apply_routes(&sessions);
 
         let mut covered: Vec<String> = Vec::new();
         let mut targets = Vec::with_capacity(self.media.len());
@@ -345,6 +389,7 @@ impl Worker {
                 target.icon = art.or_else(|| self.icon_for(&exes, &procs));
                 covered.extend(exes);
             }
+            target.route = self.config.routes.get(&target.id).cloned();
             targets.push(target);
         }
 
@@ -354,8 +399,10 @@ impl Worker {
                 continue;
             }
             let exe = session.exe.clone();
+            let id = format!("exe:{exe}");
             mixer.push(MixerApp {
-                id: format!("exe:{exe}"),
+                route: self.config.routes.get(&id).cloned(),
+                id,
                 name: self.names.for_exe(&exe, &procs),
                 volume: (session.level() * 100.0).round() / 100.0,
                 muted: session.muted(),
@@ -466,7 +513,7 @@ fn target(
     running: bool,
     via_window: bool,
 ) -> Target {
-    Target { id, name, playback, track, running, via_window, volume: None, muted: false, icon: None }
+    Target { id, name, playback, track, running, via_window, volume: None, muted: false, icon: None, route: None }
 }
 
 /// An event handler that queues a refresh.

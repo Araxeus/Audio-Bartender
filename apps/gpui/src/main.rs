@@ -33,7 +33,11 @@ gpui_kit::assets::icon_assets!(
         Speaker,
         Check,
         Pin,
-        PinOff
+        PinOff,
+        Headphones,
+        Tv,
+        Plus,
+        X
     ]
 );
 

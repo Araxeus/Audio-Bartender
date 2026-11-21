@@ -7,8 +7,8 @@ use std::rc::Rc;
 use std::time::{Duration, Instant};
 
 use audio_bartender_core::{
-    Accent, Anchor, Core, IconPage, LevelMeters, MediaButtons, MediaControls, MediaKey, Page, Playback, Setting,
-    Settings, State, Target, TooltipStyle, TrayStyle, VolumeBars,
+    Accent, Anchor, Core, DeviceChip, DeviceKind, IconPage, LevelMeters, MediaButtons, MediaControls, MediaKey, Page,
+    Playback, Setting, Settings, State, Target, TooltipStyle, TrayStyle, VolumeBars,
 };
 use gpui_kit::assets::IconName;
 use gpui_kit::base::{h_flex, v_flex};
@@ -135,6 +135,7 @@ enum Mode {
     MediaControls,
     VolumeBars,
     LevelMeters,
+    DeviceChip,
 }
 
 impl Mode {
@@ -147,6 +148,7 @@ impl Mode {
             Mode::MediaControls => "Media controls",
             Mode::VolumeBars => "Volume bars",
             Mode::LevelMeters => "Level meters",
+            Mode::DeviceChip => "Device chip",
         }
     }
 
@@ -226,6 +228,15 @@ impl Mode {
                     meters(LevelMeters::Strip, "Strip", "A meter at the row's left edge"),
                 ]
             }
+            Mode::DeviceChip => {
+                let chip = |c: DeviceChip, name, about| (Setting::DeviceChip(c), name, about, s.device_chip == c);
+                vec![
+                    chip(DeviceChip::None, "None", "Routes show only in the device list"),
+                    chip(DeviceChip::Beside, "Beside name", "The device's name next to the app"),
+                    chip(DeviceChip::Volume, "In volume", "In the volume control, else as an icon"),
+                    chip(DeviceChip::Icon, "Icon", "The device's icon after the app name"),
+                ]
+            }
         }
     }
 }
@@ -237,6 +248,65 @@ fn windows_decides(state: &State) -> String {
         Some(target) => format!("Windows decides · {}", target.name),
         None => "Windows decides".into(),
     }
+}
+
+/// A device's icon, by the kind of output it is.
+fn device_icon(kind: DeviceKind) -> IconName {
+    match kind {
+        DeviceKind::Speakers => IconName::Speaker,
+        DeviceKind::Headphones => IconName::Headphones,
+        DeviceKind::Display => IconName::Tv,
+    }
+}
+
+/// The device an app is sent to: its short name, its icon, and whether it's plugged in.
+fn route_device(state: &State, route: Option<&String>) -> Option<(String, IconName, bool)> {
+    let id = route?;
+    Some(match state.audio.devices.iter().find(|d| &d.id == id) {
+        Some(device) => (device.short.clone(), device_icon(device.kind), true),
+        None => ("Not connected".into(), IconName::Speaker, false),
+    })
+}
+
+/// Where a click happened, for opening a menu there.
+fn click_at(event: &ClickEvent) -> Point<Pixels> {
+    match event {
+        ClickEvent::Mouse(click) => click.up.position,
+        _ => point(px(0.), px(0.)),
+    }
+}
+
+/// A menu over the flyout.
+#[derive(Clone)]
+enum Popup {
+    /// Where one app plays.
+    Route { app: String, name: String },
+    /// Which apps to send to one device.
+    Send { device: String },
+}
+
+/// An app the device list and its menus offer: a media key app with sound, or another app.
+struct Routable {
+    id: String,
+    name: String,
+    icon: Option<audio_bartender_core::AppIcon>,
+    route: Option<String>,
+}
+
+fn routables(state: &State) -> Vec<Routable> {
+    let targets = state.targets.iter().filter(|t| t.running && t.volume.is_some()).map(|t| Routable {
+        id: t.id.clone(),
+        name: t.name.clone(),
+        icon: t.icon.clone(),
+        route: t.route.clone(),
+    });
+    let mixer = state.mixer.iter().map(|m| Routable {
+        id: m.id.clone(),
+        name: m.name.clone(),
+        icon: m.icon.clone(),
+        route: m.route.clone(),
+    });
+    targets.chain(mixer).collect()
 }
 
 /// What the media keys control right now, for the banner and the dock.
@@ -326,6 +396,8 @@ pub struct Flyout {
     volumes: Volumes,
     page: Page,
     devices_open: bool,
+    /// The open menu and where it was opened.
+    popup: Option<(Popup, Point<Pixels>)>,
     /// Stays open when it loses focus.
     pinned: bool,
     /// The app row under the pointer, for the Hover media controls.
@@ -409,6 +481,7 @@ impl Flyout {
             volumes,
             page,
             devices_open: false,
+            popup: None,
             pinned,
             hovered: None,
             levels: HashMap::new(),
@@ -494,22 +567,239 @@ impl Flyout {
 
     /// The row's volume control beside its name: a bar, or a percentage that turns
     /// into a slider while the row is hovered or its volume is changing.
+    #[allow(clippy::too_many_arguments)]
     fn volume_control(
         &self,
         id: &str,
         level: f32,
         muted: bool,
         meter: Option<f32>,
+        device: Option<IconName>,
         theme: &Theme,
     ) -> Option<AnyElement> {
         match self.state_bars {
-            VolumeBars::Compact => Some(self.volumes.bar(id, level, muted, meter, theme).into_any_element()),
+            VolumeBars::Compact => Some(self.volumes.bar(id, level, muted, meter, device, theme).into_any_element()),
             VolumeBars::OnHover if self.hovered.as_deref() == Some(id) || self.volumes.changing(id) => {
                 Some(self.volumes.hover_slider(id, level, meter, theme).into_any_element())
             }
-            VolumeBars::OnHover => Some(self.volumes.pill(id, level, muted, meter, theme).into_any_element()),
+            VolumeBars::OnHover => Some(self.volumes.pill(id, level, muted, meter, device, theme).into_any_element()),
             VolumeBars::None | VolumeBars::Always => None,
         }
+    }
+
+    /// The volume control shows the device icon in the In volume mode.
+    fn volume_device(&self, state: &State, route: Option<&String>) -> Option<IconName> {
+        let in_volume = state.settings.device_chip == DeviceChip::Volume;
+        in_volume.then(|| route_device(state, route)).flatten().map(|(_, icon, _)| icon)
+    }
+
+    /// The mark beside an app's name for an app sent to another device, by the Device
+    /// chip setting. Clicking it opens the app's route menu.
+    fn route_mark(
+        &self,
+        app: &str,
+        name: &str,
+        route: Option<&String>,
+        state: &State,
+        theme: &Theme,
+        cx: &mut Context<Self>,
+    ) -> Option<AnyElement> {
+        let (short, icon, connected) = route_device(state, route)?;
+        let pill = matches!(self.state_bars, VolumeBars::Compact | VolumeBars::OnHover);
+        let with_name = match state.settings.device_chip {
+            DeviceChip::None => return None,
+            DeviceChip::Volume if pill => return None,
+            DeviceChip::Beside => true,
+            DeviceChip::Volume | DeviceChip::Icon => false,
+        };
+        let color = if connected { theme.primary } else { theme.muted_foreground };
+        let tip: SharedString = format!("Plays on {short}").into();
+        let (app, name) = (app.to_owned(), name.to_owned());
+        Some(
+            h_flex()
+                .id(SharedString::from(format!("route-{app}")))
+                .flex_none()
+                .gap(px(3.))
+                .h(px(16.))
+                .px(px(if with_name { 5. } else { 1. }))
+                .rounded(px(4.))
+                .when(with_name, |d| d.bg(color.opacity(0.13)))
+                .text_size(px(10.5))
+                .text_color(color)
+                .cursor_pointer()
+                .child(Icon::new(icon).size(px(11.)).text_color(color))
+                .when(with_name, |d| d.child(short))
+                .when(!with_name, |d| d.tooltip(move |window, cx| Tooltip::new(tip.clone()).build(window, cx)))
+                .on_click(cx.listener(move |this, event: &ClickEvent, _, cx| {
+                    this.popup = Some((Popup::Route { app: app.clone(), name: name.clone() }, click_at(event)));
+                    cx.stop_propagation();
+                    cx.notify();
+                }))
+                .into_any_element(),
+        )
+    }
+
+    /// A right click on an app's row opens its route menu.
+    fn route_on_right_click(
+        app: &str,
+        name: &str,
+        cx: &mut Context<Self>,
+    ) -> impl Fn(&MouseDownEvent, &mut Window, &mut App) + 'static {
+        let (app, name) = (app.to_owned(), name.to_owned());
+        cx.listener(move |this, event: &MouseDownEvent, _, cx| {
+            this.popup = Some((Popup::Route { app: app.clone(), name: name.clone() }, event.position));
+            cx.notify();
+        })
+    }
+
+    /// The flyout card's left and right edges in window coordinates, for keeping a
+    /// menu inside the window region.
+    fn card_edges(&self) -> (f32, f32) {
+        let left = if self.frame().panel_left(&self.anchor) { FRAME_WIDTH - WIDTH - MARGIN } else { MARGIN };
+        (left, left + WIDTH)
+    }
+
+    /// The open menu, kept inside the flyout card: where one app plays, or which apps
+    /// to send to one device.
+    fn popup_menu(
+        &self,
+        popup: Popup,
+        at: Point<Pixels>,
+        state: &State,
+        theme: &Theme,
+        window: &Window,
+        cx: &mut Context<Self>,
+    ) -> AnyElement {
+        const MENU_WIDTH: f32 = 220.;
+        let dark = theme.is_dark();
+        let hover = theme.secondary_hover;
+        let item = |id: SharedString| {
+            h_flex().id(id).gap_2().px_2().h(px(28.)).rounded(px(5.)).cursor_pointer().hover(move |st| st.bg(hover))
+        };
+        let label = |text: String| {
+            div().px_2().pt_1().pb(px(2.)).text_size(px(11.)).text_color(theme.muted_foreground).truncate().child(text)
+        };
+        let default = state.audio.devices.iter().find(|d| d.default);
+        let mut items: Vec<AnyElement> = Vec::new();
+        match &popup {
+            Popup::Route { app, name } => {
+                let route = routables(state).into_iter().find(|r| &r.id == app).and_then(|r| r.route);
+                items.push(label(format!("{name} plays on")).into_any_element());
+                let mut choices: Vec<(Option<String>, String, IconName)> = vec![(
+                    None,
+                    format!("Default ({})", default.map_or("none", |d| d.short.as_str())),
+                    default.map_or(IconName::Speaker, |d| device_icon(d.kind)),
+                )];
+                choices.extend(
+                    state
+                        .audio
+                        .devices
+                        .iter()
+                        .filter(|d| !d.default)
+                        .map(|d| (Some(d.id.clone()), d.short.clone(), device_icon(d.kind))),
+                );
+                for (i, (device, text, icon)) in choices.into_iter().enumerate() {
+                    let checked = device == route;
+                    let (core, app) = (self.core.clone(), app.clone());
+                    items.push(
+                        item(SharedString::from(format!("route-choice-{i}")))
+                            .child(div().w(px(14.)).when(checked, |d| {
+                                d.child(Icon::new(IconName::Check).xsmall().text_color(theme.primary))
+                            }))
+                            .child(Icon::new(icon).small())
+                            .child(div().flex_1().min_w_0().truncate().child(text))
+                            .on_click(cx.listener(move |this, _, _, cx| {
+                                core.set_route(&app, device.as_deref());
+                                this.popup = None;
+                                cx.notify();
+                            }))
+                            .into_any_element(),
+                    );
+                }
+                items.push(div().my_1().h(px(1.)).bg(theme.border).into_any_element());
+                items.push(
+                    item("route-windows".into())
+                        .child(div().w(px(14.)))
+                        .child(
+                            div()
+                                .flex_1()
+                                .min_w_0()
+                                .truncate()
+                                .text_color(theme.muted_foreground)
+                                .child("Windows app volume settings"),
+                        )
+                        .on_click(cx.listener(|this, _, _, cx| {
+                            audio_bartender_core::open_app_volume_settings();
+                            this.popup = None;
+                            cx.notify();
+                        }))
+                        .into_any_element(),
+                );
+            }
+            Popup::Send { device } => {
+                let target = state.audio.devices.iter().find(|d| &d.id == device);
+                let is_default = target.is_some_and(|d| d.default);
+                items.push(
+                    label(format!("Send to {}", target.map_or("this device", |d| d.short.as_str()))).into_any_element(),
+                );
+                let others: Vec<Routable> = routables(state)
+                    .into_iter()
+                    .filter(|r| if is_default { r.route.is_some() } else { r.route.as_ref() != Some(device) })
+                    .collect();
+                if others.is_empty() {
+                    items.push(label("Every app already plays here".into()).into_any_element());
+                }
+                for (i, app) in others.into_iter().enumerate() {
+                    let (core, id) = (self.core.clone(), app.id.clone());
+                    let device = (!is_default).then(|| device.clone());
+                    items.push(
+                        item(SharedString::from(format!("send-choice-{i}")))
+                            .child(ui::avatar(app.icon.as_ref(), &app.name, true, px(16.), theme))
+                            .child(div().flex_1().min_w_0().truncate().child(app.name))
+                            .on_click(cx.listener(move |this, _, _, cx| {
+                                core.set_route(&id, device.as_deref());
+                                this.popup = None;
+                                cx.notify();
+                            }))
+                            .into_any_element(),
+                    );
+                }
+            }
+        }
+        // Inside the card: clamp sideways, and open upward from the lower half.
+        let (left, right) = self.card_edges();
+        let x = f32::from(at.x).clamp(left + 4., (right - MENU_WIDTH - 4.).max(left + 4.));
+        let upward = f32::from(at.y) > f32::from(window.viewport_size().height) * 0.55;
+        let menu = v_flex()
+            .id("popup")
+            .w(px(MENU_WIDTH))
+            .p_1()
+            .rounded(px(8.))
+            .border_1()
+            .border_color(theme.border)
+            .bg(theme::card(dark))
+            .shadow(vec![BoxShadow {
+                color: black().opacity(if dark { 0.45 } else { 0.18 }),
+                offset: point(px(0.), px(4.)),
+                blur_radius: px(12.),
+                spread_radius: px(0.),
+                inset: false,
+            }])
+            .text_size(px(12.))
+            .text_color(theme.foreground)
+            .on_mouse_down_out(cx.listener(|this, _, _, cx| {
+                this.popup = None;
+                cx.notify();
+            }))
+            .children(items);
+        deferred(
+            anchored()
+                .position(point(px(x), at.y))
+                .anchor(if upward { gpui_kit::Anchor::BottomLeft } else { gpui_kit::Anchor::TopLeft })
+                .child(menu),
+        )
+        .with_priority(1)
+        .into_any_element()
     }
 
     /// Bars before the name that move with the app's level.
@@ -828,20 +1118,72 @@ impl Flyout {
             }))
     }
 
+    /// Every output device, each with the apps that play on it. Clicking a device makes
+    /// it the default; clicking an app opens its route menu; + sends another app there.
     fn devices(&self, state: &State, theme: &Theme, cx: &mut Context<Self>) -> Div {
+        let apps = routables(state);
+        let connected =
+            |route: &Option<String>| route.as_ref().is_some_and(|id| state.audio.devices.iter().any(|d| &d.id == id));
+        let hover = theme.secondary_hover;
         v_flex().px_2().py_1().children(state.audio.devices.iter().map(|device| {
             let (core, id) = (self.core.clone(), device.id.clone());
-            h_flex()
+            let here: Vec<&Routable> = apps
+                .iter()
+                .filter(|a| if device.default { !connected(&a.route) } else { a.route.as_ref() == Some(&device.id) })
+                .collect();
+            let avatars = here.into_iter().map(|app| {
+                let (id, name) = (app.id.clone(), app.name.clone());
+                let tip: SharedString = app.name.clone().into();
+                div()
+                    .id(SharedString::from(format!("on-{}-{}", device.id, app.id)))
+                    .rounded(px(5.))
+                    .cursor_pointer()
+                    .child(ui::avatar(app.icon.as_ref(), &app.name, true, px(18.), theme))
+                    .tooltip(move |window, cx| Tooltip::new(tip.clone()).build(window, cx))
+                    .on_click(cx.listener(move |this, event: &ClickEvent, _, cx| {
+                        this.popup = Some((Popup::Route { app: id.clone(), name: name.clone() }, click_at(event)));
+                        cx.stop_propagation();
+                        cx.notify();
+                    }))
+            });
+            let send = {
+                let device = device.id.clone();
+                div()
+                    .id(SharedString::from(format!("send-{}", device)))
+                    .size(px(18.))
+                    .flex()
+                    .items_center()
+                    .justify_center()
+                    .rounded(px(5.))
+                    .border_1()
+                    .border_dashed()
+                    .border_color(theme.muted_foreground)
+                    .cursor_pointer()
+                    .hover(move |st| st.bg(hover))
+                    .child(Icon::new(IconName::Plus).size(px(11.)).text_color(theme.muted_foreground))
+                    .on_click(cx.listener(move |this, event: &ClickEvent, _, cx| {
+                        this.popup = Some((Popup::Send { device: device.clone() }, click_at(event)));
+                        cx.stop_propagation();
+                        cx.notify();
+                    }))
+            };
+            v_flex()
                 .id(SharedString::from(device.id.clone()))
-                .gap_2()
+                .gap_1()
                 .px_2()
-                .py_2()
+                .py_1p5()
                 .rounded(theme.radius)
                 .cursor_pointer()
-                .hover(|s| s.bg(theme.secondary_hover))
-                .when(device.default, |d| d.text_color(theme.primary))
-                .child(div().w(px(16.)).when(device.default, |d| d.child(Icon::new(IconName::Check).small())))
-                .child(div().flex_1().min_w_0().truncate().text_size(px(13.)).child(device.name.clone()))
+                .hover(move |s| s.bg(hover))
+                .child(
+                    h_flex()
+                        .gap_2()
+                        .when(device.default, |d| d.text_color(theme.primary))
+                        .child(div().w(px(16.)).when(device.default, |d| d.child(Icon::new(IconName::Check).small())))
+                        .child(Icon::new(device_icon(device.kind)).small())
+                        .child(div().flex_1().min_w_0().truncate().text_size(px(13.)).child(device.name.clone())),
+                )
+                .child(h_flex().flex_wrap().gap(px(4.)).pl(px(48.)).children(avatars).child(send))
                 .on_click(cx.listener(move |this, _, _, cx| {
                     core.set_device(&id);
                     this.devices_open = false;
@@ -1010,21 +1352,27 @@ impl Flyout {
                 .volume
                 .filter(|_| bars == VolumeBars::Always)
                 .map(|volume| self.volumes.slider_row(&target.id, volume, target.muted, in_volume, &theme));
+            let device = self.volume_device(state, target.route.as_ref());
             let volume = target
                 .volume
-                .and_then(|volume| self.volume_control(&target.id, volume, target.muted, in_volume, &theme));
+                .and_then(|volume| self.volume_control(&target.id, volume, target.muted, in_volume, device, &theme));
+            let mark = self.route_mark(&target.id, &target.name, target.route.as_ref(), state, &theme, cx);
             let avatar = ui::avatar(target.icon.as_ref(), &target.name, target.running, px(28.), &theme);
             let name = h_flex()
                 .gap_1p5()
                 .min_w_0()
                 .children((meters == LevelMeters::Bars).then(|| Self::live_bars(level, &theme)).flatten())
-                .child(div().text_size(px(13.)).font_semibold().truncate().child(target.name.clone()));
+                .child(div().min_w_0().text_size(px(13.)).font_semibold().truncate().child(target.name.clone()))
+                .children(mark);
             let detail = || Self::detail(target, &theme, meters != LevelMeters::Bars);
             rows.push(
                 Self::row(&theme, target.id.clone().into(), checked, true)
                     .relative()
                     .on_hover(Self::track_hover(&target.id, cx))
                     .on_click(self.select_on_click(Some(target.id.clone())))
+                    .when(target.running, |d| {
+                        d.on_mouse_down(MouseButton::Right, Self::route_on_right_click(&target.id, &target.name, cx))
+                    })
                     .children(Self::row_meter(meters, level, &theme))
                     .child(
                         h_flex()
@@ -1106,7 +1454,8 @@ impl Flyout {
                 .gap_1p5()
                 .min_w_0()
                 .children((meters == LevelMeters::Bars).then(|| Self::live_bars(level, &theme)).flatten())
-                .child(div().text_size(px(13.)).font_semibold().truncate().child(app.name.clone()));
+                .child(div().min_w_0().text_size(px(13.)).font_semibold().truncate().child(app.name.clone()))
+                .children(self.route_mark(&app.id, &app.name, app.route.as_ref(), state, &theme, cx));
             let avatar = ui::avatar(app.icon.as_ref(), &app.name, true, px(22.), &theme);
             let main = h_flex().gap_3().px_2().child(Self::ringed(
                 avatar,
@@ -1117,6 +1466,7 @@ impl Flyout {
             let row = Self::row(&theme, app.id.clone().into(), false, false)
                 .relative()
                 .on_hover(Self::track_hover(&app.id, cx))
+                .on_mouse_down(MouseButton::Right, Self::route_on_right_click(&app.id, &app.name, cx))
                 .children(Self::row_meter(meters, level, &theme));
             let row = match bars {
                 VolumeBars::Always => {
@@ -1124,11 +1474,14 @@ impl Flyout {
                     row.child(main.py_0p5().child(name.w(px(96.)).flex_none()).child(div().flex_1().child(slider)))
                 }
                 VolumeBars::None => row,
-                _ => row.child(
-                    main.py(px(5.))
-                        .child(name.flex_1())
-                        .children(self.volume_control(&app.id, app.volume, app.muted, in_volume, &theme)),
-                ),
+                _ => row.child(main.py(px(5.)).child(name.flex_1()).children(self.volume_control(
+                    &app.id,
+                    app.volume,
+                    app.muted,
+                    in_volume,
+                    self.volume_device(state, app.route.as_ref()),
+                    &theme,
+                ))),
             };
             rows.push(row.into_any_element());
         }
@@ -1398,7 +1751,8 @@ impl Flyout {
             .child(Self::panel_label("FLYOUT", theme))
             .child(self.segmented(Mode::MediaControls, s, theme))
             .child(self.segmented(Mode::VolumeBars, s, theme))
-            .child(self.segmented(Mode::LevelMeters, s, theme));
+            .child(self.segmented(Mode::LevelMeters, s, theme))
+            .child(self.segmented(Mode::DeviceChip, s, theme));
         let header = h_flex()
             .justify_between()
             .h(px(HEADER))
@@ -1517,6 +1871,7 @@ impl Render for Flyout {
                     .child(measure(&self.measured.volume, view)),
             );
         let flyout = card_box(card(flyout, dark), &self.anchor);
+        let popup = self.popup.clone().map(|(popup, at)| self.popup_menu(popup, at, &state, &theme, window, cx));
         // Drawn while open, so it gets measured, and while the region still shows it.
         let left = self.frame().panel_left(&self.anchor);
         let panel = (self.page == Page::Settings || self.shown_panel.get().is_some()).then(|| {
@@ -1537,5 +1892,6 @@ impl Render for Flyout {
             .children(before)
             .child(flyout)
             .children(after)
+            .children(popup)
     }
 }

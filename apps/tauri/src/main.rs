@@ -144,6 +144,17 @@ fn set_icon_on_taskbar(core: tauri::State<Core>, show: bool) {
     core.set_icon_on_taskbar(show);
 }
 
+/// Sends an app to an output device, or back to the default with no device.
+#[tauri::command]
+fn set_route(core: tauri::State<Core>, app: String, device: Option<String>) {
+    core.set_route(&app, device.as_deref());
+}
+
+#[tauri::command]
+fn open_app_volume_settings() {
+    audio_bartender_core::open_app_volume_settings();
+}
+
 #[tauri::command]
 fn quit(app: AppHandle, core: tauri::State<Core>) {
     core.shutdown();
@@ -411,6 +422,8 @@ fn main() {
             set_device,
             open_icon_page,
             set_icon_on_taskbar,
+            set_route,
+            open_app_volume_settings,
             quit,
             set_pinned,
             flyout_size,

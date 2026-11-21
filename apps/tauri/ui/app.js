@@ -47,9 +47,9 @@ function selectable(node, id) {
 }
 
 /** The row's volume control for the chosen style, beside the name. */
-function volumeControl(bars, id, level, muted) {
-  if (bars === "onHover") return volumes.hoverControl(id, level, muted);
-  if (bars === "compact") return volumes.bar(id, level, muted);
+function volumeControl(bars, id, level, muted, device = null) {
+  if (bars === "onHover") return volumes.hoverControl(id, level, muted, device);
+  if (bars === "compact") return volumes.bar(id, level, muted, device);
   // "none" and "always" put nothing beside the name.
   return null;
 }
@@ -199,14 +199,129 @@ function deviceHeader(state) {
   );
 }
 
+/**
+ * Every output device, each with the apps that play on it. Clicking a device makes it
+ * the default; clicking an app opens its route menu; + sends another app there.
+ */
 function devices(state) {
-  return state.audio.devices.map((device) =>
-    button("device" + (device.default ? " current" : ""), null, [el("span", "check", device.default ? icon("check") : null), device.name], () => {
+  const apps = routables(state);
+  const connected = (route) => route != null && state.audio.devices.some((d) => d.id === route);
+  return state.audio.devices.map((device) => {
+    const head = button("device" + (device.default ? " current" : ""), null, [el("span", "check", device.default ? icon("check") : null), icon(deviceIcon(device.kind)), el("span", "device-label", device.name)], () => {
       invoke("set_device", { id: device.id });
       devicesOpen = false;
       rerender();
-    }),
+    });
+    const here = apps.filter((a) => (device.default ? !connected(a.route) : a.route === device.id));
+    const faces = here.map((app) => {
+      const face = button("device-app", app.name, avatar(app.icon, app.name), (event) => openPopup({ type: "route", app: app.id, name: app.name }, event.clientX, event.clientY));
+      face.firstChild.classList.add("micro");
+      return face;
+    });
+    const send = button("device-send", `Send an app to ${device.short}`, icon("plus"), (event) => openPopup({ type: "send", device: device.id }, event.clientX, event.clientY));
+    return el("div", "device-item", head, el("div", "device-apps", ...faces, send));
+  });
+}
+
+/** A device's icon, by the kind of output it is. */
+function deviceIcon(kind) {
+  return kind === "headphones" ? "headphones" : kind === "display" ? "tv" : "speaker";
+}
+
+/** The device an app is sent to: its short name, its icon, and whether it's plugged in. */
+function routeDevice(state, route) {
+  if (!route) return null;
+  const device = state.audio.devices.find((d) => d.id === route);
+  return device ? { short: device.short, icon: deviceIcon(device.kind), connected: true } : { short: "Not connected", icon: "speaker", connected: false };
+}
+
+/** The volume control shows the device icon in the In volume mode. */
+function volumeDevice(state, route) {
+  return state.settings.deviceChip === "volume" ? routeDevice(state, route)?.icon ?? null : null;
+}
+
+/** The mark beside an app's name for an app sent to another device, by the Device chip setting. */
+function routeMark(state, id, name, route) {
+  const device = routeDevice(state, route);
+  if (!device) return null;
+  const chip = state.settings.deviceChip;
+  const pill = ["compact", "onHover"].includes(state.settings.volumeBars);
+  if (chip === "none" || (chip === "volume" && pill)) return null;
+  const withName = chip === "beside";
+  const node = button("route-chip" + (withName ? " named" : "") + (device.connected ? "" : " off"), withName ? null : `Plays on ${device.short}`, [icon(device.icon), withName ? device.short : null], (event) =>
+    openPopup({ type: "route", app: id, name }, event.clientX, event.clientY),
   );
+  return node;
+}
+
+/** Media key apps with sound and other apps: what the device list and its menus offer. */
+function routables(state) {
+  const targets = state.targets.filter((t) => t.running && t.volume != null);
+  return [...targets, ...state.mixer].map((a) => ({ id: a.id, name: a.name, icon: a.icon, route: a.route ?? null }));
+}
+
+/** The open menu: where one app plays, or which apps to send to one device. */
+let popup = null;
+
+function openPopup(kind, x, y) {
+  popup = { kind, x, y };
+  rerender();
+}
+
+function closePopup() {
+  if (!popup) return;
+  popup = null;
+  rerender();
+}
+
+document.addEventListener("pointerdown", (event) => {
+  if (popup && !event.target.closest(".popup")) closePopup();
+});
+document.addEventListener("keydown", (event) => {
+  if (event.key === "Escape") closePopup();
+});
+
+function popupMenu(state) {
+  const { kind, x, y } = popup;
+  const items = [];
+  const label = (text) => el("div", "popup-label", text);
+  const item = (content, action) => button("popup-item", null, content, () => {
+    action();
+    popup = null;
+    rerender();
+  });
+  const fallback = state.audio.devices.find((d) => d.default);
+  if (kind.type === "route") {
+    const route = routables(state).find((a) => a.id === kind.app)?.route ?? null;
+    items.push(label(`${kind.name} plays on`));
+    const choices = [{ id: null, text: `Default (${fallback?.short ?? "none"})`, icon: deviceIcon(fallback?.kind) }];
+    for (const d of state.audio.devices.filter((d) => !d.default)) choices.push({ id: d.id, text: d.short, icon: deviceIcon(d.kind) });
+    for (const choice of choices) {
+      items.push(item([el("span", "check", choice.id === route ? icon("check") : null), icon(choice.icon), el("span", "grow", choice.text)], () =>
+        invoke("set_route", { app: kind.app, device: choice.id }),
+      ));
+    }
+    items.push(el("div", "popup-rule"));
+    items.push(item([el("span", "check"), el("span", "grow muted", "Windows app volume settings")], () => invoke("open_app_volume_settings")));
+  } else {
+    const device = state.audio.devices.find((d) => d.id === kind.device);
+    const isDefault = Boolean(device?.default);
+    items.push(label(`Send to ${device?.short ?? "this device"}`));
+    const others = routables(state).filter((a) => (isDefault ? a.route != null : a.route !== kind.device));
+    if (!others.length) items.push(label("Every app already plays here"));
+    for (const app of others) {
+      const face = avatar(app.icon, app.name);
+      face.classList.add("micro");
+      items.push(item([face, el("span", "grow", app.name)], () => invoke("set_route", { app: app.id, device: isDefault ? null : kind.device })));
+    }
+  }
+  const node = el("div", "popup", ...items);
+  // Inside the flyout card: clamp sideways, and open upward from the lower half.
+  const card = $("column").getBoundingClientRect();
+  node.style.left = `${Math.min(Math.max(x, card.left + 4), card.right - 224)}px`;
+  if (y > window.innerHeight * 0.55) node.style.bottom = `${window.innerHeight - y}px`;
+  else node.style.top = `${y}px`;
+  return node;
 }
 
 /** "▮▮▮ Playing · Title — Artist": status in green while playing, the track muted. */
@@ -249,8 +364,8 @@ function targets(state) {
       checked,
       true,
       avatar(t.icon, t.name, t.running),
-      el("div", "text" + (t.running ? "" : " offline"), el("div", "name small", liveBars(), t.name), trackLine(t, mode)),
-      hasVolume ? volumeControl(bars, t.id, t.volume, t.muted) : null,
+      el("div", "text" + (t.running ? "" : " offline"), el("div", "name small name-line", liveBars(), el("span", "name-text", t.name), routeMark(state, t.id, t.name, t.route)), trackLine(t, mode)),
+      hasVolume ? volumeControl(bars, t.id, t.volume, t.muted, volumeDevice(state, t.route)) : null,
       radio(checked, t.id),
     );
     node.querySelector(".avatar").classList.add("small");
@@ -262,9 +377,18 @@ function targets(state) {
       node.append(slider);
     }
     selectable(node, t.id);
+    if (t.running) routeOnRightClick(node, t.id, t.name);
     rows.push(metered(node, t.id));
   }
   return rows;
+}
+
+/** A right click on an app's row opens its route menu. */
+function routeOnRightClick(node, id, name) {
+  node.addEventListener("contextmenu", (event) => {
+    event.preventDefault();
+    openPopup({ type: "route", app: id, name }, event.clientX, event.clientY);
+  });
 }
 
 function mixer(state) {
@@ -277,9 +401,16 @@ function mixer(state) {
       node = row(false, false, icon, el("div", "mixer-name", liveBars(), app.name), volumes.sliderRow(app.id, app.volume, app.muted));
       node.classList.add("always");
     } else {
-      node = row(false, false, icon, el("div", "text", el("div", "name small", liveBars(), app.name)), volumeControl(bars, app.id, app.volume, app.muted));
+      node = row(
+        false,
+        false,
+        icon,
+        el("div", "text", el("div", "name small name-line", liveBars(), el("span", "name-text", app.name), routeMark(state, app.id, app.name, app.route))),
+        volumeControl(bars, app.id, app.volume, app.muted, volumeDevice(state, app.route)),
+      );
     }
     node.classList.add("mixer");
+    routeOnRightClick(node, app.id, app.name);
     return metered(node, app.id);
   });
 }
@@ -362,6 +493,15 @@ const MODES = {
       ["compact", "Compact", "A small bar to drag or scroll, click to mute"],
       ["always", "Always", "A slider under every app"],
       ["onHover", "On hover", "A percentage that turns into a slider on hover"],
+    ],
+  },
+  deviceChip: {
+    title: "Device chip",
+    options: [
+      ["none", "None", "Routes show only in the device list"],
+      ["beside", "Beside name", "The device's name next to the app"],
+      ["volume", "In volume", "In the volume control, else as an icon"],
+      ["icon", "Icon", "The device's icon after the app name"],
     ],
   },
   levelMeters: {
@@ -451,6 +591,7 @@ function settingsPanel(state) {
     segmented(s, "mediaControls"),
     segmented(s, "volumeBars"),
     segmented(s, "levelMeters"),
+    segmented(s, "deviceChip"),
   );
   return [
     el("header", "flyout-controls", el("span", "panel-title", "Settings"), close),
@@ -483,6 +624,7 @@ function render(state) {
     ];
   }
   $("middle").replaceChildren(...middle);
+  $("popup-layer").replaceChildren(...(popup ? [popupMenu(state)] : []));
 
   // A newly opened panel joins the window region once it's painted.
   const opening = page === "settings" && !shownPanel;
