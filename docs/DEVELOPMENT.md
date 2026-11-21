@@ -89,12 +89,14 @@ This uses the same private Windows interface as EarTrumpet and Windows' own "App
 
 Live waves, Equalizer and the pulse styles read a loopback capture of the default output. An FFT splits it into 12 bands, and the icon redraws about 15 times a second while sound plays. Nothing leaves the app.
 
-## Windows speaker position
+## Windows volume icon replacement
 
 - Audio Bartender finds the Quick Settings speaker on the primary taskbar by its localized UI Automation name.
 - It draws its icon in a layered child window of the taskbar, so the icon and hover target follow Quick Settings as it opens and closes.
+- The hover tile uses the fill and border colors from the Windows 11 Quick Settings button template, scaled to the taskbar DPI.
 - Once the tile paints and receives hits at the speaker position, the ordinary tray icon hides from the taskbar and the overflow.
 - A covered speaker (a language picker, another window) keeps its place while the tile still receives hits. A lost tile brings back the ordinary icon at its saved pin position.
+- Replacement defaults on for Windows 11. The first time Explorer registers the ordinary icon, Audio Bartender requests a taskbar pin. Later launches use the pin state Explorer saved.
 - It checks again after Explorer restarts, the display layout changes, or Windows resumes. An auto-hiding taskbar or an unknown layout falls back to the ordinary icon.
 
 ## Gotchas

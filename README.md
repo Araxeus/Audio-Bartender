@@ -68,7 +68,7 @@ Both look and work the same. They share one core and one settings file, so you c
 - **Pick where media keys go** by clicking an app in the flyout. Automatic leaves Windows in charge.
 - **Send an app to another device** by right-clicking its row.
 - **Pin the flyout** to keep it open, then drag it by its header.
-- **Hide the Windows volume icon** on Windows 11 with the Windhawk mod [Taskbar tray system icon tweaks](https://windhawk.net/mods/taskbar-tray-system-icon-tweaks), then turn on *Settings → Use Windows speaker position*.
+- **Replace Windows volume icon** is on by default on Windows 11. Turn it off in Settings to use a separate tray icon. If Audio Bartender can’t locate the Windows volume icon, it uses the separate icon automatically. New tray icons start pinned to the taskbar.
 - **Start with Windows** from Settings. Installing for all users also lets media keys work while an admin window has focus.
 
 ## Build

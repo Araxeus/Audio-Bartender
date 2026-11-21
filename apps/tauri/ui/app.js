@@ -645,8 +645,8 @@ function updateRow(update) {
 function iconRows({ iconOnTaskbar: onTaskbar, settings: { speakerPosition }, speakerPositionActive }) {
   const row = (title, control) => el("div", "fly-setting", el("span", "", title), control);
   if (windows11) {
-    const speaker = row(speakerPosition && !speakerPositionActive ? "Speaker position (using fallback)" : "Use Windows speaker position", toggle(speakerPosition, (on) => setting("speakerPosition", on)));
-    if (speakerPosition) return [speaker];
+    const speaker = row(speakerPosition && !speakerPositionActive ? "Replace Windows volume icon (using tray icon)" : "Replace Windows volume icon", toggle(speakerPosition, (on) => setting("speakerPosition", on)));
+    if (speakerPosition && speakerPositionActive) return [speaker];
     return [row("Show icon on the taskbar", toggle(onTaskbar === true, (show) => invoke("set_icon_on_taskbar", { show }))), speaker];
   }
   const place = onTaskbar == null ? "" : onTaskbar ? "On the taskbar" : "In the overflow";

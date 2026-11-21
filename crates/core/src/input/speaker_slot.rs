@@ -9,17 +9,19 @@ use std::time::{Duration, Instant};
 
 use windows::Win32::Foundation::{COLORREF, HWND, LPARAM, LRESULT, POINT, RECT, WPARAM};
 use windows::Win32::Graphics::Gdi::{
-    BeginPaint, CreateRoundRectRgn, CreateSolidBrush, DeleteObject, EndPaint, FillRect, GetMonitorInfoW,
-    MONITOR_DEFAULTTONULL, MONITORINFO, MonitorFromWindow, PAINTSTRUCT, SetWindowRgn,
+    BITMAPINFO, BITMAPINFOHEADER, BeginPaint, COLOR_HIGHLIGHT, CreateSolidBrush, DIB_RGB_COLORS, DeleteObject,
+    EndPaint, FillRect, GetMonitorInfoW, GetSysColor, HDC, InvalidateRect, MONITOR_DEFAULTTONULL, MONITORINFO,
+    MonitorFromWindow, PAINTSTRUCT, SetDIBitsToDevice,
 };
 use windows::Win32::System::Com::{CLSCTX_INPROC_SERVER, CoCreateInstance};
 use windows::Win32::System::LibraryLoader::GetModuleHandleW;
 use windows::Win32::System::SystemInformation::GetTickCount64;
 use windows::Win32::System::Variant::VARIANT;
 use windows::Win32::UI::Accessibility::{
-    CUIAutomation, IUIAutomation, IUIAutomationCacheRequest, IUIAutomationElement, TreeScope_Descendants,
-    UIA_AutomationIdPropertyId, UIA_BoundingRectanglePropertyId, UIA_ButtonControlTypeId, UIA_ClassNamePropertyId,
-    UIA_ControlTypePropertyId, UIA_IsOffscreenPropertyId, UIA_NamePropertyId, UIA_ProcessIdPropertyId,
+    CUIAutomation, HCF_HIGHCONTRASTON, HIGHCONTRASTW, IUIAutomation, IUIAutomationCacheRequest, IUIAutomationElement,
+    TreeScope_Descendants, UIA_AutomationIdPropertyId, UIA_BoundingRectanglePropertyId, UIA_ButtonControlTypeId,
+    UIA_ClassNamePropertyId, UIA_ControlTypePropertyId, UIA_IsOffscreenPropertyId, UIA_NamePropertyId,
+    UIA_ProcessIdPropertyId,
 };
 use windows::Win32::UI::Controls::{HOVER_DEFAULT, WM_MOUSEHOVER, WM_MOUSELEAVE};
 use windows::Win32::UI::HiDpi::{
@@ -45,6 +47,7 @@ static ENABLED: AtomicBool = AtomicBool::new(false);
 static WAKE: OnceLock<Sender<()>> = OnceLock::new();
 static WINDOW: AtomicIsize = AtomicIsize::new(0);
 static BACKGROUND: AtomicU32 = AtomicU32::new(0x303030);
+static HOVERED: AtomicBool = AtomicBool::new(false);
 static TINT_UNTIL: AtomicU64 = AtomicU64::new(0);
 static PAINTED: AtomicBool = AtomicBool::new(false);
 static REACHABLE: AtomicBool = AtomicBool::new(false);
@@ -207,7 +210,7 @@ fn locate(ui: &IUIAutomation, cache: &IUIAutomationCacheRequest, label: &str) ->
             bar,
             button,
             neighbors,
-            tile: tile(button, GetDpiForWindow(taskbar))?,
+            tile: tile(button, neighbors, GetDpiForWindow(taskbar))?,
             observed: Instant::now(),
         })
     }
@@ -372,22 +375,33 @@ fn window(taskbar: HWND) -> Option<HWND> {
 
 /// Cover the glyph with a small opaque tile, leaving both adjacent controls and
 /// the rest of the taskbar alone. Reject group-sized rectangles and stale geometry.
-fn tile(button: RECT, dpi: u32) -> Option<RECT> {
+fn tile(button: RECT, neighbors: [RECT; 2], dpi: u32) -> Option<RECT> {
     let dip = |v: i32| (v * dpi as i32 + 48) / 96;
     let (w, h) = (button.right - button.left, button.bottom - button.top);
     if !(dip(16)..=dip(48)).contains(&w) || !(dip(16)..=dip(100)).contains(&h) {
         return None;
     }
-    let size = dip(24).min(w).min(h);
-    let left = button.left + (w - size) / 2;
-    let top = button.top + (h - size) / 2;
-    Some(RECT { left, top, right: left + size, bottom: top + size })
+    // Leave a little space around the speaker. Borrow only measured empty
+    // space on both sides so the glyph stays centered over the Windows speaker.
+    let [left_neighbor, right_neighbor] = neighbors;
+    let gutter = if left_neighbor != RECT::default() && right_neighbor != RECT::default() {
+        (button.left - left_neighbor.right).min(right_neighbor.left - button.right).max(0)
+    } else {
+        0
+    };
+    let width = dip(30).min(w + 2 * gutter);
+    // The standard 48-DIP taskbar leaves 4 DIPs above and below the highlight.
+    let height = dip(40).min((h - 2 * dip(4)).max(dip(16)));
+    let left = button.left + (w - width).div_euclid(2);
+    let top = button.top + (h - height) / 2;
+    Some(RECT { left, top, right: left + width, bottom: top + height })
 }
 
 fn match_background(hwnd: HWND, p: Placement) {
     use windows::Win32::Graphics::Gdi::{GetDC, GetPixel, RDW_INVALIDATE, RDW_UPDATENOW, RedrawWindow, ReleaseDC};
     let tile = p.tile;
-    let edge = if tile.top > p.button.top {
+    let edge = if HOVERED.load(Relaxed) && tile.top > p.button.top {
+        // Sample outside the shell's group highlight before applying our own.
         POINT { x: (tile.left + tile.right) / 2, y: tile.top - 1 }
     } else {
         POINT { x: tile.left - 1, y: (tile.top + tile.bottom) / 2 }
@@ -427,7 +441,6 @@ fn show(found: Placement) -> Option<()> {
         let tile = found.tile;
         let hwnd = window(taskbar)?;
         match_background(hwnd, found);
-        let size = tile.right - tile.left;
         let old = rect();
         // A real child moves with Explorer between the desktop and Quick Settings
         // bands. Child coordinates are in the taskbar client area, including RTL.
@@ -439,18 +452,11 @@ fn show(found: Placement) -> Option<()> {
                 Some(HWND_TOP),
                 corners[0].x.min(corners[1].x),
                 corners[0].y,
-                size,
-                size,
+                tile.right - tile.left,
+                tile.bottom - tile.top,
                 SWP_SHOWWINDOW | SWP_NOACTIVATE,
             )
             .ok()?;
-        }
-        if old.is_none_or(|r| r.right - r.left != size) {
-            let corner = (size / 3).max(2);
-            let region = CreateRoundRectRgn(0, 0, size + 1, size + 1, corner, corner);
-            if SetWindowRgn(hwnd, Some(region), true) == 0 {
-                let _ = DeleteObject(region.into());
-            }
         }
         // If Explorer stops answering UI Automation, retire the stale hit target.
         SetTimer(Some(hwnd), TIMER_PLACEMENT, PLACEMENT_LIFETIME.as_millis() as u32, None);
@@ -506,16 +512,111 @@ pub(super) fn icon_size(hwnd: HWND) -> i32 {
     (unsafe { GetDpiForWindow(hwnd) } * 16 / 96).max(1) as i32
 }
 
+// Blend two 0xRRGGBB colors in sRGB, as Explorer does on the taskbar backdrop.
+fn blend(base: u32, ink: u32, opacity: f32) -> u32 {
+    let channel = |shift: u32| {
+        let a = ((base >> shift) & 255) as f32;
+        let b = ((ink >> shift) & 255) as f32;
+        (a + (b - a) * opacity).round() as u32
+    };
+    channel(16) << 16 | channel(8) << 8 | channel(0)
+}
+
+fn paint_hover(dc: HDC, r: RECT, scale: f32, background: COLORREF) {
+    let (width, height) = (r.right, r.bottom);
+    if width <= 0 || height <= 0 {
+        return;
+    }
+    let base = background.0.swap_bytes() >> 8; // COLORREF to a 32-bit DIB pixel.
+    let mut contrast = HIGHCONTRASTW { cbSize: size_of::<HIGHCONTRASTW>() as u32, ..Default::default() };
+    let high_contrast = unsafe {
+        SystemParametersInfoW(
+            SPI_GETHIGHCONTRAST,
+            contrast.cbSize,
+            Some((&raw mut contrast).cast()),
+            Default::default(),
+        )
+        .is_ok()
+            && contrast.dwFlags.contains(HCF_HIGHCONTRASTON)
+    };
+    // SystemTrayResources.xbf: OmniButtonBackgroundPointerOver uses the secondary
+    // taskbar fill, with a one-DIP secondary gradient stroke over it.
+    let (fill, stroke_top, stroke_bottom) = if high_contrast {
+        let highlight = unsafe { GetSysColor(COLOR_HIGHLIGHT) }.swap_bytes() >> 8;
+        (base, highlight, highlight)
+    } else {
+        let light = crate::tray_icon::light_taskbar();
+        let fill = blend(base, 0xffffff, if light { 128. } else { 15. } / 255.);
+        let ink = if light { 0 } else { 0xffffff };
+        let (top, bottom) = if light { (5., 15.) } else { (15., 26.) };
+        (fill, blend(fill, ink, top / 255.), blend(fill, ink, bottom / 255.))
+    };
+    let radius = (4. * scale).min(width.min(height) as f32 / 2.);
+    let mut pixels = Vec::with_capacity((width * height) as usize);
+    for y in 0..height {
+        let edge_y = (y.min(height - 1 - y) as f32) + 0.5;
+        let stroke = blend(stroke_bottom, stroke_top, ((height as f32 - y as f32 - 0.5) / (3. * scale)).clamp(0., 1.));
+        for x in 0..width {
+            let edge_x = (x.min(width - 1 - x) as f32) + 0.5;
+            // Distance inside the rounded rectangle, measured at the pixel center.
+            let (dx, dy) = (radius - edge_x, radius - edge_y);
+            let depth = radius - dx.max(0.).hypot(dy.max(0.)) - dx.max(dy).min(0.);
+            let edge = blend(base, stroke, (depth + 0.5).clamp(0., 1.));
+            pixels.push(blend(edge, fill, (depth - scale + 0.5).clamp(0., 1.)));
+        }
+    }
+    let info = BITMAPINFO {
+        bmiHeader: BITMAPINFOHEADER {
+            biSize: size_of::<BITMAPINFOHEADER>() as u32,
+            biWidth: width,
+            biHeight: -height,
+            biPlanes: 1,
+            biBitCount: 32,
+            ..Default::default()
+        },
+        ..Default::default()
+    };
+    unsafe {
+        SetDIBitsToDevice(
+            dc,
+            0,
+            0,
+            width as u32,
+            height as u32,
+            0,
+            0,
+            0,
+            height as u32,
+            pixels.as_ptr().cast(),
+            &info,
+            DIB_RGB_COLORS,
+        );
+    }
+}
+
+fn set_hover(hwnd: HWND, hovered: bool) {
+    if HOVERED.swap(hovered, Relaxed) != hovered {
+        unsafe {
+            let _ = InvalidateRect(Some(hwnd), None, false);
+        }
+    }
+}
+
 unsafe extern "system" fn wndproc(hwnd: HWND, msg: u32, wp: WPARAM, lp: LPARAM) -> LRESULT {
     static CLICKED: AtomicBool = AtomicBool::new(false);
     let event = match msg {
         WM_NCDESTROY => {
+            HOVERED.store(false, Relaxed);
             TINT_UNTIL.store(0, Relaxed);
             if WINDOW.compare_exchange(hwnd.0 as isize, 0, Relaxed, Relaxed).is_ok() {
                 post(WM_SPEAKER_SLOT, 0);
             }
             PAINTED.store(false, Relaxed);
             CLICKED.store(false, Relaxed);
+            return unsafe { DefWindowProcW(hwnd, msg, wp, lp) };
+        }
+        WM_SHOWWINDOW if wp.0 == 0 => {
+            set_hover(hwnd, false);
             return unsafe { DefWindowProcW(hwnd, msg, wp, lp) };
         }
         WM_TRACK_TINT => {
@@ -550,15 +651,30 @@ unsafe extern "system" fn wndproc(hwnd: HWND, msg: u32, wp: WPARAM, lp: LPARAM) 
                 let dc = BeginPaint(hwnd, &mut ps);
                 let mut r = RECT::default();
                 let _ = GetClientRect(hwnd, &mut r);
-                let brush = CreateSolidBrush(COLORREF(BACKGROUND.load(Relaxed)));
-                FillRect(dc, &r, brush);
-                let _ = DeleteObject(brush.into());
+                let background = COLORREF(BACKGROUND.load(Relaxed));
+                if HOVERED.load(Relaxed) {
+                    paint_hover(dc, r, GetDpiForWindow(hwnd) as f32 / 96., background);
+                } else {
+                    let brush = CreateSolidBrush(background);
+                    FillRect(dc, &r, brush);
+                    let _ = DeleteObject(brush.into());
+                }
                 let icon = HICON(CURRENT_ICON.load(Relaxed) as _);
                 let mut painted = false;
                 if !icon.is_invalid() {
-                    let size = icon_size(hwnd).min(r.right);
-                    let p = (r.right - size) / 2;
-                    painted = DrawIconEx(dc, p, p, icon, size, size, 0, None, DI_NORMAL).is_ok();
+                    let size = icon_size(hwnd).min(r.right).min(r.bottom);
+                    painted = DrawIconEx(
+                        dc,
+                        (r.right - size) / 2,
+                        (r.bottom - size) / 2,
+                        icon,
+                        size,
+                        size,
+                        0,
+                        None,
+                        DI_NORMAL,
+                    )
+                    .is_ok();
                 }
                 let finished = EndPaint(hwnd, &ps).as_bool() && painted;
                 if PAINTED.swap(finished, Relaxed) != finished {
@@ -569,6 +685,7 @@ unsafe extern "system" fn wndproc(hwnd: HWND, msg: u32, wp: WPARAM, lp: LPARAM) 
         }
         WM_MOUSEACTIVATE => return LRESULT(MA_NOACTIVATE as isize),
         WM_MOUSEMOVE => {
+            set_hover(hwnd, true);
             let mut track = TRACKMOUSEEVENT {
                 cbSize: size_of::<TRACKMOUSEEVENT>() as u32,
                 dwFlags: if CLICKED.load(Relaxed) { TME_LEAVE } else { TME_HOVER | TME_LEAVE },
@@ -583,6 +700,7 @@ unsafe extern "system" fn wndproc(hwnd: HWND, msg: u32, wp: WPARAM, lp: LPARAM) 
         WM_MOUSEHOVER if CLICKED.load(Relaxed) => return LRESULT(0),
         WM_MOUSEHOVER => NIN_POPUPOPEN,
         WM_MOUSELEAVE => {
+            set_hover(hwnd, false);
             // Showing the flyout can cause a synthetic leave under a stationary mouse.
             let mut pt = POINT::default();
             if unsafe { GetCursorPos(&mut pt) }.is_ok()
@@ -615,9 +733,11 @@ mod tests {
     #[test]
     fn fallback_hit_stops_at_the_speaker_edges() {
         let button = RECT { left: -225, top: 1128, right: -189, bottom: 1200 };
-        let r = tile(button, 144).unwrap();
+        let neighbors = [RECT { left: -267, right: -231, ..button }, RECT { left: -183, right: -141, ..button }];
+        let r = tile(button, neighbors, 144).unwrap();
+        assert_eq!(r, RECT { left: -230, top: 1134, right: -185, bottom: 1194 });
         assert!(inside(POINT { x: -207, y: 1164 }, r));
-        for (x, y) in [(-226, 1164), (-189, 1164), (-207, 1145), (-207, 1182)] {
+        for (x, y) in [(-231, 1164), (-185, 1164), (-207, 1133), (-207, 1194)] {
             assert!(!inside(POINT { x, y }, r));
         }
     }
@@ -629,7 +749,8 @@ mod tests {
         assert!(!named_speaker("Network Volume", "Volume"));
         assert!(!named_speaker("VolumeMixer", "Volume"));
         let button = RECT { left: -225, top: 1128, right: -189, bottom: 1200 };
-        assert_eq!(tile(button, 144), Some(RECT { left: -225, top: 1146, right: -189, bottom: 1182 }));
-        assert_eq!(tile(RECT { right: -60, ..button }, 144), None);
+        let unknown = [RECT::default(); 2];
+        assert_eq!(tile(button, unknown, 144), Some(RECT { left: -225, top: 1134, right: -189, bottom: 1194 }));
+        assert_eq!(tile(RECT { right: -60, ..button }, unknown, 144), None);
     }
 }

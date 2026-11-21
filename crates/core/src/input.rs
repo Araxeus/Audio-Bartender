@@ -58,6 +58,9 @@ const TIMER_TOOLTIP: usize = 1;
 const TIMER_RESTORE_ICON: usize = 2;
 /// Redraws a live tray icon with the sound playing.
 const TIMER_LIVE: usize = 3;
+const TIMER_FIRST_PIN: usize = 4;
+// Explorer can publish its NotifyIconSettings key after Shell_NotifyIcon returns.
+static FIRST_PIN_ATTEMPTS: Mutex<u8> = Mutex::new(0);
 const LIVE_FRAME_MS: u32 = 66;
 
 /// The sound the live tray icon last drew.
@@ -534,6 +537,11 @@ fn run_tray() {
         tooltip::create(hwnd);
         card::create();
         allow_dark_menus(hwnd);
+        // An existing registration already has a user-controlled pin state,
+        // including when Explorer represents overflow by an absent IsPromoted.
+        if crate::util::windows_11() && crate::util::tray_icon_promoted().is_none() {
+            *FIRST_PIN_ATTEMPTS.lock().unwrap() = 30;
+        }
         set_icon(hwnd, NIM_ADD);
     }
     pump_messages();
@@ -773,6 +781,7 @@ unsafe extern "system" fn wndproc(hwnd: HWND, msg: u32, wparam: WPARAM, lparam: 
             }
         }
         WM_TIMER if wparam.0 == TIMER_RESTORE_ICON => unsafe { set_icon(hwnd, NIM_MODIFY) },
+        WM_TIMER if wparam.0 == TIMER_FIRST_PIN => apply_first_pin(hwnd),
         WM_TIMER if wparam.0 == TIMER_LIVE => {
             let now = crate::spectrum::latest();
             let redraw = {
@@ -829,11 +838,34 @@ pub(crate) fn speaker_position_active() -> bool {
     speaker_slot::reachable()
 }
 
+fn apply_first_pin(hwnd: HWND) {
+    let mut attempts = FIRST_PIN_ATTEMPTS.lock().unwrap();
+    if *attempts > 0 {
+        *attempts -= 1;
+        if crate::util::set_tray_icon_promoted(true) {
+            *attempts = 0;
+            shared().send(Cmd::Refresh { resubscribe: false });
+        }
+    }
+    unsafe {
+        if *attempts == 0 {
+            let _ = KillTimer(Some(hwnd), TIMER_FIRST_PIN);
+        } else {
+            SetTimer(Some(hwnd), TIMER_FIRST_PIN, 1000, None);
+        }
+    }
+}
+
+pub(crate) fn set_icon_on_taskbar(show: bool) -> bool {
+    *FIRST_PIN_ATTEMPTS.lock().unwrap() = 0;
+    crate::util::set_tray_icon_promoted(show)
+}
+
 /// Whether this app's tray icon shows on the taskbar rather than in the overflow.
 /// Windows 11 keeps that in the registry. On Windows 10 the icon is on the taskbar
 /// when its rectangle lies inside the taskbar's.
 pub(crate) fn icon_on_taskbar() -> Option<bool> {
-    if speaker_slot::enabled() {
+    if speaker_slot::reachable() {
         return None;
     }
     if crate::util::windows_11() {
@@ -1097,6 +1129,7 @@ unsafe fn set_icon(hwnd: HWND, action: NOTIFY_ICON_MESSAGE) {
             // Version 4 sends the hover events that drive our own tooltip.
             data.Anonymous.uVersion = NOTIFYICON_VERSION_4;
             let _ = Shell_NotifyIconW(NIM_SETVERSION, &data);
+            apply_first_pin(hwnd);
         }
         // The shell keeps its own copy, so the previous icon can go.
         let old = CURRENT_ICON.swap(icon.0 as isize, Relaxed);

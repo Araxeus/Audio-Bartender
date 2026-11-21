@@ -738,7 +738,7 @@ impl Default for Settings {
             tray_style: TrayStyle::Ring,
             tray_middle: TrayMiddle::Speaker,
             pulse_style: PulseStyle::Dot,
-            speaker_position: false,
+            speaker_position: util::windows_11(),
             volume_bars: VolumeBars::Compact,
             tooltip: TooltipStyle::NowPlaying,
             media_buttons: MediaButtons::Hover,
@@ -1125,7 +1125,7 @@ impl Core {
     /// Shows or hides this app's icon on the taskbar. Windows 11 does it at once.
     /// Windows 10 lets only the user, so there it opens the page for it.
     pub fn set_icon_on_taskbar(&self, show: bool) {
-        if !(util::windows_11() && util::set_tray_icon_promoted(show)) {
+        if !(util::windows_11() && input::set_icon_on_taskbar(show)) {
             util::open_icon_page(IconPage::ShowOurs);
         }
         self.shared.send(Cmd::Refresh { resubscribe: false });

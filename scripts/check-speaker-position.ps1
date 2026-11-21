@@ -62,11 +62,13 @@ function PanelHasFocus {
 
 # Threshold against the tile's own background so hovering can change the tint.
 function Read-Glyph($rect) {
-    $size = $rect.Right - $rect.Left
+    $size = [Math]::Min($rect.Right - $rect.Left, $rect.Bottom - $rect.Top)
+    $top = $rect.Top + [int](($rect.Bottom - $rect.Top - $size) / 2)
+    $left = $rect.Left + [int](($rect.Right - $rect.Left - $size) / 2)
     $bitmap = [Drawing.Bitmap]::new($size, $size)
     $graphics = [Drawing.Graphics]::FromImage($bitmap)
     try {
-        $graphics.CopyFromScreen($rect.Left, $rect.Top, 0, 0, $bitmap.Size)
+        $graphics.CopyFromScreen($left, $top, 0, 0, $bitmap.Size)
         $background = $bitmap.GetPixel([int]($size / 2), 1).GetBrightness()
         $inset = [int]($size / 6)
         for ($y = $inset; $y -lt $size - $inset; $y++) {

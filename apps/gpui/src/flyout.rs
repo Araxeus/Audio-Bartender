@@ -1900,9 +1900,9 @@ impl Flyout {
         let volume_row = if audio_bartender_core::windows_11() {
             row(
                 if s.speaker_position && !state.speaker_position_active {
-                    "Speaker position (using fallback)"
+                    "Replace Windows volume icon (using tray icon)"
                 } else {
-                    "Use Windows speaker position"
+                    "Replace Windows volume icon"
                 },
                 self.setting_switch("speaker-position", s.speaker_position, Setting::SpeakerPosition, theme),
             )
@@ -1957,7 +1957,7 @@ impl Flyout {
             ))
             .child(update)
             .child(Self::panel_label("TRAY", theme))
-            .when(!audio_bartender_core::windows_11() || !s.speaker_position, |panel| panel.child(icon_row))
+            .when(!s.speaker_position || !state.speaker_position_active, |panel| panel.child(icon_row))
             .child(volume_row)
             .child(self.tray_picker(state, theme))
             .child(self.segmented(Mode::Tooltip, s, theme))
