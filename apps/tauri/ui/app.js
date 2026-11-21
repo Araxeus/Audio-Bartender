@@ -234,18 +234,14 @@ function targets(state) {
   const bars = state.settings.volumeBars;
   const mode = state.settings.mediaControls;
   const automatic = state.selected === null;
-  const auto = row(
-    automatic,
-    true,
-    logo("avatar small"),
-    el("div", "text", el("div", "name small", "Automatic"), el("div", "detail", windowsDecides(state))),
-    radio(automatic, null),
-  );
-  if (automatic && mode === "row") {
-    // The buttons reach Windows' current session, so show its state.
-    const current = state.targets.find((t) => t.id === state.current);
-    auto.append(el("div", "row-controls", transport(current?.running && current.playback === "playing")));
-  }
+  // The buttons reach Windows' current session, so show its state.
+  const current = state.targets.find((t) => t.id === state.current);
+  const currentPlaying = Boolean(current?.running && current.playback === "playing");
+  const decides = el("div", "detail", windowsDecides(state));
+  // With Hover controls the line swaps to buttons while the row is hovered.
+  const line = mode === "hover" ? el("div", "hover-swap", decides, transport(currentPlaying, null, "tiny")) : decides;
+  const auto = row(automatic, true, logo("avatar small"), el("div", "text", el("div", "name small", "Automatic"), line), radio(automatic, null));
+  if (automatic && mode === "row") auto.append(el("div", "row-controls", transport(currentPlaying)));
   selectable(auto, null);
   const rows = [auto];
   for (const t of state.targets) {

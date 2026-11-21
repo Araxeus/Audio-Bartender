@@ -954,8 +954,38 @@ impl Flyout {
         let automatic = state.selected.is_none();
         // In Automatic the buttons reach Windows' current session, so show its state.
         let automatic_playing = state.now_playing().is_some_and(|t| t.running && t.playback == Playback::Playing);
+        // With Hover controls the line swaps to buttons for Windows' current session.
+        let automatic_line = if controls == MediaControls::Hover && self.hovered.as_deref() == Some("automatic") {
+            div().h(px(26.)).flex().items_end().child(self.transport(
+                "automatic-hover",
+                None,
+                automatic_playing,
+                true,
+                &theme,
+            ))
+        } else {
+            div()
+                .h(px(26.))
+                .flex()
+                .items_center()
+                .min_w_0()
+                .text_xs()
+                .text_color(theme.muted_foreground)
+                .child(div().truncate().child(windows_decides(state)))
+        };
+        let automatic_line = if controls == MediaControls::Hover {
+            automatic_line.into_any_element()
+        } else {
+            div()
+                .text_xs()
+                .text_color(theme.muted_foreground)
+                .truncate()
+                .child(windows_decides(state))
+                .into_any_element()
+        };
         rows.push(
             Self::row(&theme, "automatic".into(), automatic, true)
+                .on_hover(Self::track_hover("automatic", cx))
                 .on_click(self.select_on_click(None))
                 .child(
                     h_flex()
@@ -967,13 +997,11 @@ impl Flyout {
                                 .child(Icon::new(IconName::Sparkles).small().text_color(white())),
                         )
                         .child(
-                            v_flex().flex_1().child(div().text_size(px(13.)).font_semibold().child("Automatic")).child(
-                                div()
-                                    .text_xs()
-                                    .text_color(theme.muted_foreground)
-                                    .truncate()
-                                    .child(windows_decides(state)),
-                            ),
+                            v_flex()
+                                .flex_1()
+                                .min_w_0()
+                                .child(div().text_size(px(13.)).font_semibold().child("Automatic"))
+                                .child(automatic_line),
                         )
                         .child(Self::radio("automatic", &theme, automatic, &self.core, None)),
                 )

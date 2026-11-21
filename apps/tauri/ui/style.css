@@ -61,6 +61,8 @@ button { font: inherit; color: inherit; }
 button.icon {
   display: grid;
   place-items: center;
+  /* No default button padding, which pushes a 16px icon off center in tiny buttons. */
+  padding: 0;
   width: 36px;
   height: 32px;
   border: 1px solid var(--border);
