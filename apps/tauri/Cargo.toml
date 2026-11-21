@@ -2,6 +2,7 @@
 name = "audio_bartender_tauri"
 version.workspace = true
 edition.workspace = true
+license.workspace = true
 
 [build-dependencies]
 tauri-build = { version = "2", features = [] }
