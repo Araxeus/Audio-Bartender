@@ -5,12 +5,12 @@ edition.workspace = true
 license.workspace = true
 
 [build-dependencies]
-tauri-build = { version = "2", features = [] }
+tauri-build = { version = "2.7.6", features = [] }
 
 [dependencies]
 audio_bartender_core = { workspace = true, features = ["serde"] }
-tauri = { version = "2", features = [] }
-serde = "1"
+tauri = { version = "2.12.7", features = [] }
+serde = "1.0.229"
 
 [features]
 default = ["custom-protocol"]

@@ -6,9 +6,9 @@ license.workspace = true
 
 [dependencies]
 audio_bartender_core.workspace = true
-gpui-kit = "0.10"
-futures = "0.3"
-raw-window-handle = "0.6"
+gpui-kit = "0.10.0"
+futures = "0.3.34"
+raw-window-handle = "0.6.2"
 
 [build-dependencies]
-embed-resource = "3"
+embed-resource = "3.0.12"

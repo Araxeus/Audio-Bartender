@@ -8,16 +8,15 @@ license.workspace = true
 serde = ["dep:serde"]
 
 [dependencies]
-serde = { version = "1", features = ["derive"], optional = true }
-windows-core = "0.62"
-windows-numerics = "0.3"
+serde = { version = "1.0.229", features = ["derive"], optional = true }
+windows-core = "0.62.2"
+windows-numerics = "0.3.1"
 
 [dependencies.windows]
-version = "0.62"
+version = "0.62.2"
 features = [
     "Data_Json",
     "Foundation",
-    "Foundation_Collections",
     "Media_Control",
     "Storage_Streams",
     "Web_Http",
