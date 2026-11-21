@@ -40,7 +40,7 @@ fn release(args: &[String]) -> Result {
         }
     }
 
-    let root = Path::new(env!("CARGO_MANIFEST_DIR")).parent().ok_or("xtask has no parent directory")?.to_path_buf();
+    let root = workspace_root()?;
     if !git(&root, &["status", "--porcelain"])?.trim().is_empty() {
         return Err("The working tree has changes. Commit or stash them first.".to_owned());
     }
@@ -85,6 +85,17 @@ fn release(args: &[String]) -> Result {
         println!("Committed and tagged {tag}. Run `git push --atomic origin main {tag}` to release it.");
     }
     Ok(())
+}
+
+/// The repository the command runs in, found at run time so a copied or stale build
+/// never points at a directory that is gone.
+fn workspace_root() -> Result<PathBuf> {
+    let here = std::env::current_dir().map_err(|e| format!("Reading the current directory: {e}"))?;
+    let root = PathBuf::from(git(&here, &["rev-parse", "--show-toplevel"])?.trim());
+    if !root.join("xtask/Cargo.toml").is_file() {
+        return Err(format!("{} is not the Audio Bartender repository.", root.display()));
+    }
+    Ok(root)
 }
 
 type Version = (u64, u64, u64);
