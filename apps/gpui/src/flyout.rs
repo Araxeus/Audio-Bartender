@@ -268,15 +268,11 @@ fn route_device(state: &State, route: Option<&String>) -> Option<(String, IconNa
     })
 }
 
-/// Where a click happened, for opening a menu there.
-fn click_at(event: &ClickEvent) -> Point<Pixels> {
-    match event {
-        ClickEvent::Mouse(click) => click.up.position,
-        _ => point(px(0.), px(0.)),
-    }
-}
-
 /// A menu over the flyout.
+///
+/// Controls inside a clickable row (media buttons, chips, the device list's apps) act
+/// on mouse down and stop it there. GPUI's row would otherwise keep that press and
+/// fire its own click on the next mouse up anywhere.
 #[derive(Clone)]
 enum Popup {
     /// Where one app plays.
@@ -504,6 +500,7 @@ impl Flyout {
     pub fn open_page(&mut self, page: Page, cx: &mut Context<Self>) {
         self.page = page;
         self.devices_open = false;
+        self.popup = None;
         cx.notify();
     }
 
@@ -630,11 +627,14 @@ impl Flyout {
                 .child(Icon::new(icon).size(px(11.)).text_color(color))
                 .when(with_name, |d| d.child(short))
                 .when(!with_name, |d| d.tooltip(move |window, cx| Tooltip::new(tip.clone()).build(window, cx)))
-                .on_click(cx.listener(move |this, event: &ClickEvent, _, cx| {
-                    this.popup = Some((Popup::Route { app: app.clone(), name: name.clone() }, click_at(event)));
-                    cx.stop_propagation();
-                    cx.notify();
-                }))
+                .on_mouse_down(
+                    MouseButton::Left,
+                    cx.listener(move |this, event: &MouseDownEvent, _, cx| {
+                        this.popup = Some((Popup::Route { app: app.clone(), name: name.clone() }, event.position));
+                        cx.stop_propagation();
+                        cx.notify();
+                    }),
+                )
                 .into_any_element(),
         )
     }
@@ -772,6 +772,8 @@ impl Flyout {
         let upward = f32::from(at.y) > f32::from(window.viewport_size().height) * 0.55;
         let menu = v_flex()
             .id("popup")
+            // Clicks on the menu's labels stop here instead of reaching the rows behind.
+            .occlude()
             .w(px(MENU_WIDTH))
             .p_1()
             .rounded(px(8.))
@@ -1053,7 +1055,7 @@ impl Flyout {
                 .cursor_pointer()
                 .hover(move |st| st.bg(hover))
                 .child(Icon::new(icon).size(icon_size).text_color(color))
-                .on_click(move |_, _, cx| {
+                .on_mouse_down(MouseButton::Left, move |_, _, cx| {
                     match &target {
                         Some(target) => core.press_for(target, key),
                         None => core.press(key),
@@ -1114,6 +1116,7 @@ impl Flyout {
             .child(Icon::new(if open { IconName::ChevronDown } else { IconName::ChevronUp }).small())
             .on_click(cx.listener(|this, _, _, cx| {
                 this.devices_open = !this.devices_open;
+                this.popup = None;
                 cx.notify();
             }))
     }
@@ -1140,11 +1143,14 @@ impl Flyout {
                     .cursor_pointer()
                     .child(ui::avatar(app.icon.as_ref(), &app.name, true, px(18.), theme))
                     .tooltip(move |window, cx| Tooltip::new(tip.clone()).build(window, cx))
-                    .on_click(cx.listener(move |this, event: &ClickEvent, _, cx| {
-                        this.popup = Some((Popup::Route { app: id.clone(), name: name.clone() }, click_at(event)));
-                        cx.stop_propagation();
-                        cx.notify();
-                    }))
+                    .on_mouse_down(
+                        MouseButton::Left,
+                        cx.listener(move |this, event: &MouseDownEvent, _, cx| {
+                            this.popup = Some((Popup::Route { app: id.clone(), name: name.clone() }, event.position));
+                            cx.stop_propagation();
+                            cx.notify();
+                        }),
+                    )
             });
             let send = {
                 let device = device.id.clone();
@@ -1161,11 +1167,14 @@ impl Flyout {
                     .cursor_pointer()
                     .hover(move |st| st.bg(hover))
                     .child(Icon::new(IconName::Plus).size(px(11.)).text_color(theme.muted_foreground))
-                    .on_click(cx.listener(move |this, event: &ClickEvent, _, cx| {
-                        this.popup = Some((Popup::Send { device: device.clone() }, click_at(event)));
-                        cx.stop_propagation();
-                        cx.notify();
-                    }))
+                    .on_mouse_down(
+                        MouseButton::Left,
+                        cx.listener(move |this, event: &MouseDownEvent, _, cx| {
+                            this.popup = Some((Popup::Send { device: device.clone() }, event.position));
+                            cx.stop_propagation();
+                            cx.notify();
+                        }),
+                    )
             };
             v_flex()
                 .id(SharedString::from(device.id.clone()))
@@ -1187,6 +1196,7 @@ impl Flyout {
                 .on_click(cx.listener(move |this, _, _, cx| {
                     core.set_device(&id);
                     this.devices_open = false;
+                    this.popup = None;
                     cx.notify();
                 }))
         }))
