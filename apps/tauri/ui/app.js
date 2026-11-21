@@ -441,6 +441,98 @@ function swatches(current) {
   );
 }
 
+/** The tray icon styles: value, name and description. Ring, Dial and Plain have a middle. */
+const TRAY_STYLES = [
+  ["ring", "Ring", "A ring that fills with the volume"],
+  ["dial", "Dial", "A dial that fills with the volume"],
+  ["plain", "Plain", "Only the middle, without the volume"],
+  ["native", "Native", "Windows' own volume icon"],
+  ["liveWaves", "Live waves", "Waves that ripple with the sound playing"],
+  ["signalSteps", "Steps", "Four bars that fill as the volume climbs"],
+  ["equalizer", "Equalizer", "Bars that bounce with the sound"],
+];
+const TRAY_MIDDLES = [
+  ["speaker", "Speaker"],
+  ["playState", "Play"],
+  ["albumArt", "Art"],
+  ["number", "Number"],
+  ["pulse", "Pulse"],
+];
+const PULSE_STYLES = [
+  ["dot", "Dot"],
+  ["rays", "Rays"],
+  ["orbit", "Orbit"],
+  ["spectrum", "Spectrum"],
+];
+const hasMiddle = (style) => ["ring", "dial", "plain"].includes(style);
+
+/** Tray icon swatches by look, as `data:` URLs. The cover changes the art ones. */
+const trayImages = new Map();
+
+/** One tray icon look, drawn by core, as a button that picks it. */
+function traySwatch(look, selected, name, pick) {
+  const dark = isDark();
+  const image = el("img");
+  const key = [look.style, look.middle, look.pulse, dark, latest?.settings.albumArt && look.middle === "albumArt" ? nowPlayingArt() : ""].join(" ");
+  const known = trayImages.get(key);
+  if (known) image.src = known;
+  else
+    invoke("tray_swatch", { ...look, dark }).then((url) => {
+      if (!url) return;
+      if (trayImages.size > 128) trayImages.clear();
+      trayImages.set(key, url);
+      image.src = url;
+    });
+  return button("tray-swatch" + (selected ? " on" : ""), name, image, pick);
+}
+
+/** The URL of the cover the album art middle shows, to tell swatches apart. */
+function nowPlayingArt() {
+  const id = latest?.selected ?? latest?.current;
+  const icon = latest?.targets.find((t) => t.id === id)?.icon;
+  return icon?.art ? icon.url.length + icon.url.slice(-32) : "";
+}
+
+/**
+ * The tray icon's look, picked from the icons themselves: the style, then for a
+ * ring, a dial or a plain icon what goes in the middle, then how a pulse moves.
+ */
+function trayPicker(s) {
+  const middleOf = (style) => (hasMiddle(style) ? s.trayMiddle : "speaker");
+  const strip = (label, swatches) => el("div", "tray-row", el("span", "", label), el("div", "segmented tray-strip", ...swatches));
+  const rows = [
+    strip(
+      "Style",
+      TRAY_STYLES.map(([style, name]) =>
+        traySwatch({ style, middle: middleOf(style), pulse: s.pulseStyle }, s.trayStyle === style, name, () => setting("trayStyle", style)),
+      ),
+    ),
+  ];
+  if (hasMiddle(s.trayStyle)) {
+    // Album art comes only with the setting that fetches it.
+    const middles = TRAY_MIDDLES.filter(([value]) => value !== "albumArt" || s.albumArt);
+    rows.push(
+      strip(
+        "Middle",
+        middles.map(([middle, name]) =>
+          traySwatch({ style: s.trayStyle, middle, pulse: s.pulseStyle }, s.trayMiddle === middle, name, () => setting("trayMiddle", middle)),
+        ),
+      ),
+    );
+    if (s.trayMiddle === "pulse")
+      rows.push(
+        strip(
+          "Pulse",
+          PULSE_STYLES.map(([pulse, name]) =>
+            traySwatch({ style: s.trayStyle, middle: "pulse", pulse }, s.pulseStyle === pulse, name, () => setting("pulseStyle", pulse)),
+          ),
+        ),
+      );
+  }
+  const [, name, about] = TRAY_STYLES.find(([style]) => style === s.trayStyle) ?? TRAY_STYLES[0];
+  return el("div", "mode", el("span", "mode-title", "Tray icon"), ...rows, el("span", "mode-about", `${name} · ${about}`));
+}
+
 /** Settings picked from a few modes: the setting's name, then each value, name and description. */
 const MODES = {
   dark: {
@@ -449,38 +541,6 @@ const MODES = {
       [null, "System", "Follow Windows"],
       [false, "Light", "Always light"],
       [true, "Dark", "Always dark"],
-    ],
-  },
-  trayStyle: {
-    title: "Tray icon",
-    options: [
-      ["ring", "Ring", "A ring that fills with the volume"],
-      ["dial", "Dial", "A dial that fills with the volume"],
-      ["plain", "Plain", "Only the middle, without the volume"],
-      ["native", "Native", "Windows' own volume icon"],
-      ["liveWaves", "Live waves", "Waves that ripple with the sound playing"],
-      ["signalSteps", "Steps", "Four bars that fill as the volume climbs"],
-      ["equalizer", "Equalizer", "Bars that bounce with the sound"],
-    ],
-    rows: [3, 4],
-  },
-  trayMiddle: {
-    title: "Middle",
-    options: [
-      ["speaker", "Speaker"],
-      ["playState", "Play"],
-      ["albumArt", "Art"],
-      ["number", "Number"],
-      ["pulse", "Pulse"],
-    ],
-  },
-  pulseStyle: {
-    title: "Pulse",
-    options: [
-      ["dot", "Dot"],
-      ["rays", "Rays"],
-      ["orbit", "Orbit"],
-      ["spectrum", "Spectrum"],
     ],
   },
   tooltip: {
@@ -559,24 +619,10 @@ function showParts(s) {
 
 /** A setting's name, a segmented control of its modes, and a line about the current one. */
 function segmented(s, key) {
-  const { title, options, rows } = MODES[key];
+  const { title, options } = MODES[key];
   const current = options.find(([value]) => value === s[key]);
-  const chips = (key, options) => options.map(([value, name]) => button(s[key] === value ? "on" : "", null, name, () => setting(key, value)));
-  // The tray styles go in two rows: the ones with a middle, then the rest.
-  const grid = rows
-    ? el("div", "segmented rows", ...rows.map((size, i) => el("div", "row", ...chips(key, options.slice(rows.slice(0, i).reduce((a, b) => a + b, 0)).slice(0, size)))))
-    : el("div", "segmented", ...chips(key, options));
-  // What goes inside a ring, a dial or a plain icon.
-  const middle =
-    key === "trayStyle" && ["ring", "dial", "plain"].includes(s.trayStyle)
-      ? el("div", "mode-middle", el("span", "", MODES.trayMiddle.title), el("div", "segmented", ...chips("trayMiddle", MODES.trayMiddle.options.filter(([value]) => value !== "albumArt" || s.albumArt))))
-      : null;
-  // How the pulse moves, while trying the variants out.
-  const pulse =
-    middle && s.trayMiddle === "pulse"
-      ? el("div", "mode-middle", el("span", "", MODES.pulseStyle.title), el("div", "segmented", ...chips("pulseStyle", MODES.pulseStyle.options)))
-      : null;
-  return el("div", "mode", el("span", "mode-title", title), grid, middle, pulse, el("span", "mode-about", current?.[2] ?? ""));
+  const grid = el("div", "segmented", ...options.map(([value, name]) => button(s[key] === value ? "on" : "", null, name, () => setting(key, value))));
+  return el("div", "mode", el("span", "mode-title", title), grid, el("span", "mode-about", current?.[2] ?? ""));
 }
 
 /** The update status line with a button to check now. */
@@ -624,18 +670,18 @@ function settingsPanel(state) {
     row("Album art as app icon", toggle(s.albumArt, (on) => setting("albumArt", on))),
     row("Automatic updates", toggle(s.autoUpdate, (on) => setting("autoUpdate", on))),
     updateRow(state.update),
+    el("div", "section-label", "Tray"),
     ...iconRows(state),
-    el("div", "section-label", "Look"),
-    el("div", "mode", el("span", "mode-title", "Accent color"), swatches(s.accent)),
-    segmented(s, "dark"),
-    segmented(s, "trayStyle"),
+    trayPicker(s),
+    segmented(s, "tooltip"),
+    segmented(s, "mediaButtons"),
   );
   const right = el(
     "div",
     "panel-column",
-    el("div", "section-label", "Tray tooltip"),
-    segmented(s, "tooltip"),
-    segmented(s, "mediaButtons"),
+    el("div", "section-label", "Look"),
+    el("div", "mode", el("span", "mode-title", "Accent color"), swatches(s.accent)),
+    segmented(s, "dark"),
     el("div", "section-label", "Flyout"),
     showParts(s),
     segmented(s, "mediaControls"),

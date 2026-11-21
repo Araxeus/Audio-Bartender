@@ -4,7 +4,9 @@ use std::sync::Mutex;
 use std::sync::mpsc;
 use std::time::{Duration, Instant};
 
-use audio_bartender_core::{Accent, Anchor, Core, Event, IconPage, MediaKey, Page, Setting, State};
+use audio_bartender_core::{
+    Accent, Anchor, Core, Event, IconPage, MediaKey, Page, PulseStyle, Setting, State, TrayMiddle, TrayStyle,
+};
 use tauri::{
     AppHandle, Emitter, LogicalSize, Manager, PhysicalPosition, RunEvent, Theme, WebviewUrl, WebviewWindow,
     WebviewWindowBuilder, WindowEvent,
@@ -145,6 +147,20 @@ fn open_icon_page(page: IconPage) {
 #[tauri::command]
 fn set_icon_on_taskbar(core: tauri::State<Core>, show: bool) {
     core.set_icon_on_taskbar(show);
+}
+
+/// A tray icon look for the settings to pick from, as a `data:` URL.
+#[tauri::command]
+fn tray_swatch(
+    core: tauri::State<Core>,
+    style: TrayStyle,
+    middle: TrayMiddle,
+    pulse: PulseStyle,
+    dark: bool,
+) -> Option<String> {
+    let state = core.state();
+    let art = state.now_playing().and_then(|t| t.icon.as_ref()).filter(|i| i.art);
+    audio_bartender_core::tray_swatch_url(style, middle, pulse, dark, art)
 }
 
 /// Sends an app to an output device, or back to the default with no device.
@@ -448,6 +464,7 @@ fn main() {
             open_icon_page,
             set_icon_on_taskbar,
             set_route,
+            tray_swatch,
             start_drag,
             open_app_volume_settings,
             quit,

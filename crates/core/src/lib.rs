@@ -213,7 +213,7 @@ impl Audio {
     }
 }
 
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize), serde(rename_all = "camelCase"))]
 pub enum TrayStyle {
     /// A ring that fills with the volume, around the middle.
@@ -295,7 +295,7 @@ impl TrayStyle {
 }
 
 /// What a ring, a dial or a plain tray icon shows in its middle.
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize), serde(rename_all = "camelCase"))]
 pub enum TrayMiddle {
     #[default]
@@ -342,7 +342,7 @@ impl TrayMiddle {
 }
 
 /// How the tray icon's pulse middle moves with the sound.
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize), serde(rename_all = "camelCase"))]
 pub enum PulseStyle {
     /// A dot that swells with the bass, its edge bulging with the spectrum.
@@ -1217,13 +1217,14 @@ pub fn preview_tray_icon(
     light_taskbar: bool,
     size: i32,
 ) -> Option<Vec<u8>> {
-    let look = tray_icon::Look {
-        level,
-        muted,
-        style,
-        middle,
-        pulse,
-        light_taskbar,
+    let look = tray_icon::Look { level, muted, style, middle, pulse, light_taskbar, ..sample_look() };
+    tray_png(&look, size)
+}
+
+/// A playing look with a sample spectrum, so live styles show their shape.
+fn sample_look() -> tray_icon::Look {
+    tray_icon::Look {
+        level: 0.6,
         spectrum: spectrum::Spectrum {
             bands: std::array::from_fn(|b| (1.0 - b as f32 / 14.0) * (0.75 + 0.25 * (b as f32 * 1.9).sin())),
             bass: 0.8,
@@ -1231,10 +1232,56 @@ pub fn preview_tray_icon(
         },
         playing: Some(true),
         ..Default::default()
-    };
-    let mut pixels = tray_icon::bgra(&look, size)?;
+    }
+}
+
+fn tray_png(look: &tray_icon::Look, size: i32) -> Option<Vec<u8>> {
+    let mut pixels = tray_icon::bgra(look, size)?;
     pixels.as_chunks_mut::<4>().0.iter_mut().for_each(|px| px.swap(0, 2));
     Some(icon::encode_png(size as u32, size as u32, &pixels))
+}
+
+/// What a tray swatch shows, for its cache.
+type SwatchKey = (TrayStyle, TrayMiddle, PulseStyle, bool, usize);
+
+static SWATCHES: std::sync::LazyLock<Mutex<std::collections::HashMap<SwatchKey, Arc<[u8]>>>> =
+    std::sync::LazyLock::new(Mutex::default);
+
+/// A tray icon look as a PNG for the settings to pick from, 40 px square, in light
+/// marks for a dark panel or dark marks for a light one. `art` is the current
+/// cover, which the album art middle shows. Drawn once per look and cover.
+pub fn tray_swatch(
+    style: TrayStyle,
+    middle: TrayMiddle,
+    pulse: PulseStyle,
+    dark: bool,
+    art: Option<&AppIcon>,
+) -> Option<Arc<[u8]>> {
+    let key = (style, middle, pulse, dark, art.map_or(0, |a| a.data.as_ptr() as usize));
+    let mut swatches = SWATCHES.lock().unwrap();
+    if let Some(png) = swatches.get(&key) {
+        return Some(png.clone());
+    }
+    // The cover decodes through COM, which this thread may not have started.
+    util::com_init();
+    let look = tray_icon::Look { style, middle, pulse, light_taskbar: !dark, art: art.cloned(), ..sample_look() };
+    let png: Arc<[u8]> = tray_png(&look, 40)?.into();
+    if swatches.len() > 128 {
+        swatches.clear();
+    }
+    swatches.insert(key, png.clone());
+    Some(png)
+}
+
+/// [`tray_swatch`] as a `data:` URL.
+pub fn tray_swatch_url(
+    style: TrayStyle,
+    middle: TrayMiddle,
+    pulse: PulseStyle,
+    dark: bool,
+    art: Option<&AppIcon>,
+) -> Option<String> {
+    tray_swatch(style, middle, pulse, dark, art).map(|png| format!("data:image/png;base64,{}", icon::base64(&png)))
 }
 
 /// A window's top-left corner on screen, for noticing that the user moved it.

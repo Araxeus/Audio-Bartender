@@ -1,9 +1,10 @@
 //! The whole UI: media key target and per-app volume, settings, output device and
 //! master volume, opened next to the tray icon.
 
-use std::cell::Cell;
+use std::cell::{Cell, RefCell};
 use std::collections::HashMap;
 use std::rc::Rc;
+use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use audio_bartender_core::{
@@ -147,7 +148,6 @@ type HoverHandler = Box<dyn Fn(&bool, &mut Window, &mut App) + 'static>;
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum Mode {
     Theme,
-    TrayIcon,
     Tooltip,
     TooltipButtons,
     MediaControls,
@@ -160,7 +160,6 @@ impl Mode {
     fn title(self) -> &'static str {
         match self {
             Mode::Theme => "Theme",
-            Mode::TrayIcon => "Tray icon",
             Mode::Tooltip => "Tooltip",
             Mode::TooltipButtons => "Tooltip buttons",
             Mode::MediaControls => "Media controls",
@@ -181,10 +180,6 @@ impl Mode {
                 (Setting::Dark(Some(false)), "Light", "Always light", s.dark == Some(false)),
                 (Setting::Dark(Some(true)), "Dark", "Always dark", s.dark == Some(true)),
             ],
-            Mode::TrayIcon => TrayStyle::ALL
-                .into_iter()
-                .map(|t| (Setting::TrayStyle(t), t.label(), t.about(), s.tray_style == t))
-                .collect(),
             Mode::Tooltip => vec![
                 (
                     Setting::Tooltip(TooltipStyle::NowPlaying),
@@ -434,6 +429,8 @@ pub struct Flyout {
     placed: Rc<Cell<Option<(i32, i32)>>>,
     /// The user dragged the pinned flyout, so it stays where they put it.
     moved: Rc<Cell<bool>>,
+    /// Tray icon swatches decoded for the settings, by their PNG's address.
+    swatch_images: RefCell<HashMap<usize, Arc<Image>>>,
     _subscriptions: Vec<Subscription>,
 }
 
@@ -510,6 +507,7 @@ impl Flyout {
             closing: None,
             placed: Rc::default(),
             moved: Rc::default(),
+            swatch_images: RefCell::default(),
             _subscriptions,
         }
     }
@@ -1724,47 +1722,10 @@ impl Flyout {
                 .child(name)
                 .on_click(move |_, _, _| core.set(setting.clone()))
         };
-        let mut buttons: Vec<_> = options
+        let buttons = options
             .into_iter()
             .enumerate()
-            .map(|(i, (setting, name, _, on))| chip(format!("mode-{}-{i}", mode.title()), setting, name, on))
-            .collect();
-        // The tray styles go in two rows: the ones with a middle, then the rest.
-        let sizes: &[usize] = match mode {
-            Mode::TrayIcon => &[3, 4],
-            _ => &[usize::MAX],
-        };
-        let mut rows = Vec::new();
-        for size in sizes.iter().cycle() {
-            if buttons.is_empty() {
-                break;
-            }
-            let rest = buttons.split_off((*size).min(buttons.len()));
-            rows.push(h_flex().gap(px(2.)).children(buttons));
-            buttons = rest;
-        }
-        // What goes inside a ring, a dial or a plain icon.
-        let middle = (matches!(mode, Mode::TrayIcon) && s.tray_style.has_middle()).then(|| {
-            // Album art comes only with the setting that fetches it.
-            let chips = TrayMiddle::ALL.into_iter().filter(|m| *m != TrayMiddle::AlbumArt || s.album_art).map(|m| {
-                chip(format!("tray-middle-{}", m.name()), Setting::TrayMiddle(m), m.label(), s.tray_middle == m)
-            });
-            h_flex()
-                .gap_2()
-                .child(div().w(px(44.)).text_size(px(12.)).text_color(muted).child("Middle"))
-                .child(h_flex().flex_1().p(px(2.)).gap(px(2.)).rounded(px(7.)).bg(track).children(chips))
-        });
-        // How the pulse moves, while trying the variants out.
-        let pulse = (matches!(mode, Mode::TrayIcon) && s.tray_style.has_middle() && s.tray_middle == TrayMiddle::Pulse)
-            .then(|| {
-                let chips = PulseStyle::ALL.map(|p| {
-                    chip(format!("pulse-style-{}", p.name()), Setting::PulseStyle(p), p.label(), s.pulse_style == p)
-                });
-                h_flex()
-                    .gap_2()
-                    .child(div().w(px(44.)).text_size(px(12.)).text_color(muted).child("Pulse"))
-                    .child(h_flex().flex_1().p(px(2.)).gap(px(2.)).rounded(px(7.)).bg(track).children(chips))
-            });
+            .map(|(i, (setting, name, _, on))| chip(format!("mode-{}-{i}", mode.title()), setting, name, on));
         v_flex()
             .mx_2()
             .px_2()
@@ -1772,9 +1733,113 @@ impl Flyout {
             .pb_2()
             .gap(px(6.))
             .child(div().text_size(px(13.)).line_height(px(18.)).child(mode.title()))
-            .child(v_flex().p(px(2.)).gap(px(2.)).rounded(px(7.)).bg(track).children(rows))
-            .children(middle)
-            .children(pulse)
+            .child(h_flex().p(px(2.)).gap(px(2.)).rounded(px(7.)).bg(track).children(buttons))
+            .child(div().h(px(16.)).text_size(px(12.)).line_height(px(16.)).text_color(muted).truncate().child(about))
+            .into_any_element()
+    }
+
+    /// The tray icon's look, picked from the icons themselves: the style, then for a
+    /// ring, a dial or a plain icon what goes in the middle, then how a pulse moves.
+    fn tray_picker(&self, state: &State, theme: &Theme) -> AnyElement {
+        let s = &state.settings;
+        let dark = theme.is_dark();
+        let (muted, track, chip) = (
+            theme.muted_foreground,
+            if dark { theme.muted } else { hex(TRACK_LIGHT) },
+            if dark { theme.secondary } else { theme::card(false) },
+        );
+        let art = state.now_playing().and_then(|t| t.icon.as_ref()).filter(|i| i.art);
+        let swatch =
+            |id: String, look: (TrayStyle, TrayMiddle, PulseStyle), setting: Setting, name: &'static str, on: bool| {
+                let core = self.core.clone();
+                let image = audio_bartender_core::tray_swatch(look.0, look.1, look.2, dark, art).map(|png| {
+                    let mut images = self.swatch_images.borrow_mut();
+                    if images.len() > 128 {
+                        images.clear();
+                    }
+                    images
+                        .entry(png.as_ptr() as usize)
+                        .or_insert_with(|| Arc::new(Image::from_bytes(ImageFormat::Png, png.to_vec())))
+                        .clone()
+                });
+                div()
+                    .id(SharedString::from(id))
+                    .flex_none()
+                    .size(px(30.))
+                    .flex()
+                    .items_center()
+                    .justify_center()
+                    .rounded(px(5.))
+                    .cursor_pointer()
+                    .map(|d| if on { d.bg(chip) } else { d.opacity(0.6).hover(|st| st.opacity(1.)) })
+                    .children(image.map(|image| img(image).size(px(20.))))
+                    .tooltip(move |window, cx| Tooltip::new(name).build(window, cx))
+                    .on_click(move |_, _, _| core.set(setting.clone()))
+            };
+        let strip =
+            |swatches: Vec<Stateful<Div>>| h_flex().p(px(2.)).gap(px(2.)).rounded(px(7.)).bg(track).children(swatches);
+        let labeled = |label: &'static str, swatches: Vec<Stateful<Div>>| {
+            h_flex()
+                .gap_2()
+                .child(div().w(px(44.)).text_size(px(12.)).text_color(muted).child(label))
+                .child(strip(swatches))
+        };
+        let middle_of = |style: TrayStyle| if style.has_middle() { s.tray_middle } else { TrayMiddle::Speaker };
+        let styles = TrayStyle::ALL
+            .into_iter()
+            .map(|t| {
+                swatch(
+                    format!("tray-style-{}", t.name()),
+                    (t, middle_of(t), s.pulse_style),
+                    Setting::TrayStyle(t),
+                    t.label(),
+                    s.tray_style == t,
+                )
+            })
+            .collect();
+        // Album art comes only with the setting that fetches it.
+        let middles = s.tray_style.has_middle().then(|| {
+            let swatches = TrayMiddle::ALL
+                .into_iter()
+                .filter(|m| *m != TrayMiddle::AlbumArt || s.album_art)
+                .map(|m| {
+                    swatch(
+                        format!("tray-middle-{}", m.name()),
+                        (s.tray_style, m, s.pulse_style),
+                        Setting::TrayMiddle(m),
+                        m.label(),
+                        s.tray_middle == m,
+                    )
+                })
+                .collect();
+            labeled("Middle", swatches)
+        });
+        let pulses = (s.tray_style.has_middle() && s.tray_middle == TrayMiddle::Pulse).then(|| {
+            let swatches = PulseStyle::ALL
+                .into_iter()
+                .map(|p| {
+                    swatch(
+                        format!("pulse-style-{}", p.name()),
+                        (s.tray_style, TrayMiddle::Pulse, p),
+                        Setting::PulseStyle(p),
+                        p.label(),
+                        s.pulse_style == p,
+                    )
+                })
+                .collect();
+            labeled("Pulse", swatches)
+        });
+        let about = format!("{} · {}", s.tray_style.label(), s.tray_style.about());
+        v_flex()
+            .mx_2()
+            .px_2()
+            .pt(px(6.))
+            .pb_2()
+            .gap(px(6.))
+            .child(div().text_size(px(13.)).line_height(px(18.)).child("Tray icon"))
+            .child(labeled("Style", styles))
+            .children(middles)
+            .children(pulses)
             .child(div().h(px(16.)).text_size(px(12.)).line_height(px(16.)).text_color(muted).truncate().child(about))
             .into_any_element()
     }
@@ -1878,18 +1943,18 @@ impl Flyout {
                 self.setting_switch("auto-update", s.auto_update, Setting::AutoUpdate, theme),
             ))
             .child(update)
+            .child(Self::panel_label("TRAY", theme))
             .when(!audio_bartender_core::windows_11() || !s.speaker_position, |panel| panel.child(icon_row))
             .child(volume_row)
-            .child(Self::panel_label("LOOK", theme))
-            .child(self.swatches(s.accent, theme))
-            .child(self.segmented(Mode::Theme, s, theme))
-            .child(self.segmented(Mode::TrayIcon, s, theme));
+            .child(self.tray_picker(state, theme))
+            .child(self.segmented(Mode::Tooltip, s, theme))
+            .child(self.segmented(Mode::TooltipButtons, s, theme));
         let right = v_flex()
             .flex_1()
             .min_w_0()
-            .child(Self::panel_label("TRAY TOOLTIP", theme))
-            .child(self.segmented(Mode::Tooltip, s, theme))
-            .child(self.segmented(Mode::TooltipButtons, s, theme))
+            .child(Self::panel_label("LOOK", theme))
+            .child(self.swatches(s.accent, theme))
+            .child(self.segmented(Mode::Theme, s, theme))
             .child(Self::panel_label("FLYOUT", theme))
             .child(self.show_parts(s, theme))
             .child(self.segmented(Mode::MediaControls, s, theme))
