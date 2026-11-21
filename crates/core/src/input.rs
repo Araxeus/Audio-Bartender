@@ -802,7 +802,9 @@ unsafe fn show_menu(hwnd: HWND) {
         let mut wheel = Vec::new();
 
         theme_menus(state.settings.dark);
-        add(MF_STRING, ID_OPEN, "Open Audio Bartender");
+        // The bold default item opens the flyout. It names the version and front end,
+        // so a bug report can say which one is running.
+        add(MF_STRING, ID_OPEN, &crate::update::app_label());
         add(MF_SEPARATOR, 0, "");
         let audio = &state.audio;
         add(MF_STRING, ID_MASTER, &volume_label("Volume", audio.volume, audio.muted));
