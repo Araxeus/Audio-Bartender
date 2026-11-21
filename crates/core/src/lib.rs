@@ -552,6 +552,9 @@ pub struct State {
     pub audio: Audio,
     /// Chosen target id. `None` leaves media keys to Windows.
     pub selected: Option<String>,
+    /// The target id of Windows' current media session, which media keys reach when
+    /// none is chosen.
+    pub current: Option<String>,
     pub settings: Settings,
     pub update: UpdateStatus,
     /// This app's tray icon shows on the taskbar rather than in the overflow, when
@@ -560,6 +563,12 @@ pub struct State {
 }
 
 impl State {
+    /// The target that media keys reach: the chosen one, or else Windows' current one.
+    pub fn now_playing(&self) -> Option<&Target> {
+        let id = self.selected.as_deref().or(self.current.as_deref())?;
+        self.targets.iter().find(|t| t.id == id)
+    }
+
     /// The target that currently receives media keys, if routing is active.
     pub fn routed(&self) -> Option<&Target> {
         let id = self.selected.as_deref()?;

@@ -230,6 +230,15 @@ impl Mode {
     }
 }
 
+/// The Automatic row's line, naming the app Windows sends media keys to now.
+fn windows_decides(state: &State) -> String {
+    let current = state.current.as_deref().and_then(|id| state.targets.iter().find(|t| t.id == id));
+    match current {
+        Some(target) => format!("Windows decides · {}", target.name),
+        None => "Windows decides".into(),
+    }
+}
+
 /// What the media keys control right now, for the banner and the dock.
 struct NowPlaying {
     title: String,
@@ -240,8 +249,7 @@ struct NowPlaying {
 
 impl NowPlaying {
     fn new(state: &State) -> NowPlaying {
-        let selected = state.selected.as_deref().and_then(|id| state.targets.iter().find(|t| t.id == id));
-        let Some(target) = selected else {
+        let Some(target) = state.now_playing() else {
             return NowPlaying {
                 title: "Automatic".into(),
                 subtitle: "Media keys go where Windows decides".into(),
@@ -940,10 +948,13 @@ impl Flyout {
                                 .child(Icon::new(IconName::Sparkles).small().text_color(white())),
                         )
                         .child(
-                            v_flex()
-                                .flex_1()
-                                .child(div().text_size(px(13.)).font_semibold().child("Automatic"))
-                                .child(div().text_xs().text_color(theme.muted_foreground).child("Windows decides")),
+                            v_flex().flex_1().child(div().text_size(px(13.)).font_semibold().child("Automatic")).child(
+                                div()
+                                    .text_xs()
+                                    .text_color(theme.muted_foreground)
+                                    .truncate()
+                                    .child(windows_decides(state)),
+                            ),
                         )
                         .child(Self::radio("automatic", &theme, automatic, &self.core, None)),
                 )

@@ -359,7 +359,16 @@ impl Worker {
         let mut settings = self.config.settings.clone();
         settings.autostart = crate::autostart::enabled();
 
+        // Windows' current session is what media keys reach in Automatic.
+        let current = self
+            .manager
+            .as_ref()
+            .and_then(|m| m.GetCurrentSession().ok())
+            .and_then(|s| s.SourceAppUserModelId().ok())
+            .map(|aumid| format!("smtc:{aumid}"))
+            .filter(|id| targets.iter().any(|t| &t.id == id));
         let state = State {
+            current,
             targets,
             mixer,
             audio: Audio { devices: self.devices.clone(), volume, muted },

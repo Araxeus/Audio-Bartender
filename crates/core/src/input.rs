@@ -296,8 +296,7 @@ pub fn update_tray(state: &State) {
         tray.accent = state.settings.accent;
         tray.dark = state.settings.dark;
         tray.device = audio.device().map(|d| d.name.clone());
-        let selected = state.selected.as_deref().and_then(|id| state.targets.iter().find(|t| t.id == id));
-        tray.media = match selected {
+        tray.media = match state.now_playing() {
             Some(t) => card::Media {
                 app: Some(t.name.clone()),
                 playback: t.playback,
