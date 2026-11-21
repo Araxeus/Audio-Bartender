@@ -7,7 +7,8 @@ use windows::Win32::System::Registry::{
 use windows::core::{PCWSTR, w};
 
 use crate::{
-    Accent, DeviceChip, LevelMeters, MediaButtons, MediaControls, Settings, TooltipStyle, TrayStyle, VolumeBars,
+    Accent, DeviceChip, LevelMeters, MediaButtons, MediaControls, Settings, TooltipStyle, TrayMiddle, TrayStyle,
+    VolumeBars,
 };
 
 const RUN_KEY: PCWSTR = w!("Software\\Microsoft\\Windows\\CurrentVersion\\Run");
@@ -61,7 +62,12 @@ impl Config {
                 "theme" => s.dark = matches!(value, "dark" | "light").then(|| value == "dark"),
                 "album_art" => s.album_art = flag(value),
                 "speaker_position" => s.speaker_position = flag(value),
+                // The number was a style of its own before it became a middle.
+                "tray_style" if value == "number" => {
+                    (s.tray_style, s.tray_middle) = (TrayStyle::Plain, TrayMiddle::Number)
+                }
                 "tray_style" => s.tray_style = TrayStyle::from_name(value).unwrap_or_default(),
+                "tray_middle" => s.tray_middle = TrayMiddle::from_name(value).unwrap_or_default(),
                 "level_meters" => s.level_meters = LevelMeters::from_name(value).unwrap_or_default(),
                 "device_chip" => s.device_chip = DeviceChip::from_name(value).unwrap_or_default(),
                 "show_media_keys" => s.show_media_keys = flag(value),
@@ -103,12 +109,13 @@ impl Config {
             None => "",
         };
         let text = format!(
-            "target={}\ntarget_name={}\ntheme={theme}\nalbum_art={}\nspeaker_position={}\ntray_style={}\nvolume_bars={}\ntooltip={}\nmedia_buttons={}\nmedia_controls={}\nlevel_meters={}\ndevice_chip={}\nshow_media_keys={}\nshow_other_apps={}\nshow_volume={}\nauto_update={}\nlast_update_check={}\naccent={}\n",
+            "target={}\ntarget_name={}\ntheme={theme}\nalbum_art={}\nspeaker_position={}\ntray_style={}\ntray_middle={}\nvolume_bars={}\ntooltip={}\nmedia_buttons={}\nmedia_controls={}\nlevel_meters={}\ndevice_chip={}\nshow_media_keys={}\nshow_other_apps={}\nshow_volume={}\nauto_update={}\nlast_update_check={}\naccent={}\n",
             self.target.as_deref().unwrap_or(""),
             self.target_name.as_deref().unwrap_or(""),
             s.album_art,
             s.speaker_position,
             s.tray_style.name(),
+            s.tray_middle.name(),
             match s.volume_bars {
                 VolumeBars::None => "none",
                 VolumeBars::Compact => "compact",

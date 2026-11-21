@@ -455,17 +455,25 @@ const MODES = {
     title: "Tray icon",
     options: [
       ["ring", "Ring", "A ring that fills with the volume"],
-      ["number", "Number", "The volume as a number"],
+      ["dial", "Dial", "A dial that fills with the volume"],
+      ["plain", "Plain", "Only the middle, without the volume"],
       ["speakerWaves", "Waves", "Windows' volume icon, with up to three waves"],
       ["gradedWaves", "Graded", "Waves that spread and brighten with the volume"],
-      ["liveWaves", "Live waves", "Waves that light up with the sound playing"],
-      ["signalSteps", "Steps", "Four bars that fill as the volume climbs"],
-      ["dial", "Dial", "A speaker inside a dial"],
+      ["liveWaves", "Live waves", "Waves that ripple with the sound playing"],
       ["fillingSpeaker", "Fill", "A speaker that fills from left to right"],
+      ["signalSteps", "Steps", "Four bars that fill as the volume climbs"],
       ["equalizer", "Equalizer", "Bars that bounce with the sound"],
-      ["pulseRing", "Pulse", "A ring around a dot that swells with the sound"],
-      ["transportRing", "Transport", "A ring around the media app's play state"],
-      ["albumArt", "Album art", "A ring around the cover of what's playing"],
+    ],
+    columns: 3,
+  },
+  trayMiddle: {
+    title: "Middle",
+    options: [
+      ["speaker", "Speaker"],
+      ["playState", "Play"],
+      ["albumArt", "Art"],
+      ["number", "Number"],
+      ["pulse", "Pulse"],
     ],
   },
   tooltip: {
@@ -544,15 +552,17 @@ function showParts(s) {
 
 /** A setting's name, a segmented control of its modes, and a line about the current one. */
 function segmented(s, key) {
-  const { title, options } = MODES[key];
+  const { title, options, columns } = MODES[key];
   const current = options.find(([value]) => value === s[key]);
-  return el(
-    "div",
-    "mode",
-    el("span", "mode-title", title),
-    el("div", options.length > 6 ? "segmented grid" : "segmented", ...options.map(([value, name]) => button(s[key] === value ? "on" : "", null, name, () => setting(key, value)))),
-    el("span", "mode-about", current?.[2] ?? ""),
-  );
+  const chips = (key, options) => options.map(([value, name]) => button(s[key] === value ? "on" : "", null, name, () => setting(key, value)));
+  const grid = el("div", columns ? "segmented grid" : "segmented", ...chips(key, options));
+  if (columns) grid.style.gridTemplateColumns = `repeat(${columns}, 1fr)`;
+  // What goes inside a ring, a dial or a plain icon.
+  const middle =
+    key === "trayStyle" && ["ring", "dial", "plain"].includes(s.trayStyle)
+      ? el("div", "mode-middle", el("span", "", MODES.trayMiddle.title), el("div", "segmented", ...chips("trayMiddle", MODES.trayMiddle.options)))
+      : null;
+  return el("div", "mode", el("span", "mode-title", title), grid, ...(middle ? [middle] : []), el("span", "mode-about", current?.[2] ?? ""));
 }
 
 /** The update status line with a button to check now. */

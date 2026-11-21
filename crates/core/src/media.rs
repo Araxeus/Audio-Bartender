@@ -216,6 +216,7 @@ impl Worker {
                     Setting::AlbumArt(on) => s.album_art = on,
                     Setting::SpeakerPosition(on) => s.speaker_position = on,
                     Setting::TrayStyle(style) => s.tray_style = style,
+                    Setting::TrayMiddle(middle) => s.tray_middle = middle,
                     Setting::VolumeBars(bars) => s.volume_bars = bars,
                     Setting::Tooltip(style) => s.tooltip = style,
                     Setting::MediaButtons(buttons) => s.media_buttons = buttons,

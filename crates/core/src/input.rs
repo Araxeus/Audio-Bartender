@@ -34,8 +34,8 @@ use crate::tooltip::Tip;
 use crate::tray_icon::{self, Look};
 use crate::util::{fill_wide, now_ms};
 use crate::{
-    Accent, Anchor, Cmd, Event, MediaButtons, MediaKey, Page, Playback, Rect, Shared, State, TooltipStyle, TrayStyle,
-    audio, card, volume,
+    Accent, Anchor, Cmd, Event, MediaButtons, MediaKey, Page, Playback, Rect, Shared, State, TooltipStyle, TrayMiddle,
+    TrayStyle, audio, card, volume,
 };
 use windows::Win32::UI::Shell::ShellExecuteW;
 use windows::Win32::UI::WindowsAndMessaging::SW_SHOWNORMAL;
@@ -61,6 +61,11 @@ const LIVE_FRAME_MS: u32 = 66;
 
 /// The sound the live tray icon last drew, as `f32` bits.
 static SOUND: AtomicU32 = AtomicU32::new(0);
+/// The loudest recent sound, as `f32` bits. It falls by `PEAK_FALL` each frame.
+static PEAK: AtomicU32 = AtomicU32::new(0);
+const PEAK_FALL: f32 = 0.97;
+/// Quiet audio below this still reads as quiet.
+const MIN_PEAK: f32 = 0.12;
 /// Whether `TIMER_LIVE` runs.
 static LIVE: AtomicBool = AtomicBool::new(false);
 
@@ -130,6 +135,7 @@ static TRAY_STATE: Mutex<TrayState> = Mutex::new(TrayState {
     level: 0.0,
     muted: false,
     style: TrayStyle::Ring,
+    middle: TrayMiddle::Speaker,
     tooltip: TooltipStyle::NowPlaying,
     buttons: MediaButtons::Hover,
     accent: Accent::Cyan,
@@ -142,6 +148,7 @@ struct TrayState {
     level: f32,
     muted: bool,
     style: TrayStyle,
+    middle: TrayMiddle,
     tooltip: TooltipStyle,
     buttons: MediaButtons,
     accent: Accent,
@@ -386,6 +393,7 @@ pub fn update_tray(state: &State) {
         tray.level = audio.volume;
         tray.muted = audio.muted;
         tray.style = state.settings.tray_style;
+        tray.middle = state.settings.tray_middle;
         tray.tooltip = state.settings.tooltip;
         tray.buttons = state.settings.media_buttons;
         tray.accent = state.settings.accent;
@@ -702,7 +710,11 @@ unsafe extern "system" fn wndproc(hwnd: HWND, msg: u32, wparam: WPARAM, lparam: 
         }
         WM_TIMER if wparam.0 == TIMER_RESTORE_ICON => unsafe { set_icon(hwnd, NIM_MODIFY) },
         WM_TIMER if wparam.0 == TIMER_LIVE => {
-            let sound = crate::meters::loudest();
+            // Against the recent peak, so quiet and loud audio both move the icon.
+            let raw = crate::meters::loudest();
+            let peak = raw.max(f32::from_bits(PEAK.load(Relaxed)) * PEAK_FALL);
+            PEAK.store(peak.to_bits(), Relaxed);
+            let sound = if raw > 0.005 { (raw / peak.max(MIN_PEAK)).min(1.0) } else { 0.0 };
             let drawn = f32::from_bits(SOUND.load(Relaxed));
             let moving = TRAY_STATE.lock().unwrap().style == TrayStyle::Equalizer && sound > 0.01;
             if moving || (sound - drawn).abs() > 0.015 || (sound == 0.0 && drawn != 0.0) {
@@ -932,8 +944,9 @@ unsafe fn set_icon(hwnd: HWND, action: NOTIFY_ICON_MESSAGE) {
             level: tray.level,
             muted: tray.muted,
             style: tray.style,
+            middle: tray.middle,
             light_taskbar: tray_icon::light_taskbar(),
-            sound: if tray.style.live() { f32::from_bits(SOUND.load(Relaxed)) } else { 0.0 },
+            sound: f32::from_bits(SOUND.load(Relaxed)),
             playing,
             art: media.icon.clone().filter(|icon| icon.art),
             clock: now_ms(),
@@ -941,9 +954,10 @@ unsafe fn set_icon(hwnd: HWND, action: NOTIFY_ICON_MESSAGE) {
         (look, (tray.text(), tray.tip()))
     };
     // Live styles keep a timer that redraws them with the sound.
-    if look.style.live() != LIVE.swap(look.style.live(), Relaxed) {
+    let live = crate::tray_icon_live(look.style, look.middle);
+    if live != LIVE.swap(live, Relaxed) {
         unsafe {
-            if look.style.live() {
+            if live {
                 SetTimer(Some(hwnd), TIMER_LIVE, LIVE_FRAME_MS, None);
             } else {
                 let _ = KillTimer(Some(hwnd), TIMER_LIVE);

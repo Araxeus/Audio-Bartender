@@ -21,15 +21,16 @@ use windows::Win32::System::Registry::{HKEY_CURRENT_USER, RRF_RT_REG_DWORD, RegG
 use windows::Win32::UI::WindowsAndMessaging::{CreateIconIndirect, HICON, ICONINFO};
 use windows::core::{PCWSTR, w};
 
-use crate::{AppIcon, TrayStyle};
+use crate::{AppIcon, TrayMiddle, TrayStyle};
 
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct Look {
     pub level: f32,
     pub muted: bool,
     pub style: TrayStyle,
+    pub middle: TrayMiddle,
     pub light_taskbar: bool,
-    /// The sound playing, 0 to 1, for the live styles.
+    /// The sound playing against its recent peak, 0 to 1, for the live styles.
     pub sound: f32,
     /// Whether what the media keys control plays, or `None` without media.
     pub playing: Option<bool>,
@@ -72,7 +73,8 @@ pub fn render(look: &Look, size: i32) -> Option<HICON> {
 pub fn bgra(look: &Look, size: i32) -> Option<Vec<u8>> {
     let fg = if look.light_taskbar { [28u8, 28, 28] } else { [255u8, 255, 255] };
     if !look.muted
-        && look.style == TrayStyle::AlbumArt
+        && look.style.has_middle()
+        && look.middle == TrayMiddle::AlbumArt
         && let Some(art) = &look.art
         && let Some(pixels) = album_art(look, art, size, fg)
     {
@@ -92,14 +94,15 @@ fn alpha(look: &Look, size: i32) -> Option<Vec<f32>> {
     let unit = |shape: &dyn Fn(f32, f32) -> f32| coverage(size, |x, y| shape(x / s, y / s));
     let level = look.level.clamp(0.0, 1.0);
     let sound = look.sound.clamp(0.0, 1.0);
-    let ringed = |inner: Vec<f32>| -> Vec<f32> {
-        let ring = unit(&|x, y| arc_band(x, y, 0.0, TAU, level));
-        ring.iter().zip(inner).map(|(a, b)| a.max(b)).collect()
-    };
-    let inner_speaker = || glyph(size, SPEAKER, 0.78, 0.17);
+    if look.style.has_middle() {
+        let middle = middle(look, size)?;
+        return Some(match frame(look, size) {
+            Some(frame) => frame.iter().zip(middle).map(|(a, b)| a.max(b)).collect(),
+            None => middle,
+        });
+    }
     Some(match look.style {
-        TrayStyle::Ring | TrayStyle::AlbumArt => ringed(inner_speaker()?),
-        TrayStyle::Number => number(size, (level * 100.0).round() as u32)?,
+        TrayStyle::Ring | TrayStyle::Dial | TrayStyle::Plain => unreachable!("drawn with a middle"),
         TrayStyle::SpeakerWaves => glyph(size, [SPEAKER, WAVES[0], WAVES[1], WAVES[2]][steps(level)], 0.9, 0.0)?,
         TrayStyle::GradedWaves => waves(size, |i| {
             // A wave reaches its tips halfway through its third of the volume, then
@@ -108,35 +111,75 @@ fn alpha(look: &Look, size: i32) -> Option<Vec<f32>> {
             ((f / 0.5).min(1.0), 0.55 + 0.45 * f, WAVE_TRACK)
         })?,
         TrayStyle::LiveWaves => {
+            // The waves the volume shows light up from the speaker outward as the
+            // sound rises, like a meter.
             let shown = steps(level);
             waves(size, |i| {
-                let lit = (sound * 3.4 - i as f32 * 0.85).clamp(0.0, 1.0);
-                (if i < shown { 1.0 } else { 0.0 }, 0.3 + 0.7 * lit, 0.0)
+                let lit = (sound * 3.0 - i as f32).clamp(0.0, 1.0);
+                (if i < shown { 1.0 } else { 0.0 }, WAVE_TRACK + (1.0 - WAVE_TRACK) * lit, 0.0)
             })?
         }
         TrayStyle::SignalSteps => unit(&|x, y| signal_steps(x, y, level)),
-        TrayStyle::Dial => {
-            let dial = unit(&|x, y| arc_band(x, y, DIAL_START, DIAL_SWEEP, level));
-            dial.iter().zip(inner_speaker()?).map(|(a, b)| a.max(b)).collect()
-        }
         TrayStyle::FillingSpeaker => unit(&|x, y| filling_speaker(x, y, level)),
         TrayStyle::Equalizer => {
             let heights = equalizer(level, sound, look.clock);
             unit(&|x, y| heights.iter().enumerate().map(|(i, h)| bar(x, y, i, *h)).fold(0.0, f32::max))
         }
-        TrayStyle::PulseRing => {
-            let r = 0.07 + 0.13 * (sound * 1.6).min(1.0);
-            ringed(unit(&|x, y| disc(x, y, r)))
-        }
-        TrayStyle::TransportRing => match look.playing {
-            Some(true) => ringed(unit(&|x, y| if triangle(x, y) { 1.0 } else { 0.0 })),
-            Some(false) => ringed(unit(&|x, y| {
+    })
+}
+
+/// The ring or dial around the middle, or `None` for a plain icon.
+fn frame(look: &Look, size: i32) -> Option<Vec<f32>> {
+    let s = size as f32;
+    let level = look.level.clamp(0.0, 1.0);
+    let (start, sweep) = match look.style {
+        TrayStyle::Ring => (0.0, TAU),
+        TrayStyle::Dial => (DIAL_START, DIAL_SWEEP),
+        _ => return None,
+    };
+    Some(coverage(size, |x, y| arc_band(x / s, y / s, start, sweep, level)))
+}
+
+/// How much bigger the middle draws without a frame around it.
+const PLAIN_SCALE: f32 = 1.55;
+
+/// The middle in the taskbar's color. Album art draws in color in [`album_art`], and
+/// falls back to the speaker here, as play state does without media.
+fn middle(look: &Look, size: i32) -> Option<Vec<f32>> {
+    let s = size as f32;
+    let plain = look.style == TrayStyle::Plain;
+    let k = if plain { PLAIN_SCALE } else { 1.0 };
+    // Shapes are drawn for the ring and scaled about the center without one.
+    let scaled = |shape: &dyn Fn(f32, f32) -> f32| {
+        coverage(size, |x, y| shape((x / s - 0.5) / k + 0.5, (y / s - 0.5) / k + 0.5))
+    };
+    let speaker = || if plain { glyph(size, SPEAKER, 1.1, 0.27) } else { glyph(size, SPEAKER, 0.78, 0.17) };
+    let level = look.level.clamp(0.0, 1.0);
+    match look.middle {
+        TrayMiddle::Speaker | TrayMiddle::AlbumArt => speaker(),
+        TrayMiddle::PlayState => match look.playing {
+            Some(true) => Some(scaled(&|x, y| if triangle(x, y) { 1.0 } else { 0.0 })),
+            Some(false) => Some(scaled(&|x, y| {
                 let bars = (0.37..=0.45).contains(&x) || (0.55..=0.63).contains(&x);
                 if bars && (0.34..=0.66).contains(&y) { 1.0 } else { 0.0 }
             })),
-            None => ringed(inner_speaker()?),
+            None => speaker(),
         },
-    })
+        TrayMiddle::Number => {
+            let value = (level * 100.0).round() as u32;
+            let scale = match (plain, value >= 100) {
+                (true, false) => 0.95,
+                (true, true) => 0.78,
+                (false, false) => 0.5,
+                (false, true) => 0.4,
+            };
+            number(size, value, scale)
+        }
+        TrayMiddle::Pulse => {
+            let r = 0.07 + 0.13 * look.sound.clamp(0.0, 1.0);
+            Some(scaled(&|x, y| disc(x, y, r)))
+        }
+    }
 }
 
 /// How many waves Windows' volume icon shows: none at 0, then one per third.
@@ -258,7 +301,7 @@ fn equalizer(level: f32, sound: f32, clock: u64) -> [f32; 4] {
     const PACE: [f32; 4] = [9.0, 13.0, 7.0, 11.0];
     const PHASE: [f32; 4] = [0.0, 1.7, 3.1, 4.4];
     let t = (clock % 600_000) as f32 / 1000.0;
-    let loud = (sound * 1.6).min(1.0) * level.sqrt();
+    let loud = sound * level.sqrt();
     std::array::from_fn(|i| 0.16 + 0.7 * loud * (0.5 + 0.5 * (t * PACE[i] + PHASE[i]).sin()))
 }
 
@@ -279,13 +322,14 @@ fn triangle(x: f32, y: f32) -> bool {
     (0.41..=0.67).contains(&x) && (y - 0.5).abs() <= (0.67 - x) / 0.26 * 0.17
 }
 
-/// The ring with the cover of what's playing inside it, in color. A paused cover dims.
+/// The cover of what's playing in color, inside the ring or dial if there is one. A
+/// paused cover dims.
 fn album_art(look: &Look, art: &AppIcon, size: i32, fg: [u8; 3]) -> Option<Vec<u8>> {
     let cover = decode_square(art, size)?;
     let s = size as f32;
-    let level = look.level.clamp(0.0, 1.0);
-    let ring = coverage(size, |x, y| arc_band(x / s, y / s, 0.0, TAU, level));
-    let inside = coverage(size, |x, y| disc(x / s, y / s, 0.33));
+    let ring = frame(look, size).unwrap_or_else(|| vec![0.0; (size * size) as usize]);
+    let radius = if look.style == TrayStyle::Plain { 0.47 } else { 0.33 };
+    let inside = coverage(size, |x, y| disc(x / s, y / s, radius));
     let shade = if look.playing == Some(false) { 0.55 } else { 1.0 };
     let mut out = Vec::with_capacity((size * size * 4) as usize);
     for p in 0..(size * size) as usize {
@@ -367,8 +411,7 @@ fn glyph(size: i32, glyph: &str, scale: f32, shift: f32) -> Option<Vec<f32>> {
 }
 
 /// The volume as digits. Bahnschrift Condensed keeps "100" legible at 16 px.
-fn number(size: i32, value: u32) -> Option<Vec<f32>> {
-    let scale = if value >= 100 { 0.78 } else { 0.95 };
+fn number(size: i32, value: u32, scale: f32) -> Option<Vec<f32>> {
     let height = (size as f32 * scale).round() as i32;
     text(size, &value.to_string(), w!("Bahnschrift SemiBold Condensed"), height, FW_SEMIBOLD.0 as i32, 0)
 }
@@ -472,8 +515,7 @@ mod tests {
                 _ => [0, 0, 255, 255],
             })
             .collect();
-        let art =
-            AppIcon { data: crate::icon::encode_png(w, h, &rgba).into(), kind: crate::ImageKind::Png, art: true };
+        let art = AppIcon { data: crate::icon::encode_png(w, h, &rgba).into(), kind: crate::ImageKind::Png, art: true };
         let bgra = decode_square(&art, 16).expect("decode");
         let at = |x: usize, y: usize| &bgra[(y * 16 + x) * 4..(y * 16 + x) * 4 + 3];
         assert_eq!(at(2, 8), [0, 0, 255], "left half is red");

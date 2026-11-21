@@ -8,7 +8,7 @@ use std::time::{Duration, Instant};
 
 use audio_bartender_core::{
     Accent, Anchor, Core, DeviceChip, DeviceKind, IconPage, LevelMeters, MediaButtons, MediaControls, MediaKey, Page,
-    Playback, Setting, Settings, State, Target, TooltipStyle, TrayStyle, VolumeBars,
+    Playback, Setting, Settings, State, Target, TooltipStyle, TrayMiddle, TrayStyle, VolumeBars,
 };
 use gpui_kit::assets::IconName;
 use gpui_kit::base::{h_flex, v_flex};
@@ -1700,10 +1700,10 @@ impl Flyout {
             spread_radius: px(0.),
             inset: false,
         }];
-        let buttons = options.into_iter().enumerate().map(|(i, (setting, name, _, on))| {
+        let chip = |id: String, setting: Setting, name: &'static str, on: bool| {
             let core = self.core.clone();
             div()
-                .id(SharedString::from(format!("mode-{}-{i}", mode.title())))
+                .id(SharedString::from(id))
                 .flex_1()
                 .min_w_0()
                 .h(px(24.))
@@ -1723,16 +1723,34 @@ impl Flyout {
                 })
                 .child(name)
                 .on_click(move |_, _, _| core.set(setting.clone()))
-        });
-        // Many options wrap, four to a row.
-        let mut buttons: Vec<_> = buttons.collect();
-        let per_row = if buttons.len() > 6 { 4 } else { buttons.len().max(1) };
+        };
+        let mut buttons: Vec<_> = options
+            .into_iter()
+            .enumerate()
+            .map(|(i, (setting, name, _, on))| chip(format!("mode-{}-{i}", mode.title()), setting, name, on))
+            .collect();
+        // Many options wrap. The tray styles go three to a row, one family each.
+        let per_row = match mode {
+            Mode::TrayIcon => 3,
+            _ if buttons.len() > 6 => 4,
+            _ => buttons.len().max(1),
+        };
         let mut rows = Vec::new();
         while !buttons.is_empty() {
             let rest = buttons.split_off(per_row.min(buttons.len()));
             rows.push(h_flex().gap(px(2.)).children(buttons));
             buttons = rest;
         }
+        // What goes inside a ring, a dial or a plain icon.
+        let middle = (matches!(mode, Mode::TrayIcon) && s.tray_style.has_middle()).then(|| {
+            let chips = TrayMiddle::ALL.map(|m| {
+                chip(format!("tray-middle-{}", m.name()), Setting::TrayMiddle(m), m.label(), s.tray_middle == m)
+            });
+            h_flex()
+                .gap_2()
+                .child(div().w(px(44.)).text_size(px(12.)).text_color(muted).child("Middle"))
+                .child(h_flex().flex_1().p(px(2.)).gap(px(2.)).rounded(px(7.)).bg(track).children(chips))
+        });
         v_flex()
             .mx_2()
             .px_2()
@@ -1741,6 +1759,7 @@ impl Flyout {
             .gap(px(6.))
             .child(div().text_size(px(13.)).line_height(px(18.)).child(mode.title()))
             .child(v_flex().p(px(2.)).gap(px(2.)).rounded(px(7.)).bg(track).children(rows))
+            .children(middle)
             .child(div().h(px(16.)).text_size(px(12.)).line_height(px(16.)).text_color(muted).truncate().child(about))
             .into_any_element()
     }
