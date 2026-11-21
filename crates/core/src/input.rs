@@ -232,9 +232,8 @@ fn tooltip_covers_flyout(tip: &Tip, icon: RECT) -> bool {
     tip.left < shown.right && tip.right > shown.left && tip.top < shown.bottom && tip.bottom > shown.top
 }
 
-/// Closes the tray overflow, which stays on top of the flyout a click in it opens.
-/// Windows 10 closes it by its button, so the button knows it closed. Windows 11
-/// gives the button no window, so hide the overflow itself.
+/// Closes the Windows 10 tray overflow. On Windows 11, Explorer dismisses the
+/// overflow when the flyout takes focus and updates the caret itself.
 fn close_overflow() {
     use windows::Win32::UI::WindowsAndMessaging::FindWindowExW;
     unsafe {
@@ -248,11 +247,6 @@ fn close_overflow() {
                 Ok(button) => _ = PostMessageW(Some(button), BM_CLICK, WPARAM(0), LPARAM(0)),
                 Err(_) => _ = ShowWindow(overflow, SW_HIDE),
             }
-        }
-        if let Ok(overflow) = FindWindowW(w!("TopLevelWindowForOverflowXamlIsland"), None)
-            && IsWindowVisible(overflow).as_bool()
-        {
-            let _ = ShowWindow(overflow, SW_HIDE);
         }
     }
 }
