@@ -420,6 +420,10 @@ pub struct Flyout {
     settled: bool,
     /// When the flyout started closing, sliding back behind the taskbar.
     closing: Option<Instant>,
+    /// Where the window was last placed, to notice when the user drags it elsewhere.
+    placed: Rc<Cell<Option<(i32, i32)>>>,
+    /// The user dragged the pinned flyout, so it stays where they put it.
+    moved: Rc<Cell<bool>>,
     _subscriptions: Vec<Subscription>,
 }
 
@@ -493,6 +497,8 @@ impl Flyout {
             opened: Instant::now(),
             settled: false,
             closing: None,
+            placed: Rc::default(),
+            moved: Rc::default(),
             _subscriptions,
         }
     }
@@ -890,7 +896,8 @@ impl Flyout {
             window.resize(size);
         }
         if let Some(closing) = self.closing {
-            if audio_bartender_core::slide_out_progress(closing) <= 0.0 {
+            // A flyout the user moved closes where it is instead of sliding into the taskbar.
+            if self.moved.get() || audio_bartender_core::slide_out_progress(closing) <= 0.0 {
                 window.remove_window();
                 return;
             }
@@ -922,9 +929,18 @@ impl Flyout {
         let frame = self.frame();
         let scale = window.scale_factor();
         let (opened, shown, view) = (self.opened, self.shown_panel.clone(), cx.entity_id());
+        let (placed, moved) = (self.placed.clone(), self.moved.clone());
         window.on_next_frame(move |_, cx| {
-            let progress = audio_bartender_core::slide_progress(opened);
-            audio_bartender_core::place_window(hwnd, &anchor, frame, progress);
+            // A window that isn't where it was last placed was dragged, so leave it there.
+            let now = audio_bartender_core::window_origin(hwnd);
+            if placed.get().is_some_and(|at| Some(at) != now) {
+                moved.set(true);
+            }
+            if !moved.get() {
+                let progress = audio_bartender_core::slide_progress(opened);
+                audio_bartender_core::place_window(hwnd, &anchor, frame, progress);
+                placed.set(audio_bartender_core::window_origin(hwnd));
+            }
             let overlap = (OVERLAP * scale).round() as i32;
             let parts = frame.parts(&anchor, panel.map(|h| (h * scale).round() as i32), overlap);
             audio_bartender_core::set_window_region(hwnd, &parts);
@@ -966,6 +982,8 @@ impl Flyout {
             .border_b_1()
             .border_color(theme.border)
             .when(dark, |d| d.bg(hex(DARK_FOOTER)))
+            // A pinned flyout can be dragged by its header, like a title bar.
+            .when(self.pinned, |d| d.window_control_area(WindowControlArea::Drag))
             .child(
                 h_flex()
                     .gap_2()

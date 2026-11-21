@@ -114,7 +114,8 @@ fn show_flyout(cx: &mut App, anchor: Anchor, page: Page, toggle: bool, pinned: b
         kind: WindowKind::PopUp,
         focus: true,
         show: true,
-        is_movable: false,
+        // Only the header of a pinned flyout is a drag area.
+        is_movable: true,
         is_resizable: false,
         is_minimizable: false,
         app_id: Some("AudioBartender".into()),

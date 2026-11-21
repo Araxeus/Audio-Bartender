@@ -653,6 +653,11 @@ function reportSize(withPanel) {
   });
 }
 
+// A pinned flyout can be dragged by its header, like a title bar.
+$("controls").addEventListener("mousedown", (event) => {
+  if (pinned && event.button === 0 && !event.target.closest("button")) invoke("start_drag");
+});
+
 follow(volumes, render);
 window.__TAURI__.event.listen("page", (event) => {
   page = event.payload;

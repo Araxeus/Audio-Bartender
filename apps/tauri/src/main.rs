@@ -54,6 +54,8 @@ struct Flyout {
     closing_at: Option<Instant>,
     /// Stays open when it loses focus.
     pinned: bool,
+    /// The user dragged the pinned flyout, so it stays where they put it.
+    moved: bool,
 }
 
 #[tauri::command]
@@ -161,6 +163,13 @@ fn quit(app: AppHandle, core: tauri::State<Core>) {
     app.exit(0);
 }
 
+/// The header of a pinned flyout drags the window, like a title bar.
+#[tauri::command]
+fn start_drag(app: AppHandle, window: WebviewWindow) {
+    app.state::<Mutex<Flyout>>().lock().unwrap().moved = true;
+    let _ = window.start_dragging();
+}
+
 #[tauri::command]
 fn set_pinned(app: AppHandle, pinned: bool) {
     app.state::<Mutex<Flyout>>().lock().unwrap().pinned = pinned;
@@ -224,6 +233,7 @@ fn reveal(app: &AppHandle, window: &WebviewWindow) {
         let mut flyout = flyout.lock().unwrap();
         flyout.shown_at = Some(Instant::now());
         flyout.closing_at = None;
+        flyout.moved = false;
     }
     place_flyout(app);
     apply_region(app);
@@ -259,6 +269,10 @@ fn place_flyout(app: &AppHandle) {
     let progress = {
         let flyout = app.state::<Mutex<Flyout>>();
         let flyout = flyout.lock().unwrap();
+        // A flyout the user dragged stays where they put it.
+        if flyout.moved {
+            return;
+        }
         match (flyout.closing_at, flyout.shown_at) {
             (Some(at), _) => audio_bartender_core::slide_out_progress(at),
             (None, Some(at)) => audio_bartender_core::slide_progress(at),
@@ -295,6 +309,10 @@ fn hide_flyout(app: &AppHandle) {
             // Showing it again cancels the slide.
             if sliding.state::<Mutex<Flyout>>().lock().unwrap().closing_at != Some(start) {
                 return;
+            }
+            // A flyout the user moved closes where it is instead of sliding into the taskbar.
+            if sliding.state::<Mutex<Flyout>>().lock().unwrap().moved {
+                break;
             }
             place_flyout(&sliding);
             if audio_bartender_core::slide_out_progress(start) <= 0.0 {
@@ -423,6 +441,7 @@ fn main() {
             open_icon_page,
             set_icon_on_taskbar,
             set_route,
+            start_drag,
             open_app_volume_settings,
             quit,
             set_pinned,

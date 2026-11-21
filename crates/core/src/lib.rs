@@ -1022,6 +1022,11 @@ pub fn preview_tray_icon(level: f32, muted: bool, style: TrayStyle, light_taskba
     Some(icon::encode_png(size as u32, size as u32, &pixels))
 }
 
+/// A window's top-left corner on screen, for noticing that the user moved it.
+pub fn window_origin(hwnd: isize) -> Option<(i32, i32)> {
+    util::window_origin(hwnd)
+}
+
 /// Moves a flyout window (by its raw handle) to where `anchor` places `frame`,
 /// `progress` of the way through its slide (see [`slide_progress`]).
 pub fn place_window(hwnd: isize, anchor: &Anchor, frame: Frame, progress: f32) {

@@ -99,6 +99,15 @@ fn client_offset(hwnd: HWND) -> (i32, i32) {
     }
 }
 
+/// The window rectangle's top-left corner on screen.
+pub fn window_origin(hwnd: isize) -> Option<(i32, i32)> {
+    use windows::Win32::Foundation::RECT;
+    use windows::Win32::UI::WindowsAndMessaging::GetWindowRect;
+    let mut rect = RECT::default();
+    unsafe { GetWindowRect(HWND(hwnd as _), &mut rect) }.ok()?;
+    Some((rect.left, rect.top))
+}
+
 pub fn place_window(hwnd: isize, anchor: &crate::Anchor, frame: crate::Frame, progress: f32) {
     let hwnd = HWND(hwnd as _);
     position(hwnd, anchor, frame, client_offset(hwnd), progress);

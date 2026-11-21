@@ -41,7 +41,7 @@ The switch in Settings adds or removes `HKCU\...\Run\AudioBartender` with `--hid
 
 ## The flyout
 
-The flyout is the whole UI. Left-click the tray icon to open or close it; it also opens on launch, from the tray menu, and from a second launch. It closes when you click elsewhere unless it's pinned.
+The flyout is the whole UI. Left-click the tray icon to open or close it; it also opens on launch, from the tray menu, and from a second launch. It closes when you click elsewhere unless it's pinned. A pinned flyout can be dragged by its header and stays where you put it until it closes.
 
 - Top row: the app name, then settings, pin (stay open) and quit.
 - Middle: the media key target list with each app's volume, then other apps playing audio, as in the Volume Mixer. Clicking a card (or its radio button) picks where media keys go. The wheel changes volume (2% per notch) only over a volume control and scrolls the list everywhere else.
