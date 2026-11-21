@@ -3,3 +3,4 @@ dist/*
 !dist/dev.ps1
 apps/tauri/gen/
 .tools/
+site/demo/ui/

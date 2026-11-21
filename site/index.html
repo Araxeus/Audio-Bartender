@@ -1,0 +1,336 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Audio Bartender</title>
+<meta name="description" content="The volume mixer Windows was missing. Per-app volume, live meters, media controls, and media keys that go to the app you choose.">
+<meta name="theme-color" content="#0b1014">
+<link rel="canonical" href="https://araxeus.github.io/Audio-Bartender/">
+<meta property="og:type" content="website">
+<meta property="og:title" content="Audio Bartender">
+<meta property="og:description" content="The volume mixer Windows was missing. Per-app volume, live meters, and media keys that go where you choose.">
+<meta property="og:url" content="https://araxeus.github.io/Audio-Bartender/">
+<meta property="og:image" content="https://araxeus.github.io/Audio-Bartender/assets/og.png">
+<meta name="twitter:card" content="summary_large_image">
+<link rel="icon" href="assets/icon.svg" type="image/svg+xml">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,500;12..96,700;12..96,800&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@500&display=swap">
+<style>
+/* Back bar at night: dark room, lit shelf, the flyout as the bottle you reach for. */
+:root {
+  --bg: #0b1014;
+  --bg-2: #111a20;
+  --line: #1f2d35;
+  --fg: #e7f1f4;
+  --muted: #8ba3ad;
+  --cyan: #06b6d4;
+  --teal: #0e7490;
+  --glow: rgba(6, 182, 212, .28);
+  --display: "Bricolage Grotesque", "Segoe UI", system-ui, sans-serif;
+  --body: "Inter", "Segoe UI", system-ui, sans-serif;
+  --mono: "JetBrains Mono", Consolas, monospace;
+  color-scheme: dark;
+}
+* { box-sizing: border-box; }
+html { scroll-behavior: smooth; }
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--fg);
+  font: 16px/1.6 var(--body);
+  -webkit-font-smoothing: antialiased;
+}
+a { color: inherit; }
+img { max-width: 100%; display: block; }
+.wrap {
+  max-width: 1120px;
+  margin: 0 auto;
+  padding-left: max(20px, env(safe-area-inset-left, 0px));
+  padding-right: max(20px, env(safe-area-inset-right, 0px));
+}
+
+/* Nav */
+nav { padding-block: 22px; }
+nav .wrap { display: flex; align-items: center; justify-content: space-between; gap: 16px; }
+nav .brand { display: flex; align-items: center; gap: 10px; font: 700 17px var(--display); text-decoration: none; }
+nav .brand img { width: 28px; height: 28px; }
+nav .links { display: flex; align-items: center; gap: 22px; font-size: 14px; color: var(--muted); }
+nav .gh { display: grid; place-items: center; width: 36px; height: 36px; border-radius: 10px; border: 1px solid var(--line); color: var(--fg); }
+nav .gh:hover { background: var(--bg-2); }
+nav .gh svg { width: 18px; height: 18px; }
+nav a:focus-visible { outline: 2px solid var(--cyan); outline-offset: 3px; }
+nav .links a { text-decoration: none; }
+nav .links a:hover { color: var(--fg); }
+
+/* Hero */
+.hero { position: relative; overflow: hidden; padding-block: 40px 0; }
+.hero::before {
+  content: ""; position: absolute; inset: auto 0 0; height: 70%;
+  background: radial-gradient(60% 60% at 70% 80%, var(--glow), transparent 70%);
+  pointer-events: none;
+}
+.hero .wrap { position: relative; }
+.hero-text { max-width: 760px; }
+.eyebrow { font: 500 13px var(--mono); color: var(--cyan); letter-spacing: .04em; }
+h1 {
+  font: 800 clamp(44px, 7vw, 84px)/.95 var(--display);
+  letter-spacing: -.03em;
+  margin: 14px 0 22px;
+  text-wrap: balance;
+}
+h1 em { font-style: normal; color: var(--cyan); }
+.lede { font-size: 19px; color: var(--muted); max-width: 30em; margin: 0 0 32px; }
+.cta { display: flex; flex-wrap: wrap; gap: 12px; align-items: center; margin-bottom: 48px; }
+.btn {
+  display: inline-flex; align-items: center; gap: 10px;
+  padding: 14px 22px; border-radius: 12px;
+  font: 600 15px var(--body); text-decoration: none;
+  transition: transform .15s, box-shadow .15s, background .15s;
+}
+.btn-primary { background: linear-gradient(135deg, var(--cyan), var(--teal)); color: #fff; box-shadow: 0 8px 30px var(--glow); }
+.btn-primary:hover { transform: translateY(-2px); box-shadow: 0 12px 40px var(--glow); }
+.btn-ghost { border: 1px solid var(--line); color: var(--fg); }
+.btn-ghost:hover { background: var(--bg-2); }
+.btn:focus-visible { outline: 2px solid var(--cyan); outline-offset: 3px; }
+.meta { font-size: 13px; color: var(--muted); width: 100%; }
+
+/* The live desktop */
+.try { display: flex; flex-wrap: wrap; align-items: end; justify-content: space-between; gap: 16px 32px; margin-bottom: 18px; }
+.try p { margin: 0; max-width: 34em; font: 500 13px/1.6 var(--mono); color: var(--muted); }
+.try p b { color: var(--fg); }
+.pad { display: grid; justify-items: end; gap: 8px; }
+.keys-row { display: flex; gap: 8px; }
+.key {
+  width: 56px; height: 48px; border-radius: 12px; cursor: pointer; color: var(--fg);
+  background: var(--bg-2); border: 1px solid var(--line); border-bottom-width: 4px;
+  display: grid; place-items: center; transition: transform .08s, border-color .15s;
+}
+.key:hover { border-color: var(--cyan); }
+.key:active, .key.hit { transform: translateY(2px); border-bottom-width: 2px; }
+.key:focus-visible { outline: 2px solid var(--cyan); outline-offset: 2px; }
+.key svg { width: 20px; height: 20px; }
+.hint { font-size: 13px; color: var(--muted); min-height: 1.6em; }
+.hint b { color: var(--cyan); font-weight: 600; }
+.demo { box-shadow: 0 40px 120px rgba(0,0,0,.55), 0 0 0 1px var(--line), 0 0 80px var(--glow); margin-bottom: 96px; }
+
+/* Sections */
+section { padding-block: 96px; border-top: 1px solid var(--line); }
+h2 { font: 700 clamp(30px, 4vw, 44px)/1.1 var(--display); letter-spacing: -.02em; margin: 0 0 12px; text-wrap: balance; }
+.sub { color: var(--muted); margin: 0 0 48px; max-width: 36em; }
+
+.features { display: grid; grid-template-columns: repeat(3, 1fr); gap: 1px; background: var(--line); border: 1px solid var(--line); border-radius: 16px; overflow: hidden; }
+.feature { background: var(--bg); padding: 28px; }
+.feature svg { width: 26px; height: 26px; color: var(--cyan); margin-bottom: 14px; }
+.feature h3 { font: 700 18px var(--display); margin: 0 0 6px; }
+.feature p { margin: 0; color: var(--muted); font-size: 15px; }
+
+/* Media key steps */
+.steps { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; counter-reset: step; }
+.steps li { counter-increment: step; display: grid; align-content: start; gap: 6px; padding: 24px; border-radius: 16px; background: var(--bg-2); border: 1px solid var(--line); }
+.steps li::before { content: counter(step); font: 500 13px var(--mono); color: var(--cyan); }
+.steps b { font: 700 18px var(--display); }
+.steps span { color: var(--muted); font-size: 15px; }
+.steps em { font-style: normal; color: var(--fg); }
+
+/* Compare */
+.table-wrap { overflow-x: auto; border: 1px solid var(--line); border-radius: 16px; }
+table { width: 100%; border-collapse: collapse; font-size: 15px; font-variant-numeric: tabular-nums; }
+th, td { padding: 14px 20px; text-align: left; border-bottom: 1px solid var(--line); white-space: nowrap; }
+tr:last-child td { border-bottom: 0; }
+thead th { font: 700 16px var(--display); background: var(--bg-2); }
+td:first-child { color: var(--muted); }
+.win { color: var(--cyan); font-weight: 600; }
+.note { font-size: 13px; color: var(--muted); margin-top: 14px; }
+
+/* Download */
+.dl { display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; }
+.dl a {
+  display: grid; gap: 6px; padding: 24px; border-radius: 16px; text-decoration: none;
+  background: var(--bg-2); border: 1px solid var(--line); transition: border-color .15s, transform .15s;
+}
+.dl a:hover { border-color: var(--cyan); transform: translateY(-2px); }
+.dl a:first-child { background: linear-gradient(160deg, rgba(6,182,212,.18), var(--bg-2) 60%); border-color: rgba(6,182,212,.5); }
+.dl .t { font: 700 18px var(--display); }
+.dl .d { color: var(--muted); font-size: 14px; }
+.dl .f { font: 500 12px var(--mono); color: var(--cyan); margin-top: 8px; }
+
+footer { padding-block: 40px; border-top: 1px solid var(--line); color: var(--muted); font-size: 14px; }
+footer .wrap { display: flex; justify-content: space-between; gap: 16px; flex-wrap: wrap; }
+
+@media (max-width: 860px) {
+  .features, .dl, .steps { grid-template-columns: 1fr; }
+  .pad { justify-items: start; }
+  nav .links a:not(:last-child) { display: none; }
+  .cta { margin-bottom: 24px; }
+}
+@media (prefers-reduced-motion: reduce) { * { animation: none !important; transition: none !important; } }
+</style>
+</head>
+<body>
+
+<nav>
+  <div class="wrap">
+    <a class="brand" href="#"><img src="assets/icon.svg" alt="">Audio Bartender</a>
+    <div class="links">
+      <a href="#features">Features</a>
+      <a href="#compare">Native or Web</a>
+      <a class="gh" href="https://github.com/Araxeus/Audio-Bartender" aria-label="Audio Bartender on GitHub" title="GitHub"><svg viewBox="0 0 16 16" aria-hidden="true"><path fill="currentColor" d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.01 8.01 0 0 0 16 8c0-4.42-3.58-8-8-8Z"/></svg></a>
+    </div>
+  </div>
+</nav>
+
+<header class="hero">
+  <div class="wrap">
+    <div class="hero-text">
+      <div class="eyebrow">FOR WINDOWS 10 &amp; 11</div>
+      <h1>The volume mixer <em>Windows was missing.</em></h1>
+      <p class="lede">It lives in your tray. Set each app's volume, send apps to different speakers, and choose which app your media keys control.</p>
+      <div class="cta">
+        <a class="btn btn-primary" href="https://github.com/Araxeus/Audio-Bartender/releases/latest/download/AudioBartender-setup.exe">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="M12 4v12m0 0 5-5m-5 5-5-5M5 20h14"/></svg>
+          Download for Windows
+        </a>
+        <a class="btn btn-ghost" href="#download">Portable versions</a>
+        <div class="meta">Free · 6 MB installer · No account needed</div>
+      </div>
+    </div>
+  </div>
+  <div class="wrap">
+    <div class="try">
+      <p><b>Try it.</b> This is the real app, running in your browser. Click the tray icon, scroll it, right-click an app, open settings.</p>
+      <div class="pad">
+        <div class="keys-row" role="group" aria-label="Media keys">
+          <button class="key" data-k="previous" aria-label="Previous track"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M6 5h2v14H6zM9.5 12 18 5v14z"/></svg></button>
+          <button class="key" data-k="playPause" aria-label="Play or pause"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M5 5l8 7-8 7zM14 5h2v14h-2zM18 5h2v14h-2z"/></svg></button>
+          <button class="key" data-k="next" aria-label="Next track"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M16 5h2v14h-2zM14.5 12 6 19V5z"/></svg></button>
+        </div>
+        <span class="hint" id="hint" aria-live="polite">Your media keys. Press one.</span>
+      </div>
+    </div>
+    <div id="demo" class="demo"></div>
+  </div>
+</header>
+
+<section id="features">
+  <div class="wrap">
+    <h2>Everything audio, one click from the tray</h2>
+    <p class="sub">Open it from the tray icon. Close it by clicking anywhere else.</p>
+    <div class="features">
+      <div class="feature">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><rect x="3" y="7" width="18" height="11" rx="2"/><path d="M8 11v3M12 11v3M16 11v3"/></svg>
+        <h3>Media keys, routed</h3>
+        <p>Play/pause goes to the app you pick, not whichever tab grabbed it last.</p>
+      </div>
+      <div class="feature">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M6 20V10M12 20V4M18 20v-6"/></svg>
+        <h3>Per-app volume</h3>
+        <p>Every app gets a slider and a live level meter. Scroll to adjust.</p>
+      </div>
+      <div class="feature">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M3 14v-2a9 9 0 0 1 18 0v2"/><rect x="3" y="14" width="4" height="6" rx="1.5"/><rect x="17" y="14" width="4" height="6" rx="1.5"/></svg>
+        <h3>Per-app output</h3>
+        <p>Music on headphones, the game on speakers. Right-click an app to move it.</p>
+      </div>
+      <div class="feature">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="9"/><path d="m10 8.5 5 3.5-5 3.5z" fill="currentColor"/></svg>
+        <h3>Now playing</h3>
+        <p>Album art, track info and controls for whatever is playing.</p>
+      </div>
+      <div class="feature">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M12 3v4M12 17v4M3 12h4M17 12h4"/><circle cx="12" cy="12" r="3"/></svg>
+        <h3>A tray icon that listens</h3>
+        <p>Waves, rings and pulses that move with the music. Scroll it for volume, middle-click to mute.</p>
+      </div>
+      <div class="feature">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M12 3a9 9 0 1 0 9 9 7 7 0 0 1-9-9Z"/></svg>
+        <h3>Yours to tune</h3>
+        <p>Light or dark, 14 accent colors, and hide any part you don't use.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section>
+  <div class="wrap">
+    <h2>Press play, and the right app answers</h2>
+    <p class="sub">Windows sends media keys to whichever app spoke up last. Audio Bartender lets you choose.</p>
+    <ol class="steps">
+      <li><b>Pick an app</b><span>Click it under <em>Media keys go to</em>.</span></li>
+      <li><b>Press any media key</b><span>Play, pause, next and previous go there, even with a video open in your browser.</span></li>
+      <li><b>Close it whenever</b><span>The keys go back to Windows until the app starts again.</span></li>
+    </ol>
+  </div>
+</section>
+
+<section id="compare">
+  <div class="wrap">
+    <h2>Native or Web</h2>
+    <p class="sub">Same app, two ways to draw it. They share one core and one settings file, so you can switch any time. Pick Native unless download size matters most.</p>
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th></th><th>Native</th><th>Web</th></tr></thead>
+        <tbody>
+          <tr><td>Download</td><td>9.2 MB</td><td class="win">3.4 MB</td></tr>
+          <tr><td>Start, closed to open</td><td class="win">240 ms</td><td>445 ms</td></tr>
+          <tr><td>Reopen from the tray</td><td>90 ms</td><td class="win">32 ms</td></tr>
+          <tr><td>Reopen after 60 s idle</td><td class="win">77 ms</td><td>416 ms</td></tr>
+          <tr><td>RAM in the tray</td><td>17 MB</td><td class="win">12 MB</td></tr>
+          <tr><td>RAM, flyout open</td><td class="win">24 MB</td><td>135–160 MB</td></tr>
+          <tr><td>Processes, flyout open</td><td class="win">1</td><td>7</td></tr>
+          <tr><td>Draws with</td><td>DirectX 11</td><td>Edge WebView2</td></tr>
+          <tr><td>Needs</td><td class="win">Nothing</td><td>WebView2 Runtime</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <p class="note">Measured on Windows 10 22H2. Web frees its webview after 60 s closed, so the next open rebuilds it. RAM is the private working set of the whole process tree. WebView2 comes with Windows 11.</p>
+  </div>
+</section>
+
+<section id="download">
+  <div class="wrap">
+    <h2>Get Audio Bartender</h2>
+    <p class="sub">The installer asks which interface you want, and whether to install for everyone or just you.</p>
+    <div class="dl">
+      <a href="https://github.com/Araxeus/Audio-Bartender/releases/latest/download/AudioBartender-setup.exe">
+        <span class="t">Installer</span><span class="d">Native or Web. Updates itself.</span><span class="f">AudioBartender-setup.exe</span>
+      </a>
+      <a href="https://github.com/Araxeus/Audio-Bartender/releases/latest/download/AudioBartender-portable.exe">
+        <span class="t">Portable</span><span class="d">Native. One file, no install.</span><span class="f">AudioBartender-portable.exe</span>
+      </a>
+      <a href="https://github.com/Araxeus/Audio-Bartender/releases/latest/download/AudioBartender-web-portable.exe">
+        <span class="t">Portable Web</span><span class="d">Web. Smallest download.</span><span class="f">AudioBartender-web-portable.exe</span>
+      </a>
+    </div>
+  </div>
+</section>
+
+<footer>
+  <div class="wrap">
+    <span>Audio Bartender · Windows 10 &amp; 11</span>
+    <span>MIT licensed · <a href="https://github.com/Araxeus/Audio-Bartender">Source on GitHub</a></span>
+  </div>
+</footer>
+
+<script src="demo/trayicon.js"></script>
+<script src="demo/host.js"></script>
+<script>
+const hint = document.getElementById("hint");
+const verbs = { playPause: "Play/pause", next: "Next", previous: "Previous", stop: "Stop" };
+const demo = AudioBartenderDemo.mount(document.getElementById("demo"), {
+  theme: "dark",
+  onPress: (key, app, playback) => {
+    hint.innerHTML = `${verbs[key]} went to <b>${app}</b>, now ${playback === "playing" ? "playing" : "paused"}.`;
+  },
+});
+for (const key of document.querySelectorAll(".key")) {
+  key.addEventListener("click", () => {
+    key.classList.add("hit");
+    setTimeout(() => key.classList.remove("hit"), 120);
+    demo.press(key.dataset.k);
+  });
+}
+</script>
+</body>
+</html>
