@@ -12,6 +12,8 @@
   const HEIGHT = 800;
   const FLYOUT = 376;
   const PANEL = 648;
+  // The narrowest screen that shows the flyout with the settings panel beside it.
+  const MIN_WIDE = FLYOUT + PANEL + 16;
   const GAP = 12;
 
   const css = `
@@ -137,11 +139,12 @@
 
     // The page decides the size; the flyout keeps its place against the tray.
     function layout() {
-      // A desktop screen keeps one size, like a monitor. Phones get a narrow screen
-      // and switch to the wide one only while the settings panel needs the room.
-      const avail = root.clientWidth || 1100;
-      const wide = avail >= 600 || size.panel != null;
-      width = wide ? 1100 : 440;
+      // Life size whenever the flyout and its settings panel fit, so the demo looks
+      // exactly as the app would on this screen. Narrower slots shrink a screen of that
+      // width, and phones get a narrow one, widened only while the settings panel shows.
+      const avail = root.clientWidth || MIN_WIDE;
+      if (avail >= MIN_WIDE) width = avail;
+      else width = avail >= 600 || size.panel != null ? MIN_WIDE : 440;
       scale = avail / width;
       const h = Math.max(size.flyout, size.panel ?? 0) + 8 + 12;
       const height = Math.max(HEIGHT, h + TASKBAR + 16);
