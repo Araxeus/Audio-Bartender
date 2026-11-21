@@ -614,6 +614,9 @@ unsafe extern "system" fn mouse_hook(code: i32, wparam: WPARAM, lparam: LPARAM) 
         // it with its own up even if the shell changes stacking mid-click.
         static SPEAKER_BUTTONS: AtomicU32 = AtomicU32::new(0);
         let message = wparam.0 as u32;
+        if message == WM_MOUSEMOVE {
+            speaker_slot::pointer_moved(unsafe { (*(lparam.0 as *const MSLLHOOKSTRUCT)).pt });
+        }
         let button = match message {
             WM_LBUTTONDOWN | WM_LBUTTONUP => 1,
             WM_RBUTTONDOWN | WM_RBUTTONUP => 2,

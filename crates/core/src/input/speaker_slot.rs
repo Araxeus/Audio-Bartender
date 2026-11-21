@@ -2,7 +2,7 @@
 //! UI Automation reads Explorer on a windowless MTA thread. The tray thread
 //! paints and positions our child window and owns all of its input handling.
 
-use std::sync::atomic::{AtomicBool, AtomicIsize, AtomicU32, Ordering::Relaxed};
+use std::sync::atomic::{AtomicBool, AtomicIsize, AtomicU32, AtomicU64, Ordering::Relaxed};
 use std::sync::mpsc::{self, Sender};
 use std::sync::{Mutex, OnceLock};
 use std::time::{Duration, Instant};
@@ -14,6 +14,7 @@ use windows::Win32::Graphics::Gdi::{
 };
 use windows::Win32::System::Com::{CLSCTX_INPROC_SERVER, CoCreateInstance};
 use windows::Win32::System::LibraryLoader::GetModuleHandleW;
+use windows::Win32::System::SystemInformation::GetTickCount64;
 use windows::Win32::System::Variant::VARIANT;
 use windows::Win32::UI::Accessibility::{
     CUIAutomation, IUIAutomation, IUIAutomationCacheRequest, IUIAutomationElement, TreeScope_Descendants,
@@ -36,10 +37,15 @@ use crate::util;
 
 const CLASS: PCWSTR = w!("AudioBartender.SpeakerSlot");
 const PLACEMENT_LIFETIME: Duration = Duration::from_secs(4);
+const TIMER_PLACEMENT: usize = 1;
+const TIMER_HOVER_TINT: usize = 2;
+const WM_TRACK_TINT: u32 = WM_APP + 1;
+const HOVER_FADE_MS: u64 = 250;
 static ENABLED: AtomicBool = AtomicBool::new(false);
 static WAKE: OnceLock<Sender<()>> = OnceLock::new();
 static WINDOW: AtomicIsize = AtomicIsize::new(0);
 static BACKGROUND: AtomicU32 = AtomicU32::new(0x303030);
+static TINT_UNTIL: AtomicU64 = AtomicU64::new(0);
 static PAINTED: AtomicBool = AtomicBool::new(false);
 static REACHABLE: AtomicBool = AtomicBool::new(false);
 static FOUND: Mutex<Option<Placement>> = Mutex::new(None);
@@ -216,6 +222,34 @@ fn inside(p: POINT, r: RECT) -> bool {
     p.x >= r.left && p.x < r.right && p.y >= r.top && p.y < r.bottom
 }
 
+/// Explorer animates the group when the pointer crosses Wi-Fi, battery or our
+/// child window. Wake the tray thread for the fade, including the last move out.
+pub(super) fn pointer_moved(point: POINT) {
+    static WAS_NEAR: AtomicBool = AtomicBool::new(false);
+    if !enabled() {
+        return;
+    }
+    let near = {
+        let Ok(found) = FOUND.try_lock() else { return };
+        found.is_some_and(|p| {
+            let span = 2 * (p.tile.right - p.tile.left);
+            inside(point, p.bar)
+                && (p.tile.left - span..p.tile.right + span).contains(&point.x)
+                && (p.tile.top - span..p.tile.bottom + span).contains(&point.y)
+        })
+    };
+    if !WAS_NEAR.swap(near, Relaxed) && !near {
+        return;
+    }
+    let hwnd = HWND(WINDOW.load(Relaxed) as _);
+    let now = unsafe { GetTickCount64() };
+    if !hwnd.is_invalid() && TINT_UNTIL.swap(now + HOVER_FADE_MS, Relaxed) <= now {
+        unsafe {
+            let _ = PostMessageW(Some(hwnd), WM_TRACK_TINT, WPARAM(0), LPARAM(0));
+        }
+    }
+}
+
 /// Only handle clicks on a recently measured part of this exact taskbar.
 /// Low-level mouse coordinates are physical, even for a DPI-virtualized hook.
 fn shell_hit(point: POINT, matches: impl FnOnce(Placement) -> bool) -> bool {
@@ -350,6 +384,29 @@ fn tile(button: RECT, dpi: u32) -> Option<RECT> {
     Some(RECT { left, top, right: left + size, bottom: top + size })
 }
 
+fn match_background(hwnd: HWND, p: Placement) {
+    use windows::Win32::Graphics::Gdi::{GetDC, GetPixel, RDW_INVALIDATE, RDW_UPDATENOW, RedrawWindow, ReleaseDC};
+    let tile = p.tile;
+    let edge = if tile.top > p.button.top {
+        POINT { x: (tile.left + tile.right) / 2, y: tile.top - 1 }
+    } else {
+        POINT { x: tile.left - 1, y: (tile.top + tile.bottom) / 2 }
+    };
+    unsafe {
+        let hit = WindowFromPoint(edge);
+        // A tooltip or Quick Settings can cover the sample without moving the speaker.
+        if hit == hwnd || GetAncestor(hit, GA_ROOT) != HWND(p.taskbar as _) {
+            return;
+        }
+        let dc = GetDC(None);
+        let color = GetPixel(dc, edge.x, edge.y);
+        ReleaseDC(None, dc);
+        if color.0 != u32::MAX && BACKGROUND.swap(color.0, Relaxed) != color.0 {
+            let _ = RedrawWindow(Some(hwnd), None, None, RDW_INVALIDATE | RDW_UPDATENOW);
+        }
+    }
+}
+
 fn show(found: Placement) -> Option<()> {
     unsafe {
         let taskbar = HWND(found.taskbar as _);
@@ -369,18 +426,7 @@ fn show(found: Placement) -> Option<()> {
         }
         let tile = found.tile;
         let hwnd = window(taskbar)?;
-        let edge = POINT { x: (tile.left + tile.right) / 2, y: (tile.top - 1).max(found.button.top) };
-        let hit = WindowFromPoint(edge);
-        // A tooltip or Quick Settings can cover this sample without moving the speaker.
-        if hit != hwnd && GetAncestor(hit, GA_ROOT) == taskbar {
-            use windows::Win32::Graphics::Gdi::{GetDC, GetPixel, InvalidateRect, ReleaseDC};
-            let dc = GetDC(None);
-            let color = GetPixel(dc, edge.x, edge.y);
-            ReleaseDC(None, dc);
-            if color.0 != u32::MAX && BACKGROUND.swap(color.0, Relaxed) != color.0 {
-                let _ = InvalidateRect(Some(hwnd), None, false);
-            }
-        }
+        match_background(hwnd, found);
         let size = tile.right - tile.left;
         let old = rect();
         // A real child moves with Explorer between the desktop and Quick Settings
@@ -407,7 +453,7 @@ fn show(found: Placement) -> Option<()> {
             }
         }
         // If Explorer stops answering UI Automation, retire the stale hit target.
-        SetTimer(Some(hwnd), 1, PLACEMENT_LIFETIME.as_millis() as u32, None);
+        SetTimer(Some(hwnd), TIMER_PLACEMENT, PLACEMENT_LIFETIME.as_millis() as u32, None);
         Some(())
     }
 }
@@ -464,6 +510,7 @@ unsafe extern "system" fn wndproc(hwnd: HWND, msg: u32, wp: WPARAM, lp: LPARAM) 
     static CLICKED: AtomicBool = AtomicBool::new(false);
     let event = match msg {
         WM_NCDESTROY => {
+            TINT_UNTIL.store(0, Relaxed);
             if WINDOW.compare_exchange(hwnd.0 as isize, 0, Relaxed, Relaxed).is_ok() {
                 post(WM_SPEAKER_SLOT, 0);
             }
@@ -471,9 +518,27 @@ unsafe extern "system" fn wndproc(hwnd: HWND, msg: u32, wp: WPARAM, lp: LPARAM) 
             CLICKED.store(false, Relaxed);
             return unsafe { DefWindowProcW(hwnd, msg, wp, lp) };
         }
-        WM_TIMER if wp.0 == 1 => {
+        WM_TRACK_TINT => {
+            unsafe { SetTimer(Some(hwnd), TIMER_HOVER_TINT, USER_TIMER_MINIMUM, None) };
+            return LRESULT(0);
+        }
+        WM_TIMER if wp.0 == TIMER_HOVER_TINT => {
+            let found = *FOUND.lock().unwrap();
+            if let Some(p) = found
+                && unsafe { IsWindowVisible(hwnd).as_bool() }
+            {
+                physical(|| match_background(hwnd, p));
+            }
+            if unsafe { GetTickCount64() } >= TINT_UNTIL.load(Relaxed) {
+                unsafe {
+                    let _ = KillTimer(Some(hwnd), TIMER_HOVER_TINT);
+                }
+            }
+            return LRESULT(0);
+        }
+        WM_TIMER if wp.0 == TIMER_PLACEMENT => {
             unsafe {
-                let _ = KillTimer(Some(hwnd), 1);
+                let _ = KillTimer(Some(hwnd), TIMER_PLACEMENT);
             }
             *FOUND.lock().unwrap() = None;
             post(WM_SPEAKER_SLOT, 0);
