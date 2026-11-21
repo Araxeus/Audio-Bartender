@@ -1,7 +1,8 @@
 //! Per-app volume through the Windows audio session API (the same sessions the
 //! Volume Mixer shows).
 
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
+use std::sync::Mutex;
 
 use windows::Win32::Media::Audio::Endpoints::IAudioMeterInformation;
 use windows::Win32::Media::Audio::{
@@ -117,6 +118,37 @@ pub fn exes_for(id: &str) -> Vec<String> {
     vec![format!("{}.exe", app.to_lowercase())]
 }
 
+/// Volume and mute chosen for apps while they had no audio session, by app id. Windows
+/// drops a change made to an expired session, so these wait for the app's next one.
+static HELD: Mutex<BTreeMap<String, (f32, bool)>> = Mutex::new(BTreeMap::new());
+
+/// The last volume and mute each app's sessions had, for apps that just went quiet.
+static LAST: Mutex<BTreeMap<String, (f32, bool)>> = Mutex::new(BTreeMap::new());
+
+/// Notes an app's current volume and mute.
+pub fn remember(id: &str, level: f32, muted: bool) {
+    LAST.lock().unwrap().insert(id.to_owned(), (level, muted));
+}
+
+/// The volume and mute to show for an app without a session: one chosen since, else its last.
+pub fn held_or_last(id: &str) -> Option<(f32, bool)> {
+    let held = HELD.lock().unwrap().get(id).copied();
+    held.or_else(|| LAST.lock().unwrap().get(id).copied())
+}
+
+/// Gives apps that have a session again the volume chosen while they had none.
+pub fn apply_held(sessions: &[Session]) {
+    HELD.lock().unwrap().retain(|id, (level, muted)| {
+        let exes = exes_for(id);
+        let mine: Vec<&Session> = sessions.iter().filter(|s| exes.contains(&s.exe)).collect();
+        for session in &mine {
+            session.set(*level);
+            session.set_mute(*muted);
+        }
+        mine.is_empty()
+    });
+}
+
 /// Volume and mute of the first matching session.
 pub fn level(sessions: &[Session], exes: &[String]) -> Option<(f32, bool)> {
     let session = sessions.iter().find(|s| exes.contains(&s.exe))?;
@@ -129,7 +161,14 @@ pub fn adjust(id: &str, change: impl Fn(f32) -> f32) {
     let exes = exes_for(id);
     let sessions = sessions(&processes());
     let mut matching = sessions.iter().filter(|s| exes.contains(&s.exe)).peekable();
-    let Some(first) = matching.peek() else { return };
+    let Some(first) = matching.peek() else {
+        // Gone quiet: hold the change for the app's next session.
+        if let Some((before, muted)) = held_or_last(id) {
+            let level = (change(before) * 100.0).round().clamp(0.0, 100.0) / 100.0;
+            HELD.lock().unwrap().insert(id.to_owned(), (level, muted && level <= before));
+        }
+        return;
+    };
     let before = first.level();
     let level = (change(before) * 100.0).round().clamp(0.0, 100.0) / 100.0;
     for session in matching {
@@ -144,7 +183,12 @@ pub fn toggle_mute(id: &str) {
     let exes = exes_for(id);
     let sessions = sessions(&processes());
     let matching: Vec<&Session> = sessions.iter().filter(|s| exes.contains(&s.exe)).collect();
-    let Some(first) = matching.first() else { return };
+    let Some(first) = matching.first() else {
+        if let Some((level, muted)) = held_or_last(id) {
+            HELD.lock().unwrap().insert(id.to_owned(), (level, !muted));
+        }
+        return;
+    };
     let mute = !first.muted();
     matching.iter().for_each(|s| s.set_mute(mute));
 }

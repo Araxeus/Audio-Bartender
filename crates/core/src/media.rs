@@ -56,6 +56,10 @@ const WINDOW_TITLES: &[(&str, &str)] = &[
 const MEDIA_EXTENSIONS: &[&str] =
     &["mp3", "flac", "wav", "m4a", "aac", "ogg", "opus", "wma", "mp4", "mkv", "avi", "webm", "mov", "wmv", "m4v"];
 
+/// How long an app stays under Other apps after its audio session ends, so one that
+/// played a short sound doesn't vanish before you can reach it.
+const LINGER: Duration = Duration::from_secs(10);
+
 /// How long a window player's state follows the key we sent it, before its audio
 /// session is trusted again. Some players stop their stream seconds after pausing.
 const EXPECTED_HOLD: Duration = Duration::from_secs(4);
@@ -110,6 +114,8 @@ struct Worker {
     icons: HashMap<String, Option<AppIcon>>,
     /// The window player we last sent a key, whether it should now play, and when.
     expected: Option<(String, bool, Instant)>,
+    /// Other apps by id, and when each last had an audio session.
+    recent: HashMap<String, (MixerApp, Instant)>,
     /// Album art by target id: the key it was fetched for, the art, when that track
     /// was first seen, and when its art was last fetched.
     art: HashMap<String, (String, Option<AppIcon>, Instant, Instant)>,
@@ -143,6 +149,7 @@ impl Worker {
             devices: Vec::new(),
             icons: HashMap::new(),
             expected: None,
+            recent: HashMap::new(),
             art: HashMap::new(),
             last_refresh: Instant::now(),
             routed: HashMap::new(),
@@ -431,6 +438,7 @@ impl Worker {
     fn publish(&mut self) {
         let procs = processes();
         let sessions = volume::sessions(&procs);
+        volume::apply_held(&sessions);
         self.apply_routes(&sessions);
 
         let mut covered: Vec<String> = Vec::new();
@@ -482,6 +490,23 @@ impl Worker {
                 muted: session.muted(),
                 icon: self.icon_for(std::slice::from_ref(&exe), &procs),
             });
+        }
+        // Apps that just went quiet stay a while, showing their last or chosen volume.
+        let now = Instant::now();
+        for app in &mixer {
+            volume::remember(&app.id, app.volume, app.muted);
+            self.recent.insert(app.id.clone(), (app.clone(), now));
+        }
+        self.recent.retain(|_, (_, at)| at.elapsed() < LINGER);
+        for (id, (app, _)) in &self.recent {
+            if mixer.iter().any(|a| &a.id == id) || covered.iter().any(|exe| id[4..] == *exe) {
+                continue;
+            }
+            let mut app = app.clone();
+            if let Some((level, muted)) = volume::held_or_last(id) {
+                (app.volume, app.muted) = (level, muted);
+            }
+            mixer.push(app);
         }
         mixer.sort_by_key(|a| a.name.to_lowercase());
 
