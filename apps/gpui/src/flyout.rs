@@ -1932,12 +1932,7 @@ impl Flyout {
                         .line_height(px(15.))
                         .tooltip(move |window, cx| Tooltip::new(summary.clone()).build(window, cx))
                         .child(div().truncate().child(state.update.version.clone()))
-                        .child(
-                            div()
-                                .truncate()
-                                .text_color(theme.muted_foreground)
-                                .child(state.update.summary.clone()),
-                        ),
+                        .child(div().truncate().text_color(theme.muted_foreground).child(state.update.summary.clone())),
                 )
                 .child(
                     Self::small_button("check-update", "Check now", theme)
