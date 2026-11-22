@@ -96,6 +96,8 @@ const VOLUME: f32 = 92.;
 const LABEL: f32 = 27.;
 const TARGET_ROW: f32 = 55.;
 const MIXER_ROW: f32 = 35.;
+/// Width of an On hover volume while its row is hovered.
+const HOVER_VOLUME: f32 = 124.;
 /// Width of an Always slider on a media key app's name line.
 const NAME_SLIDER: f32 = 148.;
 const SETTING_ROW: f32 = 40.;
@@ -597,9 +599,14 @@ impl Flyout {
     ) -> Option<AnyElement> {
         match self.state_bars {
             VolumeBars::Compact => Some(self.volumes.bar(id, level, muted, meter, device, theme).into_any_element()),
-            VolumeBars::OnHover if self.hovered.as_deref() == Some(id) || self.volumes.changing(id) => {
-                Some(self.volumes.hover_slider(id, level, meter, theme).into_any_element())
-            }
+            VolumeBars::OnHover if self.hovered.as_deref() == Some(id) || self.volumes.changing(id) => Some(
+                h_flex()
+                    .flex_none()
+                    .w(px(HOVER_VOLUME))
+                    .h(px(22.))
+                    .child(self.volumes.slider_row(id, level, muted, meter, true, theme))
+                    .into_any_element(),
+            ),
             VolumeBars::OnHover => Some(self.volumes.pill(id, level, muted, meter, device, theme).into_any_element()),
             VolumeBars::None | VolumeBars::Always => None,
         }

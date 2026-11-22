@@ -204,11 +204,6 @@ impl Volumes {
             .on_scroll(self.on_wheel(id))
     }
 
-    /// A slider the size of the pill, for a hovered row.
-    pub fn hover_slider(&self, id: &str, level: f32, meter: Option<f32>, theme: &Theme) -> Div {
-        h_flex().flex_none().w(px(BAR_WIDTH)).h(px(22.)).child(self.slider(id, level, meter, theme))
-    }
-
     /// A small bar that fills with the volume. Dragging sets it, the wheel nudges
     /// it, and a click without dragging toggles mute.
     /// `meter` draws the app's live level over the volume fill.

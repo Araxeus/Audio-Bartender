@@ -146,11 +146,12 @@ button.icon.active { color: var(--accent); }
 
 .pill { cursor: inherit; }
 
-/* On hover: the percentage turns into a slider of the same size, and stays one while dragged. */
-.hover-volume { flex: none; display: flex; align-items: center; justify-content: flex-end; width: 84px; height: 22px; }
-.hover-volume .range { display: none; min-width: 0; width: 100%; }
+/* On hover: the percentage turns into a mute button, slider and value, and stays one while dragged. */
+.hover-volume { flex: none; display: flex; align-items: center; justify-content: flex-end; min-width: 84px; height: 22px; }
+.hover-volume .slider-row { display: none; width: 100%; }
+.fly-row:hover .hover-volume, .hover-volume:has(.range:active) { width: 124px; }
 .fly-row:hover .hover-volume .pill, .hover-volume:has(.range:active) .pill { display: none; }
-.fly-row:hover .hover-volume .range, .hover-volume:has(.range:active) .range { display: block; }
+.fly-row:hover .hover-volume .slider-row, .hover-volume:has(.range:active) .slider-row { display: flex; }
 .pill .icon-glyph svg, .bar .icon-glyph svg { width: 14px; height: 14px; }
 
 .bar {
@@ -179,7 +180,7 @@ button.icon.active { color: var(--accent); }
 .slider-row { display: flex; align-items: center; gap: 8px; }
 .slider-row .value { width: 30px; text-align: right; color: var(--muted); font-size: 13px; font-variant-numeric: tabular-nums; }
 
-/* Small: fits on a line of text, beside an app's name. */
+/* Small: fits on a line of text, beside an app's name or in place of its percentage. */
 .slider-row.small { flex: none; gap: 4px; font-weight: 400; }
 .slider-row.small .mute { width: 22px; height: 22px; }
 .slider-row.small .range { width: 0; min-width: 0; }

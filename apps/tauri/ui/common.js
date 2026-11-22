@@ -188,10 +188,10 @@ export class Volumes {
     );
   }
 
-  /** The "80%" on an app row, which turns into a slider while the row is hovered. */
+  /** The "80%" on an app row, which turns into a mute button, slider and value while the row is hovered. */
   hoverControl(id, level, muted, device = null) {
     const pill = el("span", "pill", levelIcon(level, muted, device), muted ? "Muted" : `${Math.round(level * 100)}%`);
-    const node = el("span", "hover-volume", pill, this.range(id, level));
+    const node = el("span", "hover-volume", pill, this.sliderRow(id, level, muted, true));
     this.wheel(node, id);
     this.grab(node);
     return node;
