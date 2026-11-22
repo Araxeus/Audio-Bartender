@@ -178,12 +178,11 @@ button.icon.active { color: var(--accent); }
 .bar.muted { --bar-fill: var(--track); color: var(--danger); }
 
 .slider-row { display: flex; align-items: center; gap: 8px; }
-.slider-row .value { width: 30px; text-align: right; color: var(--muted); font-size: 13px; font-variant-numeric: tabular-nums; }
+.slider-row .value { flex: none; width: 30px; text-align: right; color: var(--muted); font-size: 13px; font-variant-numeric: tabular-nums; }
 
 /* Small: fits on a line of text, beside an app's name or in place of its percentage. */
 .slider-row.small { flex: none; gap: 4px; font-weight: 400; }
 .slider-row.small .mute { width: 22px; height: 22px; }
-.slider-row.small .range { width: 0; min-width: 0; }
 .slider-row.small .mute .icon-glyph svg { width: 14px; height: 14px; }
 .slider-row.small .value { width: 24px; font-size: 12px; }
 .name-line .slider-row.small { width: 148px; margin-left: auto; }
@@ -205,6 +204,7 @@ button.icon.active { color: var(--accent); }
 .range {
   --fill: 50%;
   flex: 1;
+  min-width: 0;
   height: 20px;
   margin: 0;
   background: transparent;
@@ -216,6 +216,10 @@ button.icon.active { color: var(--accent); }
   height: 4px;
   border-radius: 2px;
   background: linear-gradient(to right, var(--accent) var(--fill), var(--track) var(--fill));
+  /* Inset by half a thumb, so the thumb overhangs the track ends like in GPUI. */
+  background-size: calc(100% - 18px) 100%;
+  background-position: center;
+  background-repeat: no-repeat;
 }
 
 .range::-webkit-slider-thumb {
@@ -372,6 +376,10 @@ body[data-meters="volume"] .fly-row .range::-webkit-slider-runnable-track {
     var(--accent) calc(var(--lv) * 100%),
     color-mix(in srgb, var(--accent) 35%, transparent) calc(var(--lv) * 100%) var(--fill),
     var(--track) var(--fill));
+  /* Inset by half a thumb, so the thumb overhangs the track ends like in GPUI. */
+  background-size: calc(100% - 18px) 100%;
+  background-position: center;
+  background-repeat: no-repeat;
 }
 body[data-meters="volume"] .fly-row .pill { background: linear-gradient(to right, color-mix(in srgb, var(--accent) 18%, transparent) calc(var(--lv) * 100%), transparent calc(var(--lv) * 100%)); }
 body[data-meters="ring"] .fly-row .avatar { outline: 2px solid color-mix(in srgb, var(--accent) min(100%, calc(var(--lv) * 140%)), transparent); outline-offset: 1px; }
@@ -391,7 +399,7 @@ body[data-meters="strip"] .meter-strip { display: flex; flex-direction: column; 
 .fly-row.mixer .fly-row-main { padding-top: 5px; padding-bottom: 5px; }
 .fly-row.mixer .fly-row-main > .mixer-name { flex: none; width: 96px; font-size: 13px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .fly-row-main > .slider-row { flex: 1; min-width: 0; }
-.fly-row.mixer.always .fly-row-main { padding-top: 1px; padding-bottom: 1px; }
+.fly-row.mixer.always .fly-row-main { padding-top: 2px; padding-bottom: 2px; }
 .fly-row-main { display: flex; align-items: center; gap: 12px; padding: 10px 8px; }
 
 .flyout-controls {
