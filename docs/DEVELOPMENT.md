@@ -111,3 +111,13 @@ Live waves, Equalizer and the pulse styles read a loopback capture of the defaul
 - GPUI can only grow a window downward, so the GPUI flyout resizes itself through Win32 (`place_window` in core) to keep its bottom against the taskbar.
 - GPUI hardcodes Windows SDK 10.0.26100 for `fxc.exe`. `.cargo/config.toml` points `GPUI_FXC_PATH` at 10.0.22621, and CI overrides it with the runner's newest SDK.
 - Hardware that sends media keys as raw HID reports straight to an app bypasses the hook.
+
+## Credits
+
+The website demo's Chrome tracks use YouTube thumbnails, in `site/demo/covers`. Five come from [Blender Studio](https://studio.blender.org/films/) open movies, shared under the Creative Commons Attribution (CC BY) license:
+
+- Big Buck Bunny
+- Sintel
+- Tears of Steel
+- Spring
+- Agent 327: Operation Barbershop
