@@ -13,7 +13,7 @@
 ; Both interfaces install under this one name, so the Run entry, the elevated task
 ; and the tray icon's identity survive switching between them.
 #define AppExe  "AudioBartender.exe"
-#define AppUrl  "https://github.com/Araxeus/audio_bartender"
+#define AppUrl  "https://github.com/Araxeus/Audio-Bartender"
 
 [Setup]
 AppId={{{#AppGuid}}

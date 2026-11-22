@@ -29,7 +29,7 @@ use crate::Cmd;
 use crate::util::{now_ms, wide};
 
 /// Where releases come from.
-const REPO: &str = "Araxeus/audio_bartender";
+const REPO: &str = "Araxeus/Audio-Bartender";
 const DAY_MS: u64 = 24 * 60 * 60 * 1000;
 /// Waits this long after launch before a scheduled check, so logon stays quick.
 const STARTUP_DELAY_MS: u64 = 60 * 1000;
@@ -374,7 +374,7 @@ mod tests {
     fn live_release() {
         crate::util::com_init();
         let client = super::client().unwrap();
-        let release = super::latest_release(&client, "Araxeus/winkey-startmenu-disabler").unwrap().unwrap();
+        let release = super::latest_release(&client, super::REPO).unwrap().unwrap();
         println!("tag {}", release.tag);
         let (name, url, digest) = release.assets.iter().find(|a| a.0.ends_with(".exe")).unwrap();
         let bytes = super::download(&client, url).unwrap();
