@@ -147,12 +147,15 @@
       else width = avail >= 600 || size.panel != null ? MIN_WIDE : 440;
       scale = avail / width;
       const h = Math.max(size.flyout, size.panel ?? 0) + 8 + 12;
-      const height = Math.max(HEIGHT, h + TASKBAR + 16);
+      // `fill` takes the height the page gives the demo, like a full-window desktop.
+      const base = opts.fill ? Math.max(root.clientHeight / scale, 560) : HEIGHT;
+      const height = Math.max(base, h + TASKBAR + 16);
       screen.classList.toggle("narrow", width < 600);
       screen.style.width = `${width}px`;
       screen.style.height = `${height}px`;
       screen.style.transform = `scale(${scale})`;
-      root.style.height = `${height * scale}px`;
+      if (opts.fill) root.style.minHeight = `${height * scale}px`;
+      else root.style.height = `${height * scale}px`;
 
       const icon = trayIcon.getBoundingClientRect();
       const box = screen.getBoundingClientRect();
@@ -339,6 +342,8 @@
     return {
       press: (key) => demo()?.press(key),
       play: (id, index) => demo()?.play(id, index),
+      /** What the media keys reach now: app, track, playing, cover URL. */
+      nowPlaying: () => demo()?.tooltip() ?? null,
       open: () => setOpen(true),
       close: () => setOpen(false),
     };
