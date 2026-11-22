@@ -38,7 +38,9 @@
 .abd-bar { position: absolute; left: 0; right: 0; bottom: 0; height: ${TASKBAR}px; display: flex; align-items: center; justify-content: center;
   background: var(--tb); backdrop-filter: blur(30px) saturate(1.4); border-top: 1px solid var(--tb-line); color: var(--tb-fg); z-index: 2; }
 .abd-apps { display: flex; gap: 4px; }
-.abd-screen.narrow .abd-bar { justify-content: flex-start; padding-left: 8px; }
+.abd-screen.narrow .abd-bar { justify-content: flex-start; gap: 4px; padding-inline: 8px; }
+.abd-screen.narrow .abd-apps { overflow: hidden; }
+.abd-screen.narrow .abd-app.optional { display: none; }
 .abd-app { position: relative; width: 40px; height: 40px; border-radius: 6px; display: grid; place-items: center; }
 .abd-app:hover, .abd-tray > *:hover { background: var(--tb-hover); }
 .abd-app img { width: 24px; height: 24px; display: block; }
@@ -46,6 +48,7 @@
 /* Windows 11's mark under an app that's open. */
 .abd-app.run::after { content: ""; position: absolute; left: 50%; bottom: 2px; width: 6px; height: 3px; margin-left: -3px; border-radius: 2px; background: color-mix(in srgb, var(--tb-fg) 55%, transparent); }
 .abd-tray { position: absolute; right: 8px; top: 0; bottom: 0; display: flex; align-items: center; gap: 2px; }
+.abd-screen.narrow .abd-tray { position: static; flex: none; margin-left: auto; }
 .abd-tray > * { height: 40px; min-width: 32px; border-radius: 6px; display: grid; place-items: center; padding: 0 6px; }
 .abd-tray svg { width: 16px; height: 16px; }
 .abd-icon { cursor: default; position: relative; }
@@ -71,14 +74,14 @@
 .abd-shortcut img { width: 44px; height: 44px; }
 `;
 
-  // The taskbar's apps, with the icons Windows shows for them. `run` marks an open app.
+  // `run` marks an open app, and `optional` hides it on the narrow taskbar.
   const APPS = [
     ["explorer", "File Explorer", false],
     ["chrome", "Google Chrome", true],
     ["spotify", "Spotify", true],
     ["discord", "Discord", true],
-    ["steam", "Steam", true],
-    ["powershell", "Windows PowerShell", false],
+    ["steam", "Steam", true, true],
+    ["powershell", "Windows PowerShell", false, true],
   ];
   // The Start button: four tiles in Windows 11's blue.
   const START = `<svg viewBox="0 0 24 24" aria-hidden="true"><defs><linearGradient id="abd-start" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#1fa7f5"/><stop offset="1" stop-color="#0567d4"/></linearGradient></defs><path fill="url(#abd-start)" d="M2 2h9.6v9.6H2zM12.4 2H22v9.6h-9.6zM2 12.4h9.6V22H2zM12.4 12.4H22V22h-9.6z"/></svg>`;
@@ -111,7 +114,7 @@
         <div class="abd-bar">
           <div class="abd-apps">
             <span class="abd-app" title="Start">${START}</span>
-            ${APPS.map(([file, name, run]) => `<span class="abd-app${run ? " run" : ""}" title="${name}"><img src="${base}icons/${file}.png" alt=""></span>`).join("")}
+            ${APPS.map(([file, name, run, optional]) => `<span class="abd-app${run ? " run" : ""}${optional ? " optional" : ""}" title="${name}"><img src="${base}icons/${file}.png" alt=""></span>`).join("")}
           </div>
           <div class="abd-tray">
             <span title="Show hidden icons">${svg('<path d="m6 15 6-6 6 6" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>')}</span>
