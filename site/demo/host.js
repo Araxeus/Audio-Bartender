@@ -39,17 +39,22 @@
   background: var(--tb); backdrop-filter: blur(30px) saturate(1.4); border-top: 1px solid var(--tb-line); color: var(--tb-fg); z-index: 2; }
 .abd-apps { display: flex; gap: 4px; }
 .abd-screen.narrow .abd-bar { justify-content: flex-start; padding-left: 8px; }
-.abd-app { width: 40px; height: 40px; border-radius: 6px; display: grid; place-items: center; }
+.abd-app { position: relative; width: 40px; height: 40px; border-radius: 6px; display: grid; place-items: center; }
 .abd-app:hover, .abd-tray > *:hover { background: var(--tb-hover); }
-.abd-app i { width: 24px; height: 24px; border-radius: 6px; display: grid; place-items: center; }
-.abd-app svg { width: 16px; height: 16px; }
+.abd-app img { width: 24px; height: 24px; display: block; }
+.abd-app svg { width: 22px; height: 22px; display: block; }
+/* Windows 11's mark under an app that's open. */
+.abd-app.run::after { content: ""; position: absolute; left: 50%; bottom: 2px; width: 6px; height: 3px; margin-left: -3px; border-radius: 2px; background: color-mix(in srgb, var(--tb-fg) 55%, transparent); }
 .abd-tray { position: absolute; right: 8px; top: 0; bottom: 0; display: flex; align-items: center; gap: 2px; }
 .abd-tray > * { height: 40px; min-width: 32px; border-radius: 6px; display: grid; place-items: center; padding: 0 6px; }
 .abd-tray svg { width: 16px; height: 16px; }
 .abd-icon { cursor: default; position: relative; }
 .abd-icon canvas { width: 20px; height: 20px; display: block; }
-.abd-icon.hint::after { content: ""; position: absolute; inset: 2px; border-radius: 6px; box-shadow: 0 0 0 2px var(--wall-c); animation: abd-ping 1.6s ease-out infinite; }
-@keyframes abd-ping { 0% { opacity: 1; } 100% { opacity: 0; transform: scale(1.35); } }
+/* Until the tray icon is clicked: a soft glow on it and a ring that pulses out. */
+.abd-icon.hint { background: color-mix(in srgb, var(--wall-c) 22%, transparent); box-shadow: 0 0 16px color-mix(in srgb, var(--wall-c) 55%, transparent); }
+.abd-icon.hint::after { content: ""; position: absolute; inset: 0; border-radius: 6px; box-shadow: 0 0 0 2px var(--wall-c); animation: abd-ping 1.4s ease-out infinite; pointer-events: none; }
+@keyframes abd-ping { 0% { opacity: 1; transform: scale(1); } 100% { opacity: 0; transform: scale(1.7); } }
+@media (prefers-reduced-motion: reduce) { .abd-icon.hint::after { animation: none; } }
 .abd-clock { text-align: right; line-height: 1.3; font-size: 12px; padding: 0 8px; font-variant-numeric: tabular-nums; }
 .abd-tip { position: absolute; bottom: ${TASKBAR + 10}px; z-index: 3; background: var(--card); color: var(--card-fg); border-radius: 8px;
   box-shadow: 0 8px 24px rgba(0,0,0,.35); border: 1px solid var(--tb-line); padding: 10px 12px; display: flex; gap: 10px; align-items: center; max-width: 280px; pointer-events: none; }
@@ -66,12 +71,17 @@
 .abd-shortcut img { width: 44px; height: 44px; }
 `;
 
-  const APP_ICONS = [
-    ["#f59e0b", '<path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z" fill="#fff"/>'],
-    ["#2563eb", '<circle cx="12" cy="12" r="8" fill="none" stroke="#fff" stroke-width="2"/><path d="M4 12h16M12 4c3 3 3 13 0 16M12 4c-3 3-3 13 0 16" fill="none" stroke="#fff" stroke-width="1.6"/>'],
-    ["#16a34a", '<path d="M9 18V6l10-2v12" fill="none" stroke="#fff" stroke-width="2"/><circle cx="7" cy="18" r="2.5" fill="#fff"/><circle cx="17" cy="16" r="2.5" fill="#fff"/>'],
-    ["#6366f1", '<path d="M5 6l6 6-6 6M13 18h6" fill="none" stroke="#fff" stroke-width="2.2" stroke-linecap="round"/>'],
+  // The taskbar's apps, with the icons Windows shows for them. `run` marks an open app.
+  const APPS = [
+    ["explorer", "File Explorer", false],
+    ["chrome", "Google Chrome", true],
+    ["spotify", "Spotify", true],
+    ["discord", "Discord", true],
+    ["steam", "Steam", true],
+    ["powershell", "Windows PowerShell", false],
   ];
+  // The Start button: four tiles in Windows 11's blue.
+  const START = `<svg viewBox="0 0 24 24" aria-hidden="true"><defs><linearGradient id="abd-start" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#1fa7f5"/><stop offset="1" stop-color="#0567d4"/></linearGradient></defs><path fill="url(#abd-start)" d="M2 2h9.6v9.6H2zM12.4 2H22v9.6h-9.6zM2 12.4h9.6V22H2zM12.4 12.4H22V22h-9.6z"/></svg>`;
 
   const svg = (inner) => `<svg viewBox="0 0 24 24">${inner}</svg>`;
 
@@ -99,7 +109,10 @@
         <div class="abd-tip" hidden></div>
         <div class="abd-notice"></div>
         <div class="abd-bar">
-          <div class="abd-apps">${APP_ICONS.map(([c, i]) => `<span class="abd-app"><i style="background:${c}">${svg(i)}</i></span>`).join("")}</div>
+          <div class="abd-apps">
+            <span class="abd-app" title="Start">${START}</span>
+            ${APPS.map(([file, name, run]) => `<span class="abd-app${run ? " run" : ""}" title="${name}"><img src="${base}icons/${file}.png" alt=""></span>`).join("")}
+          </div>
           <div class="abd-tray">
             <span title="Show hidden icons">${svg('<path d="m6 15 6-6 6 6" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>')}</span>
             <span>${svg('<path d="M2 9a15 15 0 0 1 20 0M5 12.5a10 10 0 0 1 14 0M8.5 16a5 5 0 0 1 7 0" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/><circle cx="12" cy="19.5" r="1.3" fill="currentColor"/>')}</span>
@@ -179,7 +192,6 @@
         drag = { x: 0, y: 0 };
         layout();
       }
-      trayIcon.classList.remove("hint");
     }
 
     function showNotice(text) {
@@ -201,7 +213,7 @@
       ready: () => {
         layout();
         frame.classList.toggle("closed", !open);
-        if (!open && !hinted) {
+        if ((!open || opts.hint) && !hinted) {
           hinted = true;
           trayIcon.classList.add("hint");
         }
@@ -235,7 +247,10 @@
     });
 
     // Tray icon: left click toggles, the wheel sets the volume, middle click mutes.
-    trayIcon.addEventListener("click", () => setOpen(!open));
+    trayIcon.addEventListener("click", () => {
+      trayIcon.classList.remove("hint");
+      setOpen(!open);
+    });
     trayIcon.addEventListener("mousedown", (e) => {
       if (e.button !== 1) return;
       e.preventDefault();
