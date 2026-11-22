@@ -386,17 +386,20 @@ impl Volumes {
     }
 
     /// Mute button, slider and value, for the master volume or an app.
-    pub fn slider_row(&self, id: &str, level: f32, muted: bool, meter: Option<f32>, theme: &Theme) -> Div {
+    /// `small` fits it on a line of text, and keeps clicks on it from reaching the row.
+    pub fn slider_row(&self, id: &str, level: f32, muted: bool, meter: Option<f32>, small: bool, theme: &Theme) -> Div {
         let (core, key) = (self.core.clone(), id.to_owned());
         let shown = self.shown(id, level);
         h_flex()
+            .relative()
             .w_full()
-            .gap_2()
+            .map(|d| if small { d.gap_1() } else { d.gap_2() })
+            .when(small, |d| d.font_normal().child(self.track(format!("row-{id}"))))
             .child(
                 div()
                     .id(SharedString::from(format!("mute-{id}")))
                     .flex_none()
-                    .size(px(28.))
+                    .size(px(if small { 22. } else { 28. }))
                     .flex()
                     .items_center()
                     .justify_center()
@@ -419,9 +422,9 @@ impl Volumes {
             .child(
                 div()
                     .flex_none()
-                    .w(px(30.))
+                    .w(px(if small { 24. } else { 30. }))
                     .text_right()
-                    .text_size(px(13.))
+                    .text_size(px(if small { 12. } else { 13. }))
                     .text_color(theme.muted_foreground)
                     .on_scroll(self.on_wheel(id))
                     .child(format!("{}", (shown * 100.0).round())),

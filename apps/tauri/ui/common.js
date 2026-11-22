@@ -249,9 +249,9 @@ export class Volumes {
     return node;
   }
 
-  /** Mute button, slider and value, for the master volume or an app row. */
-  sliderRow(id, level, muted) {
-    const row = el("div", "slider-row");
+  /** Mute button, slider and value, for the master volume or an app row. `small` fits it on a line of text. */
+  sliderRow(id, level, muted, small = false) {
+    const row = el("div", "slider-row" + (small ? " small" : ""));
     const mute = button("mute" + (muted ? " muted" : ""), muted ? "Unmute" : "Mute", icon(volumeIcon(level, muted)), () =>
       this.toggleMute(id),
     );

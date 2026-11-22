@@ -398,7 +398,7 @@ pub enum VolumeBars {
     /// A small bar that fills with the volume. Drag or scroll it; click to mute.
     #[default]
     Compact,
-    /// A slider under every app, always visible.
+    /// A slider beside every app's name, always visible.
     Always,
     /// A percentage that turns into a slider while the pointer is on the row.
     OnHover,

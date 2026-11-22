@@ -365,21 +365,23 @@ function targets(state) {
   for (const t of state.targets) {
     const checked = state.selected === t.id;
     const hasVolume = t.volume != null;
+
+    // Always sliders sit at the end of the name line, so the row keeps its height.
+    const alwaysSlider = hasVolume && bars === "always" ? volumes.sliderRow(t.id, t.volume, t.muted, true) : null;
     const node = row(
       checked,
       true,
       avatar(t.icon, t.name, t.running),
-      el("div", "text" + (t.running ? "" : " offline"), el("div", "name small name-line", liveBars(), el("span", "name-text", t.name), routeMark(state, t.id, t.name, t.route)), trackLine(t, mode)),
+      el(
+        "div",
+        "text" + (t.running ? "" : " offline"),
+        el("div", "name small name-line", liveBars(), el("span", "name-text", t.name), routeMark(state, t.id, t.name, t.route), alwaysSlider),
+        trackLine(t, mode),
+      ),
       hasVolume ? volumeControl(bars, t.id, t.volume, t.muted, volumeDevice(state, t.route)) : null,
       radio(checked, t.id),
     );
     node.querySelector(".avatar").classList.add("small");
-    if (hasVolume && bars === "always") {
-      // Under the name, clear of the avatar.
-      const slider = volumes.sliderRow(t.id, t.volume, t.muted);
-      slider.classList.add("inline");
-      node.append(slider);
-    }
     selectable(node, t.id);
     if (t.running) routeOnRightClick(node, t.id, t.name);
     rows.push(metered(node, t.id));
@@ -578,7 +580,7 @@ const MODES = {
     options: [
       ["none", "None", "No volume on app rows"],
       ["compact", "Compact", "A small bar to drag or scroll, click to mute"],
-      ["always", "Always", "A slider under every app"],
+      ["always", "Always", "A slider beside every app's name"],
       ["onHover", "On hover", "A percentage that turns into a slider on hover"],
     ],
   },

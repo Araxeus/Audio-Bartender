@@ -179,6 +179,14 @@ button.icon.active { color: var(--accent); }
 .slider-row { display: flex; align-items: center; gap: 8px; }
 .slider-row .value { width: 30px; text-align: right; color: var(--muted); font-size: 13px; font-variant-numeric: tabular-nums; }
 
+/* Small: fits on a line of text, beside an app's name. */
+.slider-row.small { flex: none; gap: 4px; font-weight: 400; }
+.slider-row.small .mute { width: 22px; height: 22px; }
+.slider-row.small .range { width: 0; min-width: 0; }
+.slider-row.small .mute .icon-glyph svg { width: 14px; height: 14px; }
+.slider-row.small .value { width: 24px; font-size: 12px; }
+.name-line .slider-row.small { width: 148px; margin-left: auto; }
+
 .mute {
   display: grid;
   place-items: center;
@@ -380,8 +388,6 @@ body[data-meters="strip"] .meter-strip { display: flex; flex-direction: column; 
 .fly-row.clickable:not(.checked):hover { background: var(--card-hover); }
 .fly-row.checked { background: var(--accent-soft); }
 .fly-row.mixer .fly-row-main { padding-top: 5px; padding-bottom: 5px; }
-.fly-row > .slider-row { padding: 0 8px 8px; }
-.fly-row > .slider-row.inline { margin-top: -6px; padding: 0 8px 6px 38px; }
 .fly-row.mixer .fly-row-main > .mixer-name { flex: none; width: 96px; font-size: 13px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .fly-row-main > .slider-row { flex: 1; min-width: 0; }
 .fly-row.mixer.always .fly-row-main { padding-top: 1px; padding-bottom: 1px; }

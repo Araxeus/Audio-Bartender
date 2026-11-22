@@ -96,7 +96,8 @@ const VOLUME: f32 = 92.;
 const LABEL: f32 = 27.;
 const TARGET_ROW: f32 = 55.;
 const MIXER_ROW: f32 = 35.;
-const SLIDER: f32 = 32.;
+/// Width of an Always slider on a media key app's name line.
+const NAME_SLIDER: f32 = 148.;
 const SETTING_ROW: f32 = 40.;
 /// How often live levels are read while the flyout is open.
 const METER_FRAME: Duration = Duration::from_millis(33);
@@ -119,9 +120,7 @@ fn parts_shown(state: &State, devices_open: bool) -> (bool, bool) {
 pub fn height(state: &State) -> f32 {
     let s = &state.settings;
     let middle = {
-        let always = state.settings.volume_bars == VolumeBars::Always;
-        let sliders = if always { state.targets.iter().filter(|t| t.volume.is_some()).count() } else { 0 };
-        let targets = LABEL + TARGET_ROW * (1 + state.targets.len()) as f32 + SLIDER * sliders as f32;
+        let targets = LABEL + TARGET_ROW * (1 + state.targets.len()) as f32;
         let targets = if s.show_media_keys { targets } else { 0. };
         let shown = s.show_other_apps && !state.mixer.is_empty();
         let mixer = if shown { LABEL + MIXER_ROW * state.mixer.len() as f32 } else { 0. };
@@ -214,7 +213,7 @@ impl Mode {
             Mode::VolumeBars => vec![
                 bars(VolumeBars::None, "None", "No volume on app rows"),
                 bars(VolumeBars::Compact, "Compact", "A small bar to drag or scroll, click to mute"),
-                bars(VolumeBars::Always, "Always", "A slider under every app"),
+                bars(VolumeBars::Always, "Always", "A slider beside every app's name"),
                 bars(VolumeBars::OnHover, "On hover", "A percentage that turns into a slider on hover"),
             ],
             Mode::LevelMeters => {
@@ -1398,7 +1397,7 @@ impl Flyout {
             let slider = target
                 .volume
                 .filter(|_| bars == VolumeBars::Always)
-                .map(|volume| self.volumes.slider_row(&target.id, volume, target.muted, in_volume, &theme));
+                .map(|volume| self.volumes.slider_row(&target.id, volume, target.muted, in_volume, true, &theme));
             let device = self.volume_device(state, target.route.as_ref());
             let volume = target
                 .volume
@@ -1406,11 +1405,14 @@ impl Flyout {
             let mark = self.route_mark(&target.id, &target.name, target.route.as_ref(), state, &theme, cx);
             let avatar = ui::avatar(target.icon.as_ref(), &target.name, target.running, px(28.), &theme);
             let name = h_flex()
+                .w_full()
                 .gap_1p5()
                 .min_w_0()
                 .children((meters == LevelMeters::Bars).then(|| Self::live_bars(level, &theme)).flatten())
                 .child(div().min_w_0().text_size(px(13.)).font_semibold().truncate().child(target.name.clone()))
-                .children(mark);
+                .children(mark)
+                // Always sliders end the name line, so the row keeps its height.
+                .children(slider.map(|slider| div().flex_none().w(px(NAME_SLIDER)).ml_auto().child(slider)));
             let detail = || Self::detail(target, &theme, meters != LevelMeters::Bars);
             rows.push(
                 Self::row(&theme, target.id.clone().into(), checked, true)
@@ -1469,10 +1471,6 @@ impl Flyout {
                             .children(volume)
                             .child(Self::radio(&target.id, &theme, checked, &self.core, Some(target.id.clone()))),
                     )
-                    .when_some(slider, |d, slider| {
-                        // Under the name, clear of the avatar.
-                        d.child(div().pl(px(38.)).pr_2().pb_1p5().mt(px(-4.)).child(slider))
-                    })
                     .into_any_element(),
             );
         }
@@ -1508,7 +1506,7 @@ impl Flyout {
                 .children(Self::row_meter(meters, level, &theme));
             let row = match bars {
                 VolumeBars::Always => {
-                    let slider = self.volumes.slider_row(&app.id, app.volume, app.muted, in_volume, &theme);
+                    let slider = self.volumes.slider_row(&app.id, app.volume, app.muted, in_volume, false, &theme);
                     row.child(main.py_0p5().child(name.w(px(96.)).flex_none()).child(div().flex_1().child(slider)))
                 }
                 VolumeBars::None => row,
@@ -2009,7 +2007,7 @@ impl Render for Flyout {
         self.fit(&state, window, cx);
 
         let controls = self.controls(&theme, cx);
-        let master = self.volumes.slider_row(ui::MASTER, state.audio.volume, state.audio.muted, None, &theme);
+        let master = self.volumes.slider_row(ui::MASTER, state.audio.volume, state.audio.muted, None, false, &theme);
         let device_header = self.device_header(&state, &theme, cx);
         let dock = (state.settings.media_controls == MediaControls::Dock).then(|| {
             self.now_playing(&state, &theme, px(36.)).px_2().pb_2().mb_1().border_b_1().border_color(theme.border)
