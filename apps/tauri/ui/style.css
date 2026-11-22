@@ -286,8 +286,10 @@ body[data-panel="right"] { justify-content: flex-start; }
 .settings-panel[hidden] { display: none; }
 body[data-panel="right"] .settings-panel { order: 1; }
 .panel-title { padding-left: 4px; font-size: 13px; font-weight: 600; }
-.panel-body { display: flex; align-items: flex-start; padding-bottom: 8px; }
-.panel-column { flex: 1; min-width: 0; }
+.panel-body { display: flex; padding-bottom: 8px; }
+
+/* Both columns stretch to the taller one and spread their sections, so their last lines end level. */
+.panel-column { flex: 1; min-width: 0; display: flex; flex-direction: column; justify-content: space-between; }
 .panel-column .section-label { padding: 10px 16px 2px; }
 .panel-divider { align-self: stretch; width: 1px; margin: 12px 0; background: var(--border); }
 .mode { display: grid; gap: 6px; margin: 0 8px; padding: 6px 8px 8px; font-size: 13px; }

@@ -1931,9 +1931,12 @@ impl Flyout {
                 )
                 .into_any_element()
         };
+        // Both columns stretch to the taller one and spread their sections, so their
+        // last lines end level.
         let left = v_flex()
             .flex_1()
             .min_w_0()
+            .justify_between()
             .child(Self::panel_label("GENERAL", theme))
             .child(row("Start with Windows", self.setting_switch("autostart", s.autostart, Setting::Autostart, theme)))
             .child(row(
@@ -1958,6 +1961,7 @@ impl Flyout {
         let right = v_flex()
             .flex_1()
             .min_w_0()
+            .justify_between()
             .child(Self::panel_label("LOOK", theme))
             .child(self.swatches(s.accent, theme))
             .child(self.segmented(Mode::Theme, s, theme))
@@ -1994,7 +1998,7 @@ impl Flyout {
             .child(header.rounded_t(inner_radius()))
             .child(
                 h_flex()
-                    .items_start()
+                    .items_stretch()
                     .pb_2()
                     .child(left)
                     .child(div().w(px(1.)).self_stretch().my_3().bg(theme.border))
