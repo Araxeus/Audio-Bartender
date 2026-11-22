@@ -133,7 +133,7 @@ static ROUTING: AtomicBool = AtomicBool::new(false);
 static TRAY_STATE: Mutex<TrayState> = Mutex::new(TrayState {
     level: 0.0,
     muted: false,
-    style: TrayStyle::Ring,
+    style: TrayStyle::Dial,
     middle: TrayMiddle::Speaker,
     pulse: PulseStyle::Dot,
     tooltip: TooltipStyle::NowPlaying,

@@ -447,10 +447,10 @@ function swatches(current) {
   );
 }
 
-/** The tray icon styles: value, name and description. Ring, Dial and Plain have a middle. */
+/** The tray icon styles: value, name and description. Dial, Ring and Plain have a middle. */
 const TRAY_STYLES = [
-  ["ring", "Ring", "A ring that fills with the volume"],
   ["dial", "Dial", "A dial that fills with the volume"],
+  ["ring", "Ring", "A ring that fills with the volume"],
   ["plain", "Plain", "Only the middle, without the volume"],
   ["native", "Native", "Windows' own volume icon"],
   ["liveWaves", "Live waves", "Waves that ripple with the sound playing"],

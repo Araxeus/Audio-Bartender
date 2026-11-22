@@ -216,11 +216,11 @@ impl Audio {
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize), serde(rename_all = "camelCase"))]
 pub enum TrayStyle {
-    /// A ring that fills with the volume, around the middle.
-    #[default]
-    Ring,
     /// A 270° dial that fills with the volume, around the middle.
+    #[default]
     Dial,
+    /// A ring that fills with the volume, around the middle.
+    Ring,
     /// Only the middle.
     Plain,
     /// Windows' own volume icon: no waves at 0, then one to three.
@@ -236,8 +236,8 @@ pub enum TrayStyle {
 impl TrayStyle {
     /// In the order the settings show them: the styles with a middle, then the rest.
     pub const ALL: [TrayStyle; 7] = [
-        TrayStyle::Ring,
         TrayStyle::Dial,
+        TrayStyle::Ring,
         TrayStyle::Plain,
         TrayStyle::Native,
         TrayStyle::LiveWaves,
@@ -730,12 +730,15 @@ impl Settings {
 impl Default for Settings {
     fn default() -> Settings {
         Settings {
+            // Read from the registry, where the installer's startup task sets it.
             autostart: false,
+
+            // Config::load turns it on for installed copies.
             auto_update: false,
             dark: None,
-            album_art: false,
+            album_art: true,
             keep_closed_target: true,
-            tray_style: TrayStyle::Ring,
+            tray_style: TrayStyle::Dial,
             tray_middle: TrayMiddle::Speaker,
             pulse_style: PulseStyle::Dot,
             speaker_position: util::windows_11(),

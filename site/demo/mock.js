@@ -197,7 +197,7 @@
     current: "smtc:Chrome",
     settings: {
       autostart: true, autoUpdate: true, dark: null, albumArt: true, keepClosedTarget: true,
-      trayStyle: "ring", trayMiddle: "speaker", pulseStyle: "dot", speakerPosition: true,
+      trayStyle: "dial", trayMiddle: "speaker", pulseStyle: "dot", speakerPosition: true,
       volumeBars: "compact", tooltip: "nowPlaying", mediaButtons: "hover", mediaControls: "hover",
       levelMeters: "volume", deviceChip: "beside", showMediaKeys: true, showOtherApps: true, showVolume: true,
       accent: accent("cyan"),
