@@ -202,7 +202,7 @@
       levelMeters: "volume", deviceChip: "beside", showMediaKeys: true, showOtherApps: true, showVolume: true,
       accent: accent("cyan"),
     },
-    update: { state: { state: "upToDate" }, checkedAt: Date.now(), summary: `Version ${VERSION} · Web · up to date, checked today` },
+    update: { state: { state: "upToDate" }, checkedAt: Date.now(), version: `Version ${VERSION} · Web`, summary: "Up to date, checked today" },
     iconOnTaskbar: true,
     speakerPositionActive: true,
   };
@@ -329,10 +329,10 @@
     press: ({ key }) => void press(key),
     press_for: ({ id, key }) => void press(key, id),
     check_update: () => {
-      state.update = { state: { state: "checking" }, checkedAt: state.update.checkedAt, summary: `Version ${VERSION} · Web · checking for updates…` };
+      state.update = { ...state.update, state: { state: "checking" }, summary: "Checking for updates…" };
       changed();
       setTimeout(() => {
-        state.update = { state: { state: "upToDate" }, checkedAt: Date.now(), summary: `Version ${VERSION} · Web · up to date, checked today` };
+        state.update = { ...state.update, state: { state: "upToDate" }, checkedAt: Date.now(), summary: "Up to date, checked today" };
         changed();
       }, 1200);
     },

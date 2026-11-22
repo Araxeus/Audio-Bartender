@@ -635,7 +635,9 @@ function updateRow(update) {
   const busy = ["checking", "installing"].includes(update.state.state);
   const check = button("small-button", null, "Check now", () => invoke("check_update"));
   check.disabled = busy;
-  return el("div", "fly-setting update", el("span", "summary", update.summary), check);
+  const text = el("div", "summary", el("span", null, update.version), el("span", "status", update.summary));
+  text.title = update.summary;
+  return el("div", "fly-setting update", text, check);
 }
 
 /**

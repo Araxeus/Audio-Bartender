@@ -91,17 +91,24 @@ pub enum UpdateState {
 pub struct UpdateStatus {
     pub state: UpdateState,
     pub checked_at: u64,
-    /// One line for the settings page, such as "Version 0.1.0 · up to date, checked today".
+    /// The settings page's first line, such as "Version 0.1.0 · GPUI".
+    pub version: String,
+    /// The settings page's second line, such as "Up to date, checked today".
     pub summary: String,
 }
 
-static STATUS: Mutex<UpdateStatus> =
-    Mutex::new(UpdateStatus { state: UpdateState::Idle, checked_at: 0, summary: String::new() });
+static STATUS: Mutex<UpdateStatus> = Mutex::new(UpdateStatus {
+    state: UpdateState::Idle,
+    checked_at: 0,
+    version: String::new(),
+    summary: String::new(),
+});
 static RUNNING: AtomicBool = AtomicBool::new(false);
 static STARTED_MS: OnceLock<u64> = OnceLock::new();
 
 pub fn status() -> UpdateStatus {
     let mut status = STATUS.lock().unwrap().clone();
+    status.version = format!("Version {} · {}", env!("CARGO_PKG_VERSION"), front_end());
     status.summary = summary(&status);
     status
 }
@@ -114,7 +121,6 @@ impl UpdateStatus {
 }
 
 fn summary(status: &UpdateStatus) -> String {
-    let version = format!("Version {} · {}", env!("CARGO_PKG_VERSION"), front_end());
     let checked = match status.checked_at {
         0 => "not checked yet".to_owned(),
         at => match now_ms().saturating_sub(at) / DAY_MS {
@@ -124,11 +130,12 @@ fn summary(status: &UpdateStatus) -> String {
         },
     };
     match &status.state {
-        UpdateState::Checking => format!("{version} · checking for updates…"),
-        UpdateState::Installing(next) => format!("{version} · installing {next}…"),
-        UpdateState::UpToDate => format!("{version} · up to date, {checked}"),
-        UpdateState::Failed(message) => format!("{version} · {message}"),
-        UpdateState::Idle => format!("{version} · {checked}"),
+        UpdateState::Checking => "Checking for updates…".to_owned(),
+        UpdateState::Installing(next) => format!("Installing {next}…"),
+        UpdateState::UpToDate => format!("Up to date, {checked}"),
+        UpdateState::Failed(message) => message.clone(),
+        UpdateState::Idle if status.checked_at == 0 => "Not checked yet".to_owned(),
+        UpdateState::Idle => format!("Last {checked}"),
     }
 }
 

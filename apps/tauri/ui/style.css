@@ -226,7 +226,9 @@ button.icon.active { color: var(--accent); }
 /* Settings */
 
 .fly-setting { display: flex; align-items: center; justify-content: space-between; gap: 12px; min-height: 40px; margin: 0 8px; padding: 0 8px; border-radius: 6px; font-size: 13px; }
-.fly-setting.update .summary { flex: 1; min-width: 0; color: var(--muted); font-size: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.fly-setting.update .summary { display: flex; flex-direction: column; flex: 1; min-width: 0; font-size: 12px; line-height: 15px; }
+.fly-setting.update .summary span { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.fly-setting.update .summary .status { color: var(--muted); }
 .transport { display: flex; gap: 6px; }
 
 .swatches { display: grid; grid-template-columns: repeat(7, 22px); justify-content: space-between; row-gap: 6px; }
