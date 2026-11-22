@@ -104,7 +104,6 @@ const METER_FRAME: Duration = Duration::from_millis(33);
 const LEVEL_EASE: f32 = 0.045;
 /// Extra height of each media controls layout.
 const BANNER: f32 = 66.;
-const ROW_CONTROLS: f32 = 36.;
 const DOCK: f32 = 56.;
 
 /// Estimated height of the flyout with the given state.
@@ -128,7 +127,6 @@ pub fn height(state: &State) -> f32 {
         let mixer = if shown { LABEL + MIXER_ROW * state.mixer.len() as f32 } else { 0. };
         let controls = match state.settings.media_controls {
             MediaControls::Banner => BANNER,
-            MediaControls::Row => ROW_CONTROLS,
             MediaControls::None | MediaControls::Dock | MediaControls::Hover => 0.,
         };
         targets + mixer + controls
@@ -210,7 +208,6 @@ impl Mode {
             Mode::MediaControls => vec![
                 controls(MediaControls::None, "None", "No media buttons in the flyout"),
                 controls(MediaControls::Banner, "Banner", "A now playing card at the top"),
-                controls(MediaControls::Row, "Row", "Under the selected app"),
                 controls(MediaControls::Dock, "Dock", "A now playing line above the device volume"),
                 controls(MediaControls::Hover, "Hover", "On each app's row while hovered, for that app"),
             ],
@@ -1391,9 +1388,6 @@ impl Flyout {
                         )
                         .child(Self::radio("automatic", &theme, automatic, &self.core, None)),
                 )
-                .when(automatic && controls == MediaControls::Row, |d| {
-                    d.child(Self::row_controls(self.transport("automatic", None, automatic_playing, false, &theme)))
-                })
                 .into_any_element(),
         );
 
@@ -1475,10 +1469,6 @@ impl Flyout {
                             .children(volume)
                             .child(Self::radio(&target.id, &theme, checked, &self.core, Some(target.id.clone()))),
                     )
-                    .when(checked && controls == MediaControls::Row, |d| {
-                        let playing = target.running && target.playback == Playback::Playing;
-                        d.child(Self::row_controls(self.transport(&target.id, None, playing, false, &theme)))
-                    })
                     .when_some(slider, |d, slider| {
                         // Under the name, clear of the avatar.
                         d.child(div().pl(px(38.)).pr_2().pb_1p5().mt(px(-4.)).child(slider))
@@ -1487,11 +1477,6 @@ impl Flyout {
             );
         }
         rows
-    }
-
-    /// Buttons under the selected row, lined up with its name.
-    fn row_controls(buttons: Div) -> Div {
-        h_flex().pl(px(48.)).pr_2().pb_2().mt(px(-2.)).child(buttons)
     }
 
     fn mixer(&mut self, state: &State, cx: &mut Context<Self>) -> Vec<AnyElement> {

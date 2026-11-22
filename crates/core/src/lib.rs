@@ -612,8 +612,6 @@ pub enum MediaControls {
     None,
     /// A now playing card at the top.
     Banner,
-    /// Under the selected app's row.
-    Row,
     /// A now playing line above the device volume.
     Dock,
     /// On each app's row while hovered, controlling that app.
@@ -622,15 +620,14 @@ pub enum MediaControls {
 }
 
 impl MediaControls {
-    pub const ALL: [MediaControls; 5] =
-        [MediaControls::None, MediaControls::Banner, MediaControls::Row, MediaControls::Dock, MediaControls::Hover];
+    pub const ALL: [MediaControls; 4] =
+        [MediaControls::None, MediaControls::Banner, MediaControls::Dock, MediaControls::Hover];
 
     /// The config file and front end name.
     pub fn name(self) -> &'static str {
         match self {
             MediaControls::None => "none",
             MediaControls::Banner => "banner",
-            MediaControls::Row => "row",
             MediaControls::Dock => "dock",
             MediaControls::Hover => "hover",
         }
@@ -644,7 +641,6 @@ impl MediaControls {
         match self {
             MediaControls::None => "None",
             MediaControls::Banner => "Banner",
-            MediaControls::Row => "Row",
             MediaControls::Dock => "Dock",
             MediaControls::Hover => "Hover",
         }

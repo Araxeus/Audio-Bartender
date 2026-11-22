@@ -360,7 +360,6 @@ function targets(state) {
   // With Hover controls the line swaps to buttons while the row is hovered.
   const line = mode === "hover" ? el("div", "hover-swap", decides, transport(currentPlaying, null, "tiny")) : decides;
   const auto = row(automatic, true, logo("avatar small"), el("div", "text", el("div", "name small", "Automatic"), line), radio(automatic, null));
-  if (automatic && mode === "row") auto.append(el("div", "row-controls", transport(currentPlaying)));
   selectable(auto, null);
   const rows = [auto];
   for (const t of state.targets) {
@@ -375,7 +374,6 @@ function targets(state) {
       radio(checked, t.id),
     );
     node.querySelector(".avatar").classList.add("small");
-    if (checked && mode === "row") node.append(el("div", "row-controls", transport(t.running && t.playback === "playing")));
     if (hasVolume && bars === "always") {
       // Under the name, clear of the avatar.
       const slider = volumes.sliderRow(t.id, t.volume, t.muted);
@@ -571,7 +569,6 @@ const MODES = {
     options: [
       ["none", "None", "No media buttons in the flyout"],
       ["banner", "Banner", "A now playing card at the top"],
-      ["row", "Row", "Under the selected app"],
       ["dock", "Dock", "A now playing line above the device volume"],
       ["hover", "Hover", "On each app's row while hovered, for that app"],
     ],
