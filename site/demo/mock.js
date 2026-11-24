@@ -350,6 +350,8 @@
       if (!(s.showMediaKeys || s.showOtherApps || s.showVolume || card)) state.settings[name] = before;
       if (name === "speakerPosition") state.speakerPositionActive = value;
       changed();
+      // Like the core, a changed tooltip setting shows the tooltip for a few seconds.
+      if (name === "tooltip" || name === "mediaButtons") queueMicrotask(() => host?.previewTip?.());
     },
     adjust_volume: ({ id, delta }) => {
       const t = find(id);
@@ -479,23 +481,38 @@
       changed();
     },
     adjustMaster: (delta) => commands.adjust_master({ delta }),
+    setMaster: (level) => {
+      state.audio.volume = step(clamp01(level));
+      state.audio.muted = false;
+      changed();
+    },
     toggleMasterMute: () => commands.toggle_master_mute(),
     showPage: (page) => emit("page", page),
     themeChanged: () => {
       for (const fn of themeListeners) fn();
     },
+    /** What the tray tooltip shows, as the core's tray state holds it. */
     tooltip: () => {
       const np = keyTarget();
       const device = state.audio.devices.find((d) => d.default);
       const cover = np && TRACKS[np.id] ? urlOf(TRACKS[np.id][trackIndex[np.id]][1]) : null;
+      const s = state.settings;
+      const dark = s.dark ?? host?.systemDark() ?? true;
       return {
-        style: state.settings.tooltip,
-        device: device?.name ?? "No output device",
-        volume: state.audio.muted ? "Muted" : `${Math.round(state.audio.volume * 100)}%`,
+        style: s.tooltip,
+        buttons: s.mediaButtons,
+        dark,
+        accent: s.accent[dark ? "dark" : "light"].accent,
+        device: device?.name ?? null,
+        level: state.audio.volume,
+        muted: state.audio.muted,
         app: np?.name ?? null,
-        track: np?.track ?? null,
+        playback: np?.playback ?? "unknown",
         playing: np?.playback === "playing",
-        cover: state.settings.albumArt ? cover : null,
+        running: np?.running ?? false,
+        track: np?.track ?? null,
+        icon: np?.icon ? { url: np.icon.url, art: np.icon.art } : null,
+        cover: s.albumArt ? cover : null,
       };
     },
   };
